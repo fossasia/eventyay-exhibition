@@ -3,6 +3,16 @@
 {% block title %}{% trans "Exhibitors" %}{% endblock %}
 {% block content %}
     <h1>{% trans "Exhibitors" %}</h1>
+<form method="GET" class="form-inline" style="margin-bottom: 20px;">
+    <input type="text"
+           name="search"
+           class="form-control"
+           placeholder="{% trans 'Search exhibitors...' %}"
+           value="{{ request.GET.search }}">
+    <button type="submit" class="btn btn-default">
+        <i class="fa fa-search"></i> {% trans "Search" %}
+    </button>
+</form>
     {% if exhibitors|length == 0 %}
         <div class="empty-collection">
             <p>

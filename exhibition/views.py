@@ -7,6 +7,7 @@ from django.views import View
 from django.views.generic import DeleteView, ListView
 from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views import CreateView, UpdateView
+from django.db.models import Q
 
 from .forms import ExhibitorInfoForm
 from .models import ExhibitorInfo, ExhibitorSettings, generate_booth_id
@@ -48,7 +49,18 @@ class ExhibitorListView(EventPermissionRequiredMixin, ListView):
     context_object_name = 'exhibitors'
 
     def get_queryset(self):
-        return ExhibitorInfo.objects.filter(event=self.request.event)
+        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("tags")
+
+        search = self.request.GET.get("search")
+
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) |
+                Q(booth_name__icontains=search) |
+                Q(description__icontains=search) |
+                Q(tags__name__icontains=search)
+            ).distinct()
+        return queryset
 
     def get_success_url(self) -> str:
         return reverse('plugins:exhibition:index', kwargs={
