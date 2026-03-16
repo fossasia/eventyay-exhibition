@@ -76,6 +76,23 @@ class ExhibitorInfo(models.Model):
         null=True,
         blank=True
     )
+    linkedin = models.URLField(
+    verbose_name=_('LinkedIn'),
+    null=True,
+    blank=True
+    )
+
+    twitter = models.URLField(
+    verbose_name=_('Twitter'),
+    null=True,
+    blank=True
+    )
+
+    youtube = models.URLField(
+    verbose_name=_('YouTube'),
+    null=True,
+    blank=True
+    )
     logo = models.ImageField(
         upload_to=exhibitor_logo_path,
         null=True,
