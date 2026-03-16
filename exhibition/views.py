@@ -5,11 +5,13 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import DeleteView, ListView
+from django.db.models import Q
+
 from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views import CreateView, UpdateView
 
 from .forms import ExhibitorInfoForm
-from .models import ExhibitorInfo, ExhibitorSettings, generate_booth_id
+from .models import ExhibitorInfo, ExhibitorSettings, ExhibitorTag, generate_booth_id
 
 
 class SettingsView(EventPermissionRequiredMixin, ListView):
@@ -48,13 +50,35 @@ class ExhibitorListView(EventPermissionRequiredMixin, ListView):
     context_object_name = 'exhibitors'
 
     def get_queryset(self):
-        return ExhibitorInfo.objects.filter(event=self.request.event)
+        queryset = ExhibitorInfo.objects.filter(
+            event=self.request.event
+        ).prefetch_related("tags")
+
+        search = (self.request.GET.get("search") or "").strip()
+        tag = self.request.GET.get("tag")
+
+        if tag:
+            queryset = queryset.filter(tags__name__icontains=tag)
+
+        if len(search) >= 2:
+            queryset = queryset.filter(
+                Q(name__icontains=search) |
+                Q(booth_name__icontains=search) |
+                Q(description__icontains=search) |
+                Q(tags__name__icontains=search)
+            ).distinct()
+
+        return queryset
 
     def get_success_url(self) -> str:
         return reverse('plugins:exhibition:index', kwargs={
             'organizer': self.request.event.organizer.slug,
             'event': self.request.event.slug
         })
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["tags"] = ExhibitorTag.objects.all()
+        return context
 
 
 class ExhibitorCreateView(EventPermissionRequiredMixin, CreateView):
