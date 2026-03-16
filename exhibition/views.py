@@ -49,17 +49,23 @@ class ExhibitorListView(EventPermissionRequiredMixin, ListView):
     context_object_name = 'exhibitors'
 
     def get_queryset(self):
-        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("tags")
+        queryset = ExhibitorInfo.objects.filter(
+            event=self.request.event
+        ).prefetch_related("tags")
 
-        search = self.request.GET.get("search")
+        search = (self.request.GET.get("search") or "").strip()
 
-        if search:
-            queryset = queryset.filter(
-                Q(name__icontains=search) |
-                Q(booth_name__icontains=search) |
-                Q(description__icontains=search) |
-                Q(tags__name__icontains=search)
-            ).distinct()
+        # ignore empty or very short searches
+        if len(search) < 2:
+            return queryset
+
+        queryset = queryset.filter(
+            Q(name__icontains=search) |
+            Q(booth_name__icontains=search) |
+            Q(description__icontains=search) |
+            Q(tags__name__icontains=search)
+        ).distinct()
+
         return queryset
 
     def get_success_url(self) -> str:
