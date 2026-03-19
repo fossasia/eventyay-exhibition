@@ -36,12 +36,17 @@
                 {% for e in exhibitors %}
                     <tr>
                         <td>
-                            {% if "can_change_event_settings" in request.eventpermset %}
                                 <strong><a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}">
                                     {{ e.name }}
                                 </a></strong>
+                                <span class="label label-{% if e.status == 'approved' %}success{% elif e.status == 'rejected' %}danger{% else %}warning{% endif %}">
+                                    {{ e.get_status_display }}
+                                </span>
                             {% else %}
                                 <strong>{{ e.name }}</strong>
+                                <span class="label label-{% if e.status == 'approved' %}success{% elif e.status == 'rejected' %}danger{% else %}warning{% endif %}">
+                                    {{ e.get_status_display }}
+                                </span>
                             {% endif %}
                         </td>
                         <td class="text-right flip">

@@ -99,6 +99,17 @@ class ExhibitorInfo(models.Model):
     )
     allow_voucher_access = models.BooleanField(default=False)
     allow_lead_access = models.BooleanField(default=False)
+    STATUS_CHOICES = (
+        ('pending', _('Pending Approval')),
+        ('approved', _('Approved')),
+        ('rejected', _('Rejected')),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        verbose_name=_('Status')
+    )
     lead_scanning_scope_by_device = models.BooleanField(default=False)
 
     class Meta:

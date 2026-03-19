@@ -53,7 +53,7 @@ class ExhibitorAuthView(views.APIView):
 class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     class Meta:
         model = ExhibitorInfo
-        fields = ('id', 'name', 'description', 'url', 'email', 'logo', 'key', 'lead_scanning_enabled')
+        fields = ('id', 'name', 'description', 'url', 'email', 'logo', 'key', 'lead_scanning_enabled', 'status')
 
 
 class ExhibitorInfoViewSet(viewsets.ReadOnlyModelViewSet):

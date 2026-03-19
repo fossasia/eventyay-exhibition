@@ -65,6 +65,7 @@ class ExhibitorInfoForm(I18nModelForm):
             'allow_voucher_access',
             'allow_lead_access',
             'lead_scanning_scope_by_device',
+            'status',
         ]
         labels = {
             'name': _('Exhibitor name'),

@@ -31,6 +31,7 @@ def test_create_exhibitor_info(event):
         exhibitor.logo.name,
     )
     assert exhibitor.lead_scanning_enabled is True
+    assert exhibitor.status == "pending"
 
 
 @pytest.mark.django_db
