@@ -70,6 +70,7 @@ class ExhibitorCreateView(EventPermissionRequiredMixin, CreateView):
         if not form.cleaned_data.get('booth_id'):
             form.instance.booth_id = generate_booth_id(event=self.request.event)
 
+        messages.success(self.request, _('Exhibitor submitted successfully and is pending approval.'))
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
@@ -101,6 +102,7 @@ class ExhibitorEditView(EventPermissionRequiredMixin, UpdateView):
         if not form.cleaned_data.get('booth_id') and not form.instance.booth_id:
             form.instance.booth_id = generate_booth_id(event=self.request.event)
 
+        messages.success(self.request, _('Exhibitor details updated successfully.'))
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
