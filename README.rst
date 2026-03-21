@@ -51,3 +51,14 @@ Released under the terms of the Apache License 2.0
 
 
 .. _eventyay-tickets: https://github.com/fossasia/eventyay-tickets 
+
+Getting Started
+===============
+
+To run this project locally:
+
+- Clone the repository
+- Install dependencies
+- Run the development server
+
+More setup instructions can be added for beginners.
