@@ -114,6 +114,14 @@ class ExhibitorInfo(models.Model):
     def __str__(self):
         return str(self.name)
 
+    @property
+    def is_approved(self):
+        return bool(self.key)
+
+    @property
+    def status_label(self):
+        return _('Approved') if self.is_approved else _('Pending Approval')
+
 
 class Lead(models.Model):
     exhibitor = models.ForeignKey(
