@@ -10,6 +10,12 @@
 {% endblock %}
 
 {% block content %}
+<style>
+.hidden {
+    display: none;
+}
+</style>
+
 <nav id="event-nav" class="header-nav">
     <div class="navigation">
         <div class="navigation-title">
@@ -25,7 +31,7 @@
     </div>
 </nav>
 
-<form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
+<form action="" method="post" class="form-horizontal" enctype="multipart/form-data" id="exhibitor-form">
     {% csrf_token %}
     {% bootstrap_form_errors form %}
 
@@ -53,13 +59,19 @@
         {% bootstrap_field form.comment layout="control" %}
     </fieldset>
 
+    <div id="submission-status" class="alert alert-info hidden" role="status" aria-live="polite" style="margin-top: 15px;">
+        {% trans "Submitting exhibitor details, please wait..." %}
+    </div>
+
     <div class="form-group submit-group">
-        <button type="submit" class="btn btn-primary btn-save">
-            {% if action == 'edit' %}
-                {% trans "Save changes" %}
-            {% else %}
-                {% trans "Save" %}
-            {% endif %}
+        <button type="submit" class="btn btn-primary btn-save" id="submit-btn">
+            <span id="submit-text">
+                {% if action == 'edit' %}
+                    {% trans "Save changes" %}
+                {% else %}
+                    {% trans "Save" %}
+                {% endif %}
+            </span>
         </button>
         <a class="btn btn-default btn-lg"
            href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}">
@@ -67,4 +79,27 @@
         </a>
     </div>
 </form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var form = document.getElementById('exhibitor-form');
+        var submitBtn = document.getElementById('submit-btn');
+        var submitText = document.getElementById('submit-text');
+        var statusBox = document.getElementById('submission-status');
+
+        if (form) {
+            form.addEventListener('submit', function () {
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                }
+                if (submitText) {
+                    submitText.textContent = "{% trans 'Submitting...' %}";
+                }
+                if (statusBox) {
+                    statusBox.classList.remove('hidden');
+                }
+            });
+        }
+    });
+</script>
 {% endblock %}
