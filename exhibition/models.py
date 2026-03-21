@@ -116,8 +116,8 @@ class ExhibitorInfo(models.Model):
 
     @property
     def is_approved(self):
-        return bool(self.key)
-
+        return self.key is not None and self.key != ""
+        
     @property
     def status_label(self):
         return _('Approved') if self.is_approved else _('Pending Approval')
