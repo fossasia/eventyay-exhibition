@@ -18,6 +18,9 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
     context_object_name = 'exhibitors'
     permission = 'can_change_settings'
 
+    def get_queryset(self):
+        return ExhibitorInfo.objects.filter(event=self.request.event)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
