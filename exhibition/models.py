@@ -163,6 +163,6 @@ class ExhibitorTag(models.Model):
     class Meta:
         unique_together = ('exhibitor', 'name')
         ordering = ['-use_count', 'name']
-
-    def __str__(self):
-        return f"{self.name} ({self.exhibitor.name})"
+        
+def __str__(self):
+    return f"Lead scanned by {self.exhibitor.name} at booth {self.booth_name}"
