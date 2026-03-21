@@ -55,7 +55,6 @@
                             {% endif %}
                         </td>
 
-                        <!-- ✅ FIXED STATUS LOGIC -->
                         <td>
                             {% if e.key %}
                                 <span class="label label-success">
@@ -75,11 +74,13 @@
                                     <i class="fa fa-edit"></i>
                                 </a>
 
-                                <a href="{% url "plugins:exhibition:copy_key" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}"
-                                   class="btn btn-default btn-sm"
-                                   title="{% trans "Key" %}" data-toggle="tooltip">
-                                    <i class="fa fa-copy"></i>
-                                </a>
+                                {% if e.key %}
+                                    <a href="{% url "plugins:exhibition:copy_key" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}"
+                                       class="btn btn-default btn-sm"
+                                       title="{% trans "Key" %}" data-toggle="tooltip">
+                                        <i class="fa fa-copy"></i>
+                                    </a>
+                                {% endif %}
 
                                 <a href="{% url "plugins:exhibition:delete" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}"
                                    class="btn btn-delete btn-danger btn-sm">
