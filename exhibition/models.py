@@ -61,6 +61,7 @@ class ExhibitorInfo(models.Model):
         max_length=190,
         verbose_name=_('Name')
     )
+    linkedin_url = models.URLField(null=True, blank=True)
     description = I18nTextField(
         verbose_name=_('Description'),
         null=True,
