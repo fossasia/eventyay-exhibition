@@ -9,35 +9,39 @@ def control_nav_import(sender, request=None, **kwargs):
     url = resolve(request.path_info)
     return [
         {
-            'label': _('Exhibitors'),
-            'url': reverse(
-                'plugins:exhibition:info',
+            "label": _("Exhibitors"),
+            "url": reverse(
+                "plugins:exhibition:info",
                 kwargs={
-                    'event': request.event.slug,
-                    'organizer': request.event.organizer.slug,
-                }
+                    "event": request.event.slug,
+                    "organizer": request.event.organizer.slug,
+                },
             ),
-            'active': url.namespace == 'plugins:exhibition' and url.url_name != 'settings',
-            'icon': 'map-pin',
+            "active": url.namespace == "plugins:exhibition"
+            and url.url_name != "settings",
+            "icon": "map-pin",
         }
     ]
 
 
-@receiver(nav_event_settings, dispatch_uid='exhibitors_nav')
+@receiver(nav_event_settings, dispatch_uid="exhibitors_nav")
 def navbar_info(sender, request, **kwargs):
     url = resolve(request.path_info)
     if not request.user.has_event_permission(
-        request.organizer, request.event, 'can_change_event_settings', request=request
+        request.organizer, request.event, "can_change_event_settings", request=request
     ):
         return []
-    return [{
-        'label': 'Exhibitors',
-        'url': reverse(
-            'plugins:exhibition:settings',
-            kwargs={
-                'event': request.event.slug,
-                'organizer': request.organizer.slug,
-            }
-        ),
-        'active': url.namespace == 'plugins:exhibitors' and url.url_name == 'settings',
-    }]
+    return [
+        {
+            "label": "Exhibitors",
+            "url": reverse(
+                "plugins:exhibition:settings",
+                kwargs={
+                    "event": request.event.slug,
+                    "organizer": request.organizer.slug,
+                },
+            ),
+            "active": url.namespace == "plugins:exhibitors"
+            and url.url_name == "settings",
+        }
+    ]

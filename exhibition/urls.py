@@ -20,60 +20,60 @@ from .views import (
 
 urlpatterns = [
     path(
-        'control/event/<str:organizer>/<str:event>/settings/exhibitors',
+        "control/event/<str:organizer>/<str:event>/settings/exhibitors",
         SettingsView.as_view(),
-        name='settings'
+        name="settings",
     ),
     path(
-        'control/event/<str:organizer>/<str:event>/exhibitors',
+        "control/event/<str:organizer>/<str:event>/exhibitors",
         ExhibitorListView.as_view(),
-        name='info'
+        name="info",
     ),
     path(
-        'control/event/<str:organizer>/<str:event>/exhibitors/add',
+        "control/event/<str:organizer>/<str:event>/exhibitors/add",
         ExhibitorCreateView.as_view(),
-        name='add'
+        name="add",
     ),
     path(
-        'control/event/<str:organizer>/<str:event>/exhibitors/edit/<int:pk>',
+        "control/event/<str:organizer>/<str:event>/exhibitors/edit/<int:pk>",
         ExhibitorEditView.as_view(),
-        name='edit'
+        name="edit",
     ),
     path(
-        'control/event/<str:organizer>/<str:event>/exhibitors/delete/<int:pk>',
+        "control/event/<str:organizer>/<str:event>/exhibitors/delete/<int:pk>",
         ExhibitorDeleteView.as_view(),
-        name='delete'
+        name="delete",
     ),
     path(
-        'control/event/<str:organizer>/<str:event>/exhibitors/copy_key/<int:pk>',
+        "control/event/<str:organizer>/<str:event>/exhibitors/copy_key/<int:pk>",
         ExhibitorCopyKeyView.as_view(),
-        name='copy_key'
+        name="copy_key",
     ),
     path(
-        'api/v1/event/<str:organizer>/<str:event>/exhibitors/auth',
+        "api/v1/event/<str:organizer>/<str:event>/exhibitors/auth",
         ExhibitorAuthView.as_view(),
-        name='exhibitor-auth'
+        name="exhibitor-auth",
     ),
     path(
-        'api/v1/event/<str:organizer>/<str:event>/exhibitors/lead/create',
+        "api/v1/event/<str:organizer>/<str:event>/exhibitors/lead/create",
         LeadCreateView.as_view(),
-        name='lead-create'
+        name="lead-create",
     ),
     path(
-        'api/v1/event/<str:organizer>/<str:event>/exhibitors/lead/retrieve',
+        "api/v1/event/<str:organizer>/<str:event>/exhibitors/lead/retrieve",
         LeadRetrieveView.as_view(),
-        name='lead-retrieve'
+        name="lead-retrieve",
     ),
     path(
-        'api/v1/event/<str:organizer>/<str:event>/exhibitors/tags',
+        "api/v1/event/<str:organizer>/<str:event>/exhibitors/tags",
         TagListView.as_view(),
-        name='exhibitor-tags'
+        name="exhibitor-tags",
     ),
     path(
-        'api/v1/event/<str:organizer>/<str:event>/exhibitors/lead/<str:lead_id>/update',
+        "api/v1/event/<str:organizer>/<str:event>/exhibitors/lead/<str:lead_id>/update",
         LeadUpdateView.as_view(),
-        name='lead-update'
+        name="lead-update",
     ),
 ]
 
-event_router.register('exhibitors', ExhibitorInfoViewSet, basename='exhibitorinfo')
+event_router.register("exhibitors", ExhibitorInfoViewSet, basename="exhibitorinfo")

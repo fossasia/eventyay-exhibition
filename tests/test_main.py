@@ -1,6 +1,5 @@
-import re
-
 import pytest
+import re
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from exhibition.models import ExhibitorInfo
@@ -9,7 +8,9 @@ from exhibition.models import ExhibitorInfo
 @pytest.mark.django_db
 def test_create_exhibitor_info(event):
     # CREATE: Simulate an image upload and create an exhibitor
-    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
+    logo = SimpleUploadedFile(
+        "test_logo.jpg", b"file_content", content_type="image/jpeg"
+    )
 
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
@@ -18,7 +19,7 @@ def test_create_exhibitor_info(event):
         url="http://testexhibitor.com",
         email="test@example.com",
         logo=logo,
-        lead_scanning_enabled=True
+        lead_scanning_enabled=True,
     )
 
     # Verify the exhibitor was created and the fields are correct
@@ -36,7 +37,9 @@ def test_create_exhibitor_info(event):
 @pytest.mark.django_db
 def test_read_exhibitor_info(event):
     # CREATE an exhibitor first to test reading
-    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
+    logo = SimpleUploadedFile(
+        "test_logo.jpg", b"file_content", content_type="image/jpeg"
+    )
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
         name="Test Exhibitor",
@@ -44,7 +47,7 @@ def test_read_exhibitor_info(event):
         url="http://testexhibitor.com",
         email="test@example.com",
         logo=logo,
-        lead_scanning_enabled=True
+        lead_scanning_enabled=True,
     )
 
     # READ: Fetch the exhibitor from the database and verify fields
@@ -59,7 +62,9 @@ def test_read_exhibitor_info(event):
 @pytest.mark.django_db
 def test_update_exhibitor_info(event):
     # CREATE an exhibitor first to test updating
-    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
+    logo = SimpleUploadedFile(
+        "test_logo.jpg", b"file_content", content_type="image/jpeg"
+    )
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
         name="Test Exhibitor",
@@ -67,7 +72,7 @@ def test_update_exhibitor_info(event):
         url="http://testexhibitor.com",
         email="test@example.com",
         logo=logo,
-        lead_scanning_enabled=True
+        lead_scanning_enabled=True,
     )
 
     # UPDATE: Modify some fields and save the changes
@@ -86,7 +91,9 @@ def test_update_exhibitor_info(event):
 @pytest.mark.django_db
 def test_delete_exhibitor_info(event):
     # CREATE an exhibitor first to test deleting
-    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
+    logo = SimpleUploadedFile(
+        "test_logo.jpg", b"file_content", content_type="image/jpeg"
+    )
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
         name="Test Exhibitor",
@@ -94,7 +101,7 @@ def test_delete_exhibitor_info(event):
         url="http://testexhibitor.com",
         email="test@example.com",
         logo=logo,
-        lead_scanning_enabled=True
+        lead_scanning_enabled=True,
     )
 
     # DELETE: Delete the exhibitor and verify it no longer exists
