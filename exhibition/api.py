@@ -89,7 +89,7 @@ class LeadCreateView(views.APIView):
         device_name = request.data.get('device_name')
         open_event = request.data.get('open_event')
         key = request.headers.get('Exhibitor')
-
+    #  Collect missing required fields for better error reporting
        missing_fields = []
 
     if not pseudonymization_id:
