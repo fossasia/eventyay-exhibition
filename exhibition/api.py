@@ -90,11 +90,23 @@ class LeadCreateView(views.APIView):
         open_event = request.data.get('open_event')
         key = request.headers.get('Exhibitor')
 
-        if not all([pseudonymization_id, scanned, scan_type, device_name]):
-            return Response(
-                {'detail': 'Missing parameters'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        missing_fields = []
+
+        if not pseudonymization_id:
+          missing_fields.append('lead')
+        if not scan_type:
+          missing_fields.append('scan_type')
+        if not device_name:
+          missing_fields.append('device_name')
+
+        if missing_fields:
+          return Response(
+        {
+            'success': False,
+            'error': f"Missing fields: {', '.join(missing_fields)}"
+        },
+        status=status.HTTP_400_BAD_REQUEST
+    )
 
         # Authenticate the exhibitor
         try:

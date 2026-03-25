@@ -67,9 +67,9 @@ class ExhibitorInfo(models.Model):
         blank=True
     )
     url = models.URLField(
-        verbose_name=_('URL'),
-        null=True,
-        blank=True
+    verbose_name=_('URL'),
+    blank=True
+)
     )
     email = models.EmailField(
         verbose_name=_('Email'),
