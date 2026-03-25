@@ -53,7 +53,16 @@ class ExhibitorAuthView(views.APIView):
 class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     class Meta:
         model = ExhibitorInfo
-        fields = ('id', 'name', 'description', 'url', 'email', 'logo', 'key', 'lead_scanning_enabled')
+        fields = (
+            'id',
+            'name',
+            'description',
+            'url',
+            'email',
+            'logo',
+            'key',
+            'lead_scanning_enabled',
+        )
 
 
 class ExhibitorInfoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -66,13 +75,11 @@ class ExhibitorInfoViewSet(viewsets.ReadOnlyModelViewSet):
 
 class LeadCreateView(views.APIView):
     def get_allowed_attendee_data(self, order_position, settings, exhibitor):
-        """Helper method to get allowed attendee data based on settings"""
-        # Get all allowed fields including defaults
         allowed_fields = settings.all_allowed_fields
         attendee_data = {
-            'name': order_position.attendee_name,  # Always included
-            'email': order_position.attendee_email,  # Always included
-            'company': order_position.company,  # Always included
+            'name': order_position.attendee_name,
+            'email': order_position.attendee_email,
+            'company': order_position.company,
             'city': order_position.city if 'attendee_city' in allowed_fields else None,
             'country': str(order_position.country) if 'attendee_country' in allowed_fields else None,
             'note': '',
@@ -82,7 +89,6 @@ class LeadCreateView(views.APIView):
         return {k: v for k, v in attendee_data.items() if v is not None}
 
     def post(self, request, *args, **kwargs):
-        # Extract parameters from the request
         pseudonymization_id = request.data.get('lead')
         scanned = request.data.get('scanned')
         scan_type = request.data.get('scan_type')
@@ -90,28 +96,61 @@ class LeadCreateView(views.APIView):
         open_event = request.data.get('open_event')
         key = request.headers.get('Exhibitor')
 
-        if not all([pseudonymization_id, scanned, scan_type, device_name]):
+        # ---------------- VALIDATION ----------------
+        missing_fields = []
+
+        if not pseudonymization_id:
+            missing_fields.append('lead')
+        if scanned is None:
+            missing_fields.append('scanned')
+        if not scan_type:
+            missing_fields.append('scan_type')
+        if not device_name:
+            missing_fields.append('device_name')
+
+        if missing_fields:
             return Response(
-                {'detail': 'Missing parameters'},
+                {
+                    'success': False,
+                    'error': f"Missing fields: {', '.join(missing_fields)}"
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Authenticate the exhibitor
+        ALLOWED_SCAN_TYPES = ['qr', 'barcode', 'manual']
+        if scan_type not in ALLOWED_SCAN_TYPES:
+            return Response(
+                {
+                    'success': False,
+                    'error': f"Invalid scan_type. Allowed values: {', '.join(ALLOWED_SCAN_TYPES)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ---------------- AUTHENTICATION ----------------
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
-            settings = ExhibitorSettings.objects.get(event=exhibitor.event)
-        except (ExhibitorInfo.DoesNotExist, ExhibitorSettings.DoesNotExist):
+            settings_obj = ExhibitorSettings.objects.filter(event=exhibitor.event).first()
+
+            if not settings_obj:
+                return Response(
+                    {
+                        'success': False,
+                        'error': 'Exhibitor settings not found'
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        except ExhibitorInfo.DoesNotExist:
             return Response(
                 {'success': False, 'error': 'Invalid exhibitor key'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Get attendee details
+        # ---------------- GET ATTENDEE ----------------
         try:
             if open_event:
-                order_position = OrderPosition.objects.get(
-                    secret=pseudonymization_id
-                )
+                order_position = OrderPosition.objects.get(secret=pseudonymization_id)
             else:
                 order_position = OrderPosition.objects.get(
                     pseudonymization_id=pseudonymization_id
@@ -122,14 +161,16 @@ class LeadCreateView(views.APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Check for duplicate scan
-        if Lead.objects.filter(
+        # ---------------- DUPLICATE CHECK ----------------
+        existing_lead = Lead.objects.filter(
             exhibitor=exhibitor,
             pseudonymization_id=pseudonymization_id
-        ).exists():
+        ).first()
+
+        if existing_lead:
             attendee_data = self.get_allowed_attendee_data(
                 order_position,
-                settings,
+                settings_obj,
                 exhibitor
             )
             return Response(
@@ -141,14 +182,15 @@ class LeadCreateView(views.APIView):
                 status=status.HTTP_409_CONFLICT
             )
 
-        # Get allowed attendee data based on settings
+        # ---------------- CREATE LEAD ----------------
         attendee_data = self.get_allowed_attendee_data(
             order_position,
-            settings,
+            settings_obj,
             exhibitor
         )
-        # Create the lead entry
+
         locale = _get_exhibitor_locale(exhibitor)
+
         lead = Lead.objects.create(
             exhibitor=exhibitor,
             exhibitor_name=_localize_i18n_value(exhibitor.name, locale),
@@ -173,20 +215,15 @@ class LeadCreateView(views.APIView):
 
 class LeadRetrieveView(views.APIView):
     def get(self, request, *args, **kwargs):
-        # Authenticate the exhibitor using the key
         key = request.headers.get('Exhibitor')
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
         except ExhibitorInfo.DoesNotExist:
             return Response(
-                {
-                    'success': False,
-                    'error': 'Invalid exhibitor key'
-                },
+                {'success': False, 'error': 'Invalid exhibitor key'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Fetch all leads associated with the exhibitor
         leads = Lead.objects.filter(exhibitor=exhibitor).values(
             'id',
             'pseudonymization_id',
@@ -220,10 +257,7 @@ class TagListView(views.APIView):
             })
         except ExhibitorInfo.DoesNotExist:
             return Response(
-                {
-                    'success': False,
-                    'error': 'Invalid exhibitor key'
-                },
+                {'success': False, 'error': 'Invalid exhibitor key'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
@@ -238,10 +272,7 @@ class LeadUpdateView(views.APIView):
             exhibitor = ExhibitorInfo.objects.get(key=key)
         except ExhibitorInfo.DoesNotExist:
             return Response(
-                {
-                    'success': False,
-                    'error': 'Invalid exhibitor key'
-                },
+                {'success': False, 'error': 'Invalid exhibitor key'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
@@ -249,21 +280,17 @@ class LeadUpdateView(views.APIView):
             lead = Lead.objects.get(pseudonymization_id=lead_id, exhibitor=exhibitor)
         except Lead.DoesNotExist:
             return Response(
-                {
-                    'success': False,
-                    'error': 'Lead not found'
-                },
+                {'success': False, 'error': 'Lead not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Update lead's attendee info
         attendee_data = lead.attendee or {}
+
         if note is not None:
             attendee_data['note'] = note
         if tags is not None:
             attendee_data['tags'] = tags
 
-            # Update tag usage counts and create new tags
             for tag_name in tags:
                 tag, created = ExhibitorTag.objects.get_or_create(
                     exhibitor=exhibitor,
