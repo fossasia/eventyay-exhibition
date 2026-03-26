@@ -46,12 +46,13 @@ class ExhibitorListView(EventPermissionRequiredMixin, ListView):
     permission = ('can_change_event_settings', 'can_view_orders')
     template_name = 'exhibitors/exhibitor_info.html'
     context_object_name = 'exhibitors'
+    paginate_by = 25
 
     def get_queryset(self):
         return ExhibitorInfo.objects.filter(event=self.request.event)
 
     def get_success_url(self) -> str:
-        return reverse('plugins:exhibition:index', kwargs={
+        return reverse('plugins:exhibition:info', kwargs={
             'organizer': self.request.event.organizer.slug,
             'event': self.request.event.slug
         })
@@ -94,6 +95,14 @@ class ExhibitorEditView(EventPermissionRequiredMixin, UpdateView):
         initial = super().get_initial()
         obj = self.get_object()
         initial['lead_scanning_enabled'] = obj.lead_scanning_enabled
+        
+        # Ensure internationalized fields are properly loaded
+        for field_name in ['name', 'description', 'booth_name']:
+            if hasattr(obj, field_name):
+                value = getattr(obj, field_name)
+                if value:
+                    initial[field_name] = value
+        
         return initial
 
     def form_valid(self, form):

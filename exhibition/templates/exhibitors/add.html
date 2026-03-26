@@ -1,23 +1,335 @@
 {% extends "pretixcontrol/event/base.html" %}
 {% load i18n %}
-{% load bootstrap3 %}
+
 {% block title %}
-    {% if action == 'edit' %}
-        {% trans "Edit Exhibitor" %}
-    {% else %}
-        {% trans "Add Exhibitor" %}
-    {% endif %}
+{% if action == 'edit' %}
+Edit Exhibitor
+{% else %}
+Add Exhibitor
+{% endif %}
 {% endblock %}
 
 {% block content %}
+<style>
+    /* Reset & Utilities */
+    .custom-form *,
+    .custom-form *::before,
+    .custom-form *::after {
+        box-sizing: border-box;
+    }
+
+    .custom-form {
+        color: #334155;
+        font-family: inherit;
+    }
+
+    /* Layout */
+    .exhibitor-layout {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 0 -15px;
+    }
+
+    .form-column {
+        width: 100%;
+        padding: 0 15px;
+    }
+
+
+    @media (min-width: 992px) {
+        .form-column {
+            width: 100%;
+        }
+    }
+
+    /* Form Card Sections */
+    .form-section {
+        margin-bottom: 24px;
+        padding: 24px 28px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+
+    .form-section-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 24px 0;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #f8fafc;
+        font-size: 18px;
+        font-weight: 600;
+        color: #0f172a;
+    }
+
+    .form-section-header .fa {
+        color: #64748b;
+        font-size: 17px;
+        width: 20px;
+        text-align: center;
+    }
+
+    /* Form Groups & Inputs */
+    .custom-form-group {
+        margin-bottom: 20px;
+    }
+
+    .custom-label {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #334155;
+        font-size: 14px;
+    }
+
+    /* Standard Inputs Override */
+    .custom-form-group input[type="text"],
+    .custom-form-group input[type="email"],
+    .custom-form-group input[type="url"],
+    .custom-form-group textarea,
+    .custom-form-group select {
+        width: 100%;
+        padding: 10px 14px;
+        font-size: 15px;
+        line-height: inherit;
+        color: #1e293b;
+        background-color: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        transition: all 0.2s ease-in-out;
+    }
+
+    .custom-form-group textarea {
+        resize: vertical;
+        min-height: 100px;
+    }
+
+    .custom-form-group input:focus,
+    .custom-form-group textarea:focus,
+    .custom-form-group select:focus {
+        outline: none;
+        background-color: #ffffff;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    /* Validation States */
+    .custom-form-group.has-error input,
+    .custom-form-group.has-error textarea,
+    .custom-form-group.has-error select {
+        border-color: #ef4444;
+        background-color: #fef2f2;
+    }
+
+    .custom-form-group.has-error input:focus,
+    .custom-form-group.has-error textarea:focus {
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+    }
+
+    .custom-error {
+        color: #dc2626;
+        font-size: 13px;
+        margin-top: 6px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    /* Helpers */
+    .custom-help-text {
+        display: block;
+        margin-top: 6px;
+        font-size: 13px;
+        color: #64748b;
+    }
+
+    .char-counter {
+        font-size: 12px;
+        color: #94a3b8;
+        font-weight: normal;
+    }
+
+    /* Modern Checkbox & Radio */
+    .custom-checkbox-wrapper {
+        margin-bottom: 16px;
+        padding: 14px 18px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        transition: background 0.2s, border-color 0.2s;
+    }
+
+    .custom-checkbox-wrapper .custom-help-text {
+        margin-left: 30px;
+    }
+
+    .custom-checkbox-wrapper:focus-within,
+    .custom-checkbox-wrapper:hover {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+
+    .custom-checkbox-label {
+        display: flex;
+        align-items: flex-start;
+        cursor: pointer;
+        font-weight: 600;
+        color: #1e293b;
+        margin: 0;
+        line-height: 1.4;
+    }
+
+    .custom-checkbox-label input[type="checkbox"] {
+        margin: 3px 12px 0 0;
+        width: 18px;
+        height: 18px;
+        accent-color: #3b82f6;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .custom-radio-group ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .custom-radio-group li {
+        margin-bottom: 12px;
+    }
+
+    .custom-radio-group label {
+        display: flex;
+        align-items: flex-start;
+        font-weight: 400;
+        color: #334155;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    .custom-radio-group input[type="radio"] {
+        margin: 3px 10px 0 0;
+        width: 16px;
+        height: 16px;
+        accent-color: #3b82f6;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    /* Logo Dropzone */
+    .logo-dropzone {
+        border: 2px dashed #cbd5e1;
+        border-radius: 12px;
+        background: #f8fafc;
+        padding: 40px 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    .logo-dropzone:hover,
+    .logo-dropzone.dragover {
+        border-color: #3b82f6;
+        background: #eff6ff;
+    }
+
+    .dropzone-icon {
+        font-size: 40px;
+        color: #94a3b8;
+        margin-bottom: 12px;
+        transition: color 0.2s;
+    }
+
+    .logo-dropzone:hover .dropzone-icon {
+        color: #3b82f6;
+    }
+
+    .mt-24 {
+        margin-top: 24px;
+    }
+
+    .dropzone-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #0f172a;
+        margin-bottom: 6px;
+    }
+
+    .dropzone-subtitle {
+        font-size: 13px;
+        color: #64748b;
+    }
+
+    .dropzone-preview {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dropzone-preview img {
+        max-height: 140px;
+        max-width: 100%;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        margin-bottom: 16px;
+    }
+
+    .dropzone-meta {
+        font-size: 14px;
+        font-weight: 500;
+        color: #10b981;
+    }
+
+
+    .submit-group {
+        display: flex;
+        gap: 16px;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .btn-save-custom {
+        padding: 12px 32px;
+        font-size: 16px;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: all 0.2s;
+    }
+
+    .btn-cancel-custom {
+        padding: 12px 32px;
+        font-size: 16px;
+        font-weight: 500;
+        border-radius: 8px;
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+        color: #475569;
+        transition: all 0.2s;
+    }
+
+    .btn-cancel-custom:hover {
+        background: #e2e8f0;
+        color: #0f172a;
+    }
+</style>
+
 <nav id="event-nav" class="header-nav">
     <div class="navigation">
         <div class="navigation-title">
             <h1>
                 {% if action == 'edit' %}
-                    {% trans "Edit Exhibitor" %}
+                Edit Exhibitor
                 {% else %}
-                    {% trans "Add Exhibitor" %}
+                Add Exhibitor
                 {% endif %}
             </h1>
         </div>
@@ -25,46 +337,427 @@
     </div>
 </nav>
 
-<form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
+<form action="" method="post" class="custom-form" enctype="multipart/form-data">
     {% csrf_token %}
-    {% bootstrap_form_errors form %}
 
-    <fieldset>
-        <legend>{% trans "General information" %}</legend>
-        {% bootstrap_field form.name layout="control" %}
-        {% bootstrap_field form.description layout="control" %}
-        {% bootstrap_field form.email layout="control" %}
-        {% bootstrap_field form.logo layout="control" %}
-        {% bootstrap_field form.url layout="control" %}
-        {% bootstrap_field form.booth_name layout="control" %}
-        {% bootstrap_field form.booth_id layout="control" %}
-    </fieldset>
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger" style="border-radius: 8px;">
+        <i class="fa fa-exclamation-triangle"></i> {{ form.non_field_errors|join:", " }}
+    </div>
+    {% endif %}
 
-    <fieldset>
-        <legend>{% trans "Lead scanning" %}</legend>
-        {% bootstrap_field form.allow_voucher_access layout="control" %}
-        {% bootstrap_field form.lead_scanning_enabled layout="control" %}
-        {% bootstrap_field form.allow_lead_access layout="control" %}
-        {% bootstrap_field form.lead_scanning_scope_by_device layout="control" %}
-    </fieldset>
+    <div class="exhibitor-layout">
+        <!-- Main Form Column -->
+        <div class="form-column">
 
-    <fieldset>
-        <legend>{% trans "Internal notes" %}</legend>
-        {% bootstrap_field form.comment layout="control" %}
-    </fieldset>
+            {# ── Section 1: General Information ── #}
+            <div class="form-section">
+                <h3 class="form-section-header">
+                    <i class="fa fa-info-circle"></i>
+                    General Information
+                </h3>
 
-    <div class="form-group submit-group">
-        <button type="submit" class="btn btn-primary btn-save">
-            {% if action == 'edit' %}
-                {% trans "Save changes" %}
-            {% else %}
-                {% trans "Save" %}
-            {% endif %}
-        </button>
-        <a class="btn btn-default btn-lg"
-           href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}">
-            {% trans "Cancel" %}
-        </a>
+                <div class="custom-form-group {% if form.name.errors %}has-error{% endif %}">
+                    <label class="custom-label" for="{{ form.name.id_for_label }}">
+                        {{ form.name.label }}
+                    </label>
+                    {{ form.name }}
+                    <span class="custom-help-text">The official, full name of the exhibiting organization.</span>
+                    {% if form.name.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.name.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-form-group {% if form.description.errors %}has-error{% endif %}">
+                    <label class="custom-label" for="{{ form.description.id_for_label }}">
+                        <span>{{ form.description.label }}</span>
+                        <span class="char-counter" id="desc-counter">0 / 500</span>
+                    </label>
+                    {{ form.description }}
+                    <span class="custom-help-text">Describe exhibitor's services or products. Keep it concise, engaging, and relevant to attendees.</span>
+                    {% if form.description.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.description.errors|join:", " }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-form-group {% if form.email.errors %}has-error{% endif %}">
+                    <label class="custom-label" for="{{ form.email.id_for_label }}">
+                        {{ form.email.label }}
+                    </label>
+                    {{ form.email }}
+                    <span class="custom-help-text">Primary contact email. Will be used for internal communication and event updates.</span>
+                    {% if form.email.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.email.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# ── Section 2: Branding (Logo & URL) ── #}
+            <div class="form-section">
+                <h3 class="form-section-header">
+                    <i class="fa fa-paint-brush"></i>
+                    Branding
+                </h3>
+
+                <div class="custom-form-group {% if form.logo.errors %}has-error{% endif %}">
+                    <label class="custom-label">{{ form.logo.label }}</label>
+
+                    <div class="logo-dropzone" id="logo-dropzone">
+                        <input type="file" name="{{ form.logo.html_name }}" id="{{ form.logo.auto_id }}"
+                            accept="image/*" style="display: none;">
+
+                        <div class="dropzone-content" id="dropzone-content">
+                            <div class="dropzone-icon"><i class="fa fa-cloud-upload"></i></div>
+                            <div class="dropzone-title">Click to upload or drag and drop</div>
+                            <div class="dropzone-subtitle">SVG, PNG, JPG or GIF (max. 2MB)</div>
+                        </div>
+
+                        <div class="dropzone-preview" id="dropzone-preview" style="display: none;">
+                            <img id="logo-upload-img" src="" alt="Uploaded logo">
+                            <div class="dropzone-meta" id="dropzone-meta"></div>
+                        </div>
+                    </div>
+
+                    <div class="custom-error" id="logo-inline-error" style="display: none;">
+                        <i class="fa fa-times-circle"></i> <span></span>
+                    </div>
+
+                    <div id="logo-actions" style="gap: 10px; margin-top: 12px; display: none;">
+                        <button type="button" class="btn btn-default btn-sm" id="btn-remove-logo">
+                            <i class="fa fa-trash"></i> Remove file
+                        </button>
+                    </div>
+
+                    {% if action == 'edit' and form.instance.logo %}
+                    <div class="custom-checkbox-wrapper" id="current-logo-container"
+                         style="display: none;">
+                        <span class="text-muted d-block" style="font-size: 13px; margin-bottom: 8px;">
+                            <i class="fa fa-paperclip"></i> Current logo:
+                        </span>
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                            <img src="{{ form.instance.logo.url }}" alt="Current logo" 
+                                 style="max-width: 80px; max-height: 80px; border-radius: 8px; border: 1px solid #e2e8f0; object-fit: cover;">
+                            <a href="{{ form.instance.logo.url }}" target="_blank" 
+                               style="font-size: 13px; color: #3b82f6; text-decoration: none;">
+                                View full size
+                            </a>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if form.logo.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.logo.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-form-group {% if form.url.errors %}has-error{% endif %}" class="mt-24">
+                    <label class="custom-label" for="{{ form.url.id_for_label }}">
+                        {{ form.url.label }}
+                    </label>
+                    {{ form.url }}
+                    <span class="custom-help-text">A valid website URL (e.g., https://www.example.com).</span>
+                    {% if form.url.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.url.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# ── Section 3: Booth Details ── #}
+            <div class="form-section">
+                <h3 class="form-section-header">
+                    <i class="fa fa-map-marker"></i>
+                    Booth Details
+                </h3>
+
+                <div class="custom-form-group {% if form.booth_name.errors %}has-error{% endif %}">
+                    <label class="custom-label" for="{{ form.booth_name.id_for_label }}">
+                        {{ form.booth_name.label }}
+                    </label>
+                    {{ form.booth_name }}
+                    <span class="custom-help-text">The public-facing name or location of booth (e.g., 'Hall A, Booth 42').</span>
+                    {% if form.booth_name.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.booth_name.errors|join:", " }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-form-group {% if form.booth_id.errors %}has-error{% endif %}">
+                    <label class="custom-label" for="{{ form.booth_id.id_for_label }}">
+                        {{ form.booth_id.label }}
+                    </label>
+                    {{ form.booth_id }}
+                    <span class="custom-help-text">Internal booth identifier.</span>
+                    {% if form.booth_id.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.booth_id.errors|join:", " }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# ── Section 4: Lead Scanning ── #}
+            <div class="form-section">
+                <h3 class="form-section-header">
+                    <i class="fa fa-qrcode"></i>
+                    Lead Scanning
+                </h3>
+
+                <div class="custom-checkbox-wrapper {% if form.allow_voucher_access.errors %}has-error{% endif %}">
+                    <label class="custom-checkbox-label" for="{{ form.allow_voucher_access.id_for_label }}">
+                        {{ form.allow_voucher_access }}
+                        <span class="checkbox-text">{{ form.allow_voucher_access.label }}</span>
+                    </label>
+                    <div class="custom-help-text">
+                        When enabled, this exhibitor can view voucher-related data for the event.
+                    </div>
+                    {% if form.allow_voucher_access.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{
+                        form.allow_voucher_access.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-checkbox-wrapper {% if form.lead_scanning_enabled.errors %}has-error{% endif %}">
+                    <label class="custom-checkbox-label" for="{{ form.lead_scanning_enabled.id_for_label }}">
+                        {{ form.lead_scanning_enabled }}
+                        <span class="checkbox-text">{{ form.lead_scanning_enabled.label }}</span>
+                    </label>
+                    <div class="custom-help-text">
+                        When enabled, this exhibitor can scan attendee badges to collect leads.
+                    </div>
+                    {% if form.lead_scanning_enabled.errors %}
+                    <div class="custom-error" style="margin-left: 33px;"><i class="fa fa-times-circle"></i> {{
+                        form.lead_scanning_enabled.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-checkbox-wrapper {% if form.allow_lead_access.errors %}has-error{% endif %}">
+                    <label class="custom-checkbox-label" for="{{ form.allow_lead_access.id_for_label }}">
+                        {{ form.allow_lead_access }}
+                        <span class="checkbox-text">{{ form.allow_lead_access.label }}</span>
+                    </label>
+                    <div class="custom-help-text" style="margin-left: 33px;">
+                        Grants the exhibitor access to the collected lead information after scanning.
+                    </div>
+                    {% if form.allow_lead_access.errors %}
+                    <div class="custom-error" style="margin-left: 33px;"><i class="fa fa-times-circle"></i> {{
+                        form.allow_lead_access.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="custom-form-group {% if form.lead_scanning_scope_by_device.errors %}has-error{% endif %}"
+                    class="mt-24">
+                    <label class="custom-label"
+                        style="border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; margin-bottom: 12px;">
+                        {{ form.lead_scanning_scope_by_device.label }}
+                    </label>
+                    <div class="custom-radio-group">
+                        {{ form.lead_scanning_scope_by_device }}
+                    </div>
+                    {% if form.lead_scanning_scope_by_device.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{
+                        form.lead_scanning_scope_by_device.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# ── Section 5: Internal Notes ── #}
+            <div class="form-section">
+                <h3 class="form-section-header">
+                    <i class="fa fa-sticky-note-o"></i>
+                    Internal Notes
+                </h3>
+
+                <div class="custom-form-group {% if form.comment.errors %}has-error{% endif %}">
+                    <label class="custom-label" for="{{ form.comment.id_for_label }}">
+                        {{ form.comment.label }}
+                    </label>
+                    {{ form.comment }}
+                    <span class="custom-help-text">
+                        <i class="fa fa-lock"></i> This note is only visible to organizers and will not be shown to the exhibitor.
+                    </span>
+                    {% if form.comment.errors %}
+                    <div class="custom-error"><i class="fa fa-times-circle"></i> {{ form.comment.errors|join:", " }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="submit-group">
+                <button type="submit" class="btn btn-primary btn-save-custom">
+                    <i class="fa fa-check-circle-o"></i>
+                    {% if action == 'edit' %}
+                    Save changes
+                    {% else %}
+                    Add Exhibitor
+                    {% endif %}
+                </button>
+                <a class="btn btn-cancel-custom"
+                    href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    Cancel
+                </a>
+            </div>
+
+        </div><!-- End Form Column -->
+
     </div>
 </form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // --- Fetch initial original logo URL safely to avoid JS syntax errors with Django tags ---
+        const origLink = document.querySelector('#current-logo-container a');
+
+if (origLink) {
+    const currentLogoUrl = origLink.getAttribute('href');
+
+    const dzImg = document.getElementById('logo-upload-img');
+    const dzContent = document.getElementById('dropzone-content');
+    const dzPreview = document.getElementById('dropzone-preview');
+    const logoActions = document.getElementById('logo-actions');
+
+    if (currentLogoUrl && dzImg && dzContent && dzPreview && logoActions) {
+        dzImg.src = currentLogoUrl;
+        dzContent.style.display = 'none';
+        dzPreview.style.display = 'flex';
+        logoActions.style.display = 'flex';
+    }
+}
+        
+        // --- Drag & Drop Variables ---
+        const dropzone = document.getElementById('logo-dropzone');
+        const fileInput = document.querySelector('input[name="{{ form.logo.html_name }}"]');
+        const dzContent = document.getElementById('dropzone-content');
+        const dzPreview = document.getElementById('dropzone-preview');
+        const dzImg = document.getElementById('logo-upload-img');
+        const dzMeta = document.getElementById('dropzone-meta');
+        const btnRemove = document.getElementById('btn-remove-logo');
+        const logoActions = document.getElementById('logo-actions');
+        const clearCheckbox = document.getElementById('logo-clear_id');
+        const logoInlineError = document.getElementById('logo-inline-error');
+
+        // --- Character Counter ---
+        const descInput = document.querySelector('textarea[name="{{ form.description.html_name }}"]');
+        const descCounter = document.getElementById('desc-counter');
+
+        if (descInput && descCounter) {
+            const updateCounter = () => {
+                const len = (descInput.value || "").length;
+                descCounter.innerText = len + ' / 500';
+                if (len > 500) {
+                    descCounter.style.color = '#ef4444';
+                    descInput.closest('.custom-form-group')?.classList.add('has-error');
+                } else {
+                    descCounter.style.color = '#94a3b8';
+                    descInput.closest('.custom-form-group')?.classList.remove('has-error');
+                }
+            };
+            descInput.addEventListener('input', updateCounter);
+            updateCounter();
+        }
+
+
+
+        // --- Drag and Drop Logic ---
+        if (dropzone && fileInput) {
+
+            dropzone.addEventListener('click', (e) => {
+                if (!e.target.closest('button')) {
+                    fileInput.click();
+                }
+            });
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'));
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'));
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+
+                if (files.length) {
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(files[0]);
+
+                    fileInput.files = dataTransfer.files;
+
+                    handleFiles(files[0]);
+                }
+            });
+
+            fileInput.addEventListener('change', function () {
+                if (this.files.length) {
+                    handleFiles(this.files[0]);
+                }
+            });
+        }
+
+        function handleFiles(file) {
+            if (logoInlineError) {
+                logoInlineError.style.display = 'none';
+                const span = logoInlineError.querySelector('span');
+                if (span) span.textContent = '';
+            }
+            if (!file.type.startsWith('image/')) {
+                if (logoInlineError) {
+                    const span = logoInlineError.querySelector('span');
+                    if (span) span.textContent = 'Please select a valid image file.';
+                    logoInlineError.style.display = 'flex';
+                }
+                dropzone.closest('.custom-form-group').classList.add('has-error');
+                return;
+            }
+
+            const sizeKB = (file.size / 1024).toFixed(1);
+            dzMeta.innerHTML = `<i class="fa fa-check-circle"></i> ${file.name} (${sizeKB} KB)`;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                // Update Dropzone Preview
+                dzImg.src = e.target.result;
+                dzContent.style.display = 'none';
+                dzPreview.style.display = 'flex';
+                logoActions.style.display = 'flex';
+
+                // Remove visual error states if any
+                dropzone.closest('.custom-form-group').classList.remove('has-error');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Remove Logo handler
+        if (btnRemove) {
+            btnRemove.addEventListener('click', (e) => {
+                e.stopPropagation(); // prevent triggering dropzone click
+                fileInput.value = ''; // clear input
+
+                // Restore Dropzone original state
+                dzContent.style.display = 'block';
+                dzPreview.style.display = 'none';
+                logoActions.style.display = 'none';
+            });
+        }
+
+
+        // Logic for "Clear Saved Logo" Checkbox
+        if (clearCheckbox) {
+            clearCheckbox.addEventListener('change', function () {
+                if (this.checked) {
+                    // Logic for internal state if needed (previously updated preview)
+                } else {
+                    // Unchecked state logic
+                }
+            });
+        }
+    });
+</script>
 {% endblock %}

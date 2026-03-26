@@ -1,61 +1,468 @@
 {% extends "pretixcontrol/event/base.html" %}
 {% load i18n %}
-{% block title %}{% trans "Exhibitors" %}{% endblock %}
+{% block title %}Exhibitors{% endblock %}
 {% block content %}
-    <h1>{% trans "Exhibitors" %}</h1>
-    {% if exhibitors|length == 0 %}
-        <div class="empty-collection">
-            <p>
-                {% blocktrans trimmed %}
-                    You don't have any exhibitors yet.
-                {% endblocktrans %}
-            </p>
+<style>
+    .exhibitors-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin: 18px 0 22px;
+    }
 
-            {% if "can_change_event_settings" in request.eventpermset %}
-                <a href="{% url "plugins:exhibition:add" organizer=request.event.organizer.slug event=request.event.slug %}"
-                        class="btn btn-primary btn-lg"><i class="fa fa-plus"></i> {% trans "Add Exhibitor" %}
-                </a>
-            {% endif %}
-        </div>
-    {% else %}
-        <p>
-            {% if "can_change_event_settings" in request.eventpermset %}
-                <a href="{% url "plugins:exhibition:add" organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Add Exhibitor" %}
-                </a>
-            {% endif %}
-        </p>
-        <div class="table-responsive">
-            <table class="table table-hover table-quotas">
-                <thead>
-                <tr>
-                    <th>{% trans "Name" %}</th>
-                    <th class="action-col-2"></th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for e in exhibitors %}
-                    <tr>
-                        <td>
-                            {% if "can_change_event_settings" in request.eventpermset %}
-                                <strong><a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}">
-                                    {{ e.name }}
-                                </a></strong>
-                            {% else %}
-                                <strong>{{ e.name }}</strong>
-                            {% endif %}
-                        </td>
-                        <td class="text-right flip">
-                            {% if "can_change_event_settings" in request.eventpermset %}
-                                <a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-default btn-sm"><i class="fa fa-edit"></i></a>
-                                <a href="{% url "plugins:exhibition:copy_key" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-default btn-sm" title="{% trans "Key" %}" data-toggle="tooltip"><i class="fa fa-copy"></i></a>
-                                <a href="{% url "plugins:exhibition:delete" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-delete btn-danger btn-sm"><i class="fa fa-trash"></i></a>
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    .exhibitors-toolbar-left {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        min-width: 240px;
+        flex: 1;
+    }
+
+    .exhibitors-toolbar-right {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .exhibitors-search {
+        position: relative;
+        width: 100%;
+        max-width: 420px;
+    }
+
+    .exhibitors-search .fa {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        pointer-events: none;
+    }
+
+    .exhibitors-search input {
+        padding-left: 36px;
+        border-radius: 10px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .exhibitors-search input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+    }
+
+    .exhibitors-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin: 8px 0 18px;
+    }
+
+    @media (min-width: 768px) {
+        .exhibitors-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+    }
+
+    @media (min-width: 1200px) {
+        .exhibitors-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    .exhibitor-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        display: flex;
+        flex-direction: column;
+        min-height: 170px;
+    }
+
+    .exhibitor-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+        border-color: #cbd5e1;
+    }
+
+    .exhibitor-card-top {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+    }
+
+    .exhibitor-logo {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+
+    .exhibitor-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #ffffff;
+        padding: 6px;
+    }
+
+    .exhibitor-logo .fa {
+        font-size: 22px;
+        color: #cbd5e1;
+    }
+
+    .exhibitor-main {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .exhibitor-name {
+        font-size: 16px;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0;
+        line-height: 1.3;
+        word-break: break-word;
+    }
+
+    .exhibitor-name a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .exhibitor-name a:hover {
+        text-decoration: underline;
+    }
+
+    .exhibitor-meta {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .exhibitor-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 4px 10px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        color: #334155;
+    }
+
+    .exhibitor-badge-primary {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        color: #1d4ed8;
+    }
+
+    .exhibitor-desc {
+        margin-top: 12px;
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.55;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 0;
+        white-space: pre-wrap;
+    }
+
+    .exhibitor-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        align-items: center;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid #f1f5f9;
+    }
+
+    .exhibitor-actions .btn {
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
+    .btn-soft {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        color: #334155;
+    }
+
+    .btn-soft:hover {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+        color: #0f172a;
+    }
+
+    .empty-state-card {
+        text-align: center;
+        padding: 60px 20px;
+        background: #ffffff;
+        border: 2px dashed #e2e8f0;
+        border-radius: 12px;
+        margin: 30px 0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        transition: border-color 0.3s;
+    }
+
+    .empty-state-card:hover {
+        border-color: #cbd5e1;
+    }
+
+    .empty-state-icon {
+        font-size: 56px;
+        color: #cbd5e1;
+        margin-bottom: 24px;
+        display: inline-block;
+        background: #f8fafc;
+        width: 100px;
+        height: 100px;
+        line-height: 100px;
+        border-radius: 50%;
+    }
+
+    .empty-state-title {
+        color: #1e293b;
+        font-weight: 700;
+        font-size: 24px;
+        margin-top: 0;
+        margin-bottom: 12px;
+    }
+
+    .empty-state-text {
+        color: #64748b;
+        font-size: 16px;
+        margin-bottom: 30px;
+        max-width: 480px;
+        margin-left: auto;
+        margin-right: auto;
+        line-height: 1.5;
+    }
+
+    .empty-state-btn {
+        padding: 12px 28px;
+        font-weight: 600;
+        font-size: 16px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2);
+        transition: all 0.2s;
+    }
+
+    .empty-state-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 10px rgba(59, 130, 246, 0.3);
+    }
+
+    .header-action-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .header-action-row h1 {
+        margin: 0;
+    }
+</style>
+
+<div class="header-action-row">
+    <h1>Exhibitors</h1>
+</div>
+
+{% if exhibitors|length == 0 %}
+<div class="empty-state-card">
+    <div class="empty-state-icon">
+        <i class="fa fa-building-o"></i>
+    </div>
+    <h3 class="empty-state-title">No exhibitors yet</h3>
+    <p class="empty-state-text">
+        Start building your exhibition by adding your first exhibitor. They'll be able to manage their booth layout and
+        scan leads seamlessly.
+    </p>
+
+    {% if "can_change_event_settings" in request.eventpermset %}
+    <a href="{% url 'plugins:exhibition:add' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary empty-state-btn">
+        <i class="fa fa-plus"></i> Add First Exhibitor
+    </a>
     {% endif %}
-    {% include "pretixcontrol/pagination.html" %}
+</div>
+{% else %}
+<div class="exhibitors-toolbar" aria-label="Exhibitors toolbar">
+    <div class="exhibitors-toolbar-left">
+        <div class="exhibitors-search">
+            <i class="fa fa-search"></i>
+            <input type="search" class="form-control" id="exhibitors-search"
+                placeholder="Search exhibitors…" autocomplete="off">
+        </div>
+        <span class="text-muted" id="exhibitors-count" style="font-size: 13px;"></span>
+    </div>
+
+    <div class="exhibitors-toolbar-right">
+        <select class="form-control" id="exhibitors-sort" style="min-width: 180px; border-radius: 10px;">
+            <option value="az">Sort: A–Z</option>
+            <option value="za">Sort: Z–A</option>
+        </select>
+        {% if "can_change_event_settings" in request.eventpermset %}
+        <a href="{% url 'plugins:exhibition:add' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
+            <i class="fa fa-plus"></i> Add Exhibitor
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="exhibitors-grid" id="exhibitors-grid">
+    {% for e in exhibitors %}
+    <div class="exhibitor-card" data-name="{{ e.name|default:""|lower }}">
+        <div class="exhibitor-card-top">
+            <div class="exhibitor-logo" aria-hidden="true">
+                {% if e.logo %}
+                <img src="{{ e.logo.url }}" alt="">
+                {% else %}
+                <i class="fa fa-building-o"></i>
+                {% endif %}
+            </div>
+
+            <div class="exhibitor-main">
+                <h3 class="exhibitor-name">
+                    {% if "can_change_event_settings" in request.eventpermset %}
+                    <a href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=e.pk %}">{{ e.name }}</a>
+                    {% else %}
+                    {{ e.name }}
+                    {% endif %}
+                </h3>
+
+                <div class="exhibitor-meta">
+                    {% if e.booth_name %}
+                    <span class="exhibitor-badge exhibitor-badge-primary"><i class="fa fa-map-marker"></i> {{ e.booth_name|striptags }}</span>
+                    {% endif %}
+                    {% if e.logo %}
+                    <span class="exhibitor-badge"><i class="fa fa-image"></i> Logo</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if e.description %}
+        <div class="exhibitor-desc">{{ e.description }}</div>
+        {% else %}
+        <div class="exhibitor-desc" style="color:#94a3b8; font-style: italic;">No description provided.</div>
+        {% endif %}
+
+        {% if "can_change_event_settings" in request.eventpermset %}
+        <div class="exhibitor-actions">
+            <a href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=e.pk %}" class="btn btn-soft btn-sm">
+                <i class="fa fa-edit"></i> Edit
+            </a>
+            <a href="{% url 'plugins:exhibition:copy_key' organizer=request.event.organizer.slug event=request.event.slug pk=e.pk %}" class="btn btn-soft btn-sm" title="Key" data-toggle="tooltip">
+                <i class="fa fa-copy"></i> Key
+            </a>
+            <a href="{% url 'plugins:exhibition:delete' organizer=request.event.organizer.slug event=request.event.slug pk=e.pk %}" class="btn btn-danger btn-sm">
+                <i class="fa fa-trash"></i> Delete
+            </a>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% include "pretixcontrol/pagination.html" %}
+{% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const grid = document.getElementById('exhibitors-grid');
+        if (!grid) return;
+
+        const searchInput = document.getElementById('exhibitors-search');
+        const sortSelect = document.getElementById('exhibitors-sort');
+        const countEl = document.getElementById('exhibitors-count');
+        const cards = Array.from(grid.querySelectorAll('.exhibitor-card'));
+
+        const normalize = (value) => (value || '').toString().trim().toLowerCase();
+
+        const updateCount = () => {
+            if (!countEl) return;
+            const visible = cards.filter(c => c.style.display !== 'none').length;
+            countEl.textContent = visible + ' / ' + cards.length;
+        };
+
+        const applyFilter = () => {
+            const q = normalize(searchInput ? searchInput.value : '');
+            cards.forEach(card => {
+                const name = normalize(card.getAttribute('data-name'));
+                card.style.display = (!q || name.includes(q)) ? '' : 'none';
+            });
+            updateCount();
+        };
+
+        const applySort = () => {
+            const mode = sortSelect ? sortSelect.value : 'az';
+            const sorted = cards.slice().sort((a, b) => {
+                const an = normalize(a.getAttribute('data-name'));
+                const bn = normalize(b.getAttribute('data-name'));
+                if (an < bn) return mode === 'za' ? 1 : -1;
+                if (an > bn) return mode === 'za' ? -1 : 1;
+                return 0;
+            });
+            sorted.forEach(el => grid.appendChild(el));
+        };
+
+        // Add URL parameter handling for search
+        const urlParams = new URLSearchParams(window.location.search);
+        const searchQuery = urlParams.get('search');
+        if (searchQuery && searchInput) {
+            searchInput.value = searchQuery;
+        }
+
+        // Update URL when searching
+        const updateURL = () => {
+            const q = searchInput ? searchInput.value : '';
+            const url = new URL(window.location);
+            if (q) {
+                url.searchParams.set('search', q);
+            } else {
+                url.searchParams.delete('search');
+            }
+            url.searchParams.delete('page'); // Reset to first page when searching
+            window.history.replaceState({}, '', url);
+        };
+
+        if (searchInput) {
+            searchInput.addEventListener('input', function() {
+                applyFilter();
+                updateURL();
+            });
+        }
+        if (sortSelect) {
+            sortSelect.addEventListener('change', function () {
+                applySort();
+                applyFilter();
+            });
+        }
+
+        applySort();
+        applyFilter();
+    });
+</script>
 {% endblock %}

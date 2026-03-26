@@ -49,6 +49,10 @@ class ExhibitorInfoForm(I18nModelForm):
         required=False,
         label=_('Booth ID'),
     )
+    booth_name = forms.CharField(
+        required=False,
+        label=_('Booth name'),
+    )
 
     class Meta:
         model = ExhibitorInfo
@@ -88,3 +92,13 @@ class ExhibitorInfoForm(I18nModelForm):
                     sub_widget.attrs.setdefault('rows', 4)
             else:
                 widget.attrs.setdefault('rows', 4)
+        
+        # Ensure internationalized fields are properly initialized
+        if self.instance and self.instance.pk:
+            for field_name in ['name', 'description', 'booth_name']:
+                if field_name in self.fields:
+                    field = self.fields[field_name]
+                    if hasattr(self.instance, field_name):
+                        value = getattr(self.instance, field_name)
+                        if value:
+                            self.initial[field_name] = value

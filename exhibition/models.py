@@ -93,6 +93,7 @@ class ExhibitorInfo(models.Model):
     booth_name = I18nCharField(
         max_length=100,
         verbose_name=_('Booth Name'),
+        blank=True,
     )
     lead_scanning_enabled = models.BooleanField(
         default=False
