@@ -80,8 +80,6 @@ class LeadCreateSerializer(serializers.Serializer):
     scanned = serializers.CharField(required=True)
     scan_type = serializers.CharField(required=True)
     device_name = serializers.CharField(required=True)
-
-
 class LeadCreateView(views.APIView):
     throttle_classes = [LeadCreateThrottle]
     throttle_scope = 'lead_create'
@@ -113,7 +111,6 @@ class LeadCreateView(views.APIView):
 
         # ✅ Extract data
         pseudonymization_id = serializer.validated_data['lead']
-        scanned = serializer.validated_data['scanned']
         scan_type = serializer.validated_data['scan_type']
         device_name = serializer.validated_data['device_name']
 
@@ -149,7 +146,9 @@ class LeadCreateView(views.APIView):
             exhibitor=exhibitor,
             pseudonymization_id=pseudonymization_id
         ).exists():
-            attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
+            attendee_data = self.get_allowed_attendee_data(
+                order_position, settings, exhibitor
+            )
 
             return Response(
                 {
@@ -161,7 +160,9 @@ class LeadCreateView(views.APIView):
             )
 
         # ✅ Create lead
-        attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
+        attendee_data = self.get_allowed_attendee_data(
+            order_position, settings, exhibitor
+        )
         locale = _get_exhibitor_locale(exhibitor)
 
         lead = Lead.objects.create(
@@ -184,3 +185,4 @@ class LeadCreateView(views.APIView):
             },
             status=status.HTTP_201_CREATED
         )
+
