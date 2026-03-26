@@ -3,9 +3,10 @@ from django.utils import timezone
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
 from eventyay.base.models import OrderPosition
 from i18nfield.strings import LazyI18nString
-from rest_framework import status, views, viewsets
+from rest_framework import status, views, viewsets, serializers
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+
 from .models import ExhibitorInfo, ExhibitorSettings, ExhibitorTag, Lead
 
 
@@ -33,6 +34,7 @@ class ExhibitorAuthView(views.APIView):
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
             locale = _get_exhibitor_locale(exhibitor)
+
             return Response(
                 {
                     'success': True,
@@ -53,7 +55,10 @@ class ExhibitorAuthView(views.APIView):
 class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     class Meta:
         model = ExhibitorInfo
-        fields = ('id', 'name', 'description', 'url', 'email', 'logo', 'key', 'lead_scanning_enabled')
+        fields = (
+            'id', 'name', 'description', 'url',
+            'email', 'logo', 'key', 'lead_scanning_enabled'
+        )
 
 
 class ExhibitorInfoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -62,21 +67,32 @@ class ExhibitorInfoViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return ExhibitorInfo.objects.filter(event=self.request.event)
- # Throttle to limit excessive lead creation requests
+
+
+# 🔥 Throttle
 class LeadCreateThrottle(UserRateThrottle):
     scope = 'lead_create'
 
+
+# 🔥 Serializer
+class LeadCreateSerializer(serializers.Serializer):
+    lead = serializers.CharField(required=True)
+    scanned = serializers.CharField(required=True)
+    scan_type = serializers.CharField(required=True)
+    device_name = serializers.CharField(required=True)
+
+
 class LeadCreateView(views.APIView):
     throttle_classes = [LeadCreateThrottle]
-    throttle_scope = 'lead_create' 
+    throttle_scope = 'lead_create'
+
     def get_allowed_attendee_data(self, order_position, settings, exhibitor):
-        """Helper method to get allowed attendee data based on settings"""
-        # Get all allowed fields including defaults
         allowed_fields = settings.all_allowed_fields
+
         attendee_data = {
-            'name': order_position.attendee_name,  # Always included
-            'email': order_position.attendee_email,  # Always included
-            'company': order_position.company,  # Always included
+            'name': order_position.attendee_name,
+            'email': order_position.attendee_email,
+            'company': order_position.company,
             'city': order_position.city if 'attendee_city' in allowed_fields else None,
             'country': str(order_position.country) if 'attendee_country' in allowed_fields else None,
             'note': '',
@@ -86,36 +102,25 @@ class LeadCreateView(views.APIView):
         return {k: v for k, v in attendee_data.items() if v is not None}
 
     def post(self, request, *args, **kwargs):
-        # Extract parameters from the request
-        pseudonymization_id = request.data.get('lead')
-        scanned = request.data.get('scanned')
-        scan_type = request.data.get('scan_type')
-        device_name = request.data.get('device_name')
-        open_event = request.data.get('open_event')
-        key = request.headers.get('Exhibitor')
-             # Collect missing required fields for better error reporting
-        missing_fields = []
+        # ✅ Validate request
+        serializer = LeadCreateSerializer(data=request.data)
 
-        if not pseudonymization_id:
-            missing_fields.append('lead')
-        if scanned is None:
-            missing_fields.append('scanned')
-        if not scan_type:
-            missing_fields.append('scan_type')
-        if not device_name:
-            missing_fields.append('device_name')
-
-        if missing_fields:
+        if not serializer.is_valid():
             return Response(
-                {
-                    'success': False,
-                    'error': f"Missing fields: {', '.join(missing_fields)}"
-                },
+                {'success': False, 'error': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
 
-        # Authenticate the exhibitor
+        # ✅ Extract data
+        pseudonymization_id = serializer.validated_data['lead']
+        scanned = serializer.validated_data['scanned']
+        scan_type = serializer.validated_data['scan_type']
+        device_name = serializer.validated_data['device_name']
+
+        open_event = request.data.get('open_event')
+        key = request.headers.get('Exhibitor')
+
+        # ✅ Authenticate
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
             settings = ExhibitorSettings.objects.get(event=exhibitor.event)
@@ -125,12 +130,10 @@ class LeadCreateView(views.APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Get attendee details
+        # ✅ Get attendee
         try:
             if open_event:
-                order_position = OrderPosition.objects.get(
-                    secret=pseudonymization_id
-                )
+                order_position = OrderPosition.objects.get(secret=pseudonymization_id)
             else:
                 order_position = OrderPosition.objects.get(
                     pseudonymization_id=pseudonymization_id
@@ -141,16 +144,13 @@ class LeadCreateView(views.APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Check for duplicate scan
+        # ✅ Duplicate check
         if Lead.objects.filter(
             exhibitor=exhibitor,
             pseudonymization_id=pseudonymization_id
         ).exists():
-            attendee_data = self.get_allowed_attendee_data(
-                order_position,
-                settings,
-                exhibitor
-            )
+            attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
+
             return Response(
                 {
                     'success': False,
@@ -160,14 +160,10 @@ class LeadCreateView(views.APIView):
                 status=status.HTTP_409_CONFLICT
             )
 
-        # Get allowed attendee data based on settings
-        attendee_data = self.get_allowed_attendee_data(
-            order_position,
-            settings,
-            exhibitor
-        )
-        # Create the lead entry
+        # ✅ Create lead
+        attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
         locale = _get_exhibitor_locale(exhibitor)
+
         lead = Lead.objects.create(
             exhibitor=exhibitor,
             exhibitor_name=_localize_i18n_value(exhibitor.name, locale),
@@ -187,119 +183,4 @@ class LeadCreateView(views.APIView):
                 'attendee': attendee_data
             },
             status=status.HTTP_201_CREATED
-        )
-
-
-class LeadRetrieveView(views.APIView):
-    def get(self, request, *args, **kwargs):
-        # Authenticate the exhibitor using the key
-        key = request.headers.get('Exhibitor')
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-        except ExhibitorInfo.DoesNotExist:
-            return Response(
-                {
-                    'success': False,
-                    'error': 'Invalid exhibitor key'
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        # Fetch all leads associated with the exhibitor
-        leads = Lead.objects.filter(exhibitor=exhibitor).values(
-            'id',
-            'pseudonymization_id',
-            'exhibitor_name',
-            'scanned',
-            'scan_type',
-            'device_name',
-            'booth_id',
-            'booth_name',
-            'attendee'
-        )
-
-        return Response(
-            {
-                'success': True,
-                'leads': list(leads)
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-class TagListView(views.APIView):
-    def get(self, request, organizer, event, *args, **kwargs):
-        key = request.headers.get('Exhibitor')
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-            tags = ExhibitorTag.objects.filter(exhibitor=exhibitor)
-            return Response({
-                'success': True,
-                'tags': [tag.name for tag in tags]
-            })
-        except ExhibitorInfo.DoesNotExist:
-            return Response(
-                {
-                    'success': False,
-                    'error': 'Invalid exhibitor key'
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-
-class LeadUpdateView(views.APIView):
-    def post(self, request, organizer, event, lead_id, *args, **kwargs):
-        key = request.headers.get('Exhibitor')
-        note = request.data.get('note')
-        tags = request.data.get('tags', [])
-
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-        except ExhibitorInfo.DoesNotExist:
-            return Response(
-                {
-                    'success': False,
-                    'error': 'Invalid exhibitor key'
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        try:
-            lead = Lead.objects.get(pseudonymization_id=lead_id, exhibitor=exhibitor)
-        except Lead.DoesNotExist:
-            return Response(
-                {
-                    'success': False,
-                    'error': 'Lead not found'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Update lead's attendee info
-        attendee_data = lead.attendee or {}
-        if note is not None:
-            attendee_data['note'] = note
-        if tags is not None:
-            attendee_data['tags'] = tags
-
-            # Update tag usage counts and create new tags
-            for tag_name in tags:
-                tag, created = ExhibitorTag.objects.get_or_create(
-                    exhibitor=exhibitor,
-                    name=tag_name
-                )
-                if not created:
-                    tag.use_count += 1
-                    tag.save()
-
-        lead.attendee = attendee_data
-        lead.save()
-
-        return Response(
-            {
-                'success': True,
-                'lead_id': lead.id,
-                'attendee': lead.attendee
-            },
-            status=status.HTTP_200_OK
         )
