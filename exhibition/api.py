@@ -1,3 +1,4 @@
+from rest_framework.throttling import UserRateThrottle
 from django.conf import settings
 from django.utils import timezone
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
@@ -5,7 +6,6 @@ from eventyay.base.models import OrderPosition
 from i18nfield.strings import LazyI18nString
 from rest_framework import status, views, viewsets
 from rest_framework.response import Response
-
 from .models import ExhibitorInfo, ExhibitorSettings, ExhibitorTag, Lead
 
 
@@ -63,8 +63,11 @@ class ExhibitorInfoViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return ExhibitorInfo.objects.filter(event=self.request.event)
 
+class LeadCreateThrottle(UserRateThrottle):
+    scope = 'lead_create'
 
 class LeadCreateView(views.APIView):
+    throttle_classes = [LeadCreateThrottle]
     def get_allowed_attendee_data(self, order_position, settings, exhibitor):
         """Helper method to get allowed attendee data based on settings"""
         # Get all allowed fields including defaults
