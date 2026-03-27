@@ -67,7 +67,8 @@ class ExhibitorInfo(models.Model):
         blank=True
     )
     url = models.URLField(
-        verbose_name=_('URL'),
+        verbose_name=_('Company Website URL'),
+        help_text=_('Official website of the exhibitor'),
         null=True,
         blank=True
     )
