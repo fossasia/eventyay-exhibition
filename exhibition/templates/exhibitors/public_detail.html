@@ -1,0 +1,148 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load event_tags %}
+{% load rich_text %}
+{% load static %}
+
+{% block pagetitle %}{{ exhibitor.name|event_localize }}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-public-detail.css' %}">
+{% endblock %}
+
+{% block content %}
+    <main aria-label="{{ exhibitor.name|event_localize }}">
+        <section class="front-page exhibition-public-page exhibition-detail-page" aria-labelledby="exhibition-detail-heading">
+            <div class="exhibition-detail-shell">
+                {% if previous_exhibitor or next_exhibitor %}
+                    <div class="exhibition-detail-nav">
+                        <a class="btn btn-default" href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=previous_exhibitor.pk %}">
+                            <i class="fa fa-chevron-left" aria-hidden="true"></i> {% trans "Previous" %}
+                        </a>
+                        <a class="btn btn-default" href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=next_exhibitor.pk %}">
+                            {% trans "Next" %} <i class="fa fa-chevron-right" aria-hidden="true"></i>
+                        </a>
+                    </div>
+                {% endif %}
+
+                <article class="exhibition-detail-card">
+                    <div class="exhibition-detail-hero">
+                        <img src="{{ exhibitor.visible_header_image_url }}" alt="{{ exhibitor.name|event_localize }}" loading="eager">
+                    </div>
+
+                    <div class="exhibition-detail-content">
+                        <div class="exhibition-detail-brand">
+                            <div class="exhibition-detail-logo-wrap">
+                                <img class="exhibition-detail-logo" src="{{ exhibitor.visible_logo_url }}" alt="{{ exhibitor.name|event_localize }} logo" loading="lazy">
+                            </div>
+                            <div class="exhibition-detail-heading">
+                                <div class="exhibition-detail-title-row">
+                                    <div class="exhibition-detail-title-main">
+                                        <h1 id="exhibition-detail-heading" class="exhibition-detail-title">{{ exhibitor.name|event_localize }}</h1>
+                                    </div>
+                                    {% if exhibitor.contact_url %}
+                                        <div class="exhibition-detail-actions">
+                                            <a class="exhibition-detail-contact-link" href="{{ exhibitor.contact_url }}" target="_blank" rel="noopener noreferrer">
+                                                {% trans "Get In Touch" %}
+                                            </a>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if exhibitor.description %}
+                            <div class="exhibition-detail-description">
+                                {{ exhibitor.description|event_localize|rich_text }}
+                            </div>
+                        {% endif %}
+
+                        {% if video_embed %}
+                            <div class="exhibition-detail-video">
+                                <div class="exhibition-detail-video-frame">
+                                    {% if video_embed.type == "iframe" %}
+                                        <iframe
+                                            src="{{ video_embed.url }}"
+                                            title="{{ exhibitor.name|event_localize }} video"
+                                            loading="lazy"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                            allowfullscreen>
+                                        </iframe>
+                                    {% else %}
+                                        <video controls preload="metadata">
+                                            <source src="{{ video_embed.url }}">
+                                        </video>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        {% if slides_document_url %}
+                            <div
+                                class="exhibition-detail-slides"
+                                data-pdf-slides
+                                data-pdf-url="{{ slides_document_url }}"
+                                data-worker-url="{% static 'pdfjs/pdf.worker.js' %}"
+                                data-fallback-label="{% trans 'Open slides PDF' %}">
+                                <div class="exhibition-detail-slides-frame" data-pdf-slides-frame>
+                                    <canvas class="exhibition-detail-slides-canvas" data-pdf-slides-canvas></canvas>
+                                </div>
+                                <div class="exhibition-detail-slides-controls" data-pdf-slides-controls>
+                                    <button type="button" class="btn btn-default" data-pdf-prev>
+                                        <i class="fa fa-chevron-left" aria-hidden="true"></i> {% trans "Previous" %}
+                                    </button>
+                                    <div class="exhibition-detail-slides-status" data-pdf-status></div>
+                                    <button type="button" class="btn btn-default" data-pdf-next>
+                                        {% trans "Next" %} <i class="fa fa-chevron-right" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                                <div class="exhibition-detail-slides-fallback hidden" data-pdf-slides-fallback>
+                                    <a class="btn btn-default" href="{{ slides_document_url }}" target="_blank" rel="noopener noreferrer">
+                                        {% trans "Open slides PDF" %}
+                                    </a>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        {% if exhibitor.email or exhibitor.url or social_links or extra_links %}
+                            <div class="exhibition-detail-description-actions">
+                                {% if exhibitor.email %}
+                                    <a class="exhibition-detail-icon-link" href="mailto:{{ exhibitor.email }}" aria-label="{% trans 'Send email' %}" title="{% trans 'Send email' %}">
+                                        <i class="fa fa-envelope-o" aria-hidden="true"></i>
+                                    </a>
+                                {% endif %}
+                                {% for social_link in social_links %}
+                                    <a class="exhibition-detail-icon-link exhibition-detail-icon-link--{{ social_link.key }}" href="{{ social_link.url }}" target="_blank" rel="noopener noreferrer" aria-label="{{ social_link.label }}" title="{{ social_link.label }}">
+                                        {% if social_link.icon_class %}
+                                            <i class="fa {{ social_link.icon_class }}" aria-hidden="true"></i>
+                                        {% else %}
+                                            {{ social_link.icon_svg|safe }}
+                                        {% endif %}
+                                    </a>
+                                {% endfor %}
+                                {% if exhibitor.url %}
+                                    <a class="exhibition-detail-icon-link" href="{{ exhibitor.url }}" target="_blank" rel="noopener noreferrer" aria-label="{% trans 'Visit website' %}" title="{% trans 'Visit website' %}">
+                                        <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+                                            <circle cx="32" cy="32" r="28" fill="currentColor"></circle>
+                                            <path d="M10 32h44M32 10c8 7 12 14 12 22s-4 15-12 22c-8-7-12-14-12-22s4-15 12-22zM18 18c4 3 9 5 14 5s10-2 14-5M18 46c4-3 9-5 14-5s10 2 14 5" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                                        </svg>
+                                    </a>
+                                {% endif %}
+                                {% for extra_link in extra_links %}
+                                    <a class="exhibition-detail-icon-link" href="{{ extra_link.url }}" target="_blank" rel="noopener noreferrer" aria-label="{{ extra_link.label }}" title="{{ extra_link.label }}">
+                                        <i class="fa fa-external-link" aria-hidden="true"></i>
+                                    </a>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </article>
+            </div>
+        </section>
+    </main>
+    {% if slides_document_url %}
+        <script type="text/javascript" src="{% static 'pdfjs/pdf.js' %}"></script>
+        <script type="text/javascript" src="{% static 'exhibition/js/public-slides.js' %}"></script>
+    {% endif %}
+{% endblock %}

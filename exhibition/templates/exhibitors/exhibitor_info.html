@@ -1,26 +1,26 @@
 {% extends "pretixcontrol/event/base.html" %}
 {% load i18n %}
-{% block title %}{% trans "Exhibitors" %}{% endblock %}
+{% block title %}{% trans "Exhibitors/Sponsors" %}{% endblock %}
 {% block content %}
-    <h1>{% trans "Exhibitors" %}</h1>
+    <h1>{% trans "Exhibitors/Sponsors" %}</h1>
     {% if exhibitors|length == 0 %}
         <div class="empty-collection">
             <p>
                 {% blocktrans trimmed %}
-                    You don't have any exhibitors yet.
+                    You don't have any exhibitors or sponsors yet.
                 {% endblocktrans %}
             </p>
 
             {% if "can_change_event_settings" in request.eventpermset %}
                 <a href="{% url "plugins:exhibition:add" organizer=request.event.organizer.slug event=request.event.slug %}"
-                        class="btn btn-primary btn-lg"><i class="fa fa-plus"></i> {% trans "Add Exhibitor" %}
+                        class="btn btn-primary btn-lg"><i class="fa fa-plus"></i> {% trans "Add an Exhibitor/Sponsor" %}
                 </a>
             {% endif %}
         </div>
     {% else %}
         <p>
             {% if "can_change_event_settings" in request.eventpermset %}
-                <a href="{% url "plugins:exhibition:add" organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Add Exhibitor" %}
+                <a href="{% url "plugins:exhibition:add" organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Add an Exhibitor/Sponsor" %}
                 </a>
             {% endif %}
         </p>
@@ -29,6 +29,8 @@
                 <thead>
                 <tr>
                     <th>{% trans "Name" %}</th>
+                    <th>{% trans "Group" %}</th>
+                    <th>{% trans "Booth" %}</th>
                     <th class="action-col-2"></th>
                 </tr>
                 </thead>
@@ -42,6 +44,22 @@
                                 </a></strong>
                             {% else %}
                                 <strong>{{ e.name }}</strong>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if e.sponsor_group %}
+                                {{ e.sponsor_group.name }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not e.is_exhibitor %}
+                                -
+                            {% elif e.localized_booth_name %}
+                                {{ e.localized_booth_name }}
+                            {% else %}
+                                {% trans "Untitled" %}
                             {% endif %}
                         </td>
                         <td class="text-right flip">

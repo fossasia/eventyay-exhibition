@@ -1,12 +1,19 @@
 {% extends "pretixcontrol/event/base.html" %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
+{% load escapejson %}
 {% block title %}
     {% if action == 'edit' %}
-        {% trans "Edit Exhibitor" %}
+        {% trans "Edit Exhibitor/Sponsor" %}
     {% else %}
-        {% trans "Add Exhibitor" %}
+        {% trans "Add an Exhibitor/Sponsor" %}
     {% endif %}
+{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-add.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -15,9 +22,9 @@
         <div class="navigation-title">
             <h1>
                 {% if action == 'edit' %}
-                    {% trans "Edit Exhibitor" %}
+                    {% trans "Edit Exhibitor/Sponsor" %}
                 {% else %}
-                    {% trans "Add Exhibitor" %}
+                    {% trans "Add an Exhibitor/Sponsor" %}
                 {% endif %}
             </h1>
         </div>
@@ -34,13 +41,178 @@
         {% bootstrap_field form.name layout="control" %}
         {% bootstrap_field form.description layout="control" %}
         {% bootstrap_field form.email layout="control" %}
-        {% bootstrap_field form.logo layout="control" %}
+        {% bootstrap_field form.contact_url layout="control" %}
+        {% bootstrap_field form.video_url layout="control" %}
+        {% bootstrap_field form.slides layout="control" %}
+        {% bootstrap_field form.slides_url layout="control" %}
+        <div class="form-group">
+            <label class="col-md-3 control-label partner-link-group-label">{% trans "Social Media" %}</label>
+            <div class="col-md-9">
+                <div id="social-links-formset" class="partner-link-formset formset" data-formset data-formset-prefix="{{ social_media_formset.prefix }}" data-social-link-prefixes='{{ social_link_prefixes|escapejson_dumps }}'>
+                    {{ social_media_formset.management_form }}
+                    {{ social_media_formset.non_form_errors }}
+                    <div data-formset-body>
+                        {% for social_form in social_media_formset %}
+                            <div class="row partner-link-row" data-formset-form data-social-link-row>
+                                <div class="sr-only">{{ social_form.id }} {{ social_form.DELETE }}</div>
+                                <div class="col-md-3">
+                                    {{ social_form.network.errors }}
+                                    {{ social_form.network }}
+                                </div>
+                                <div class="col-md-8">
+                                    {{ social_form.path.errors }}
+                                    <div class="input-group">
+                                        <span class="input-group-addon partner-link-prefix" data-social-prefix>https://</span>
+                                        {{ social_form.path }}
+                                    </div>
+                                </div>
+                                <div class="col-md-1 text-right">
+                                    <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button>
+                                        <i class="fa fa-minus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <template data-formset-empty-form>
+                        <div class="row partner-link-row" data-formset-form data-social-link-row>
+                            <div class="sr-only">{{ social_media_formset.empty_form.id }} {{ social_media_formset.empty_form.DELETE }}</div>
+                            <div class="col-md-3">
+                                {{ social_media_formset.empty_form.network.errors }}
+                                {{ social_media_formset.empty_form.network }}
+                            </div>
+                            <div class="col-md-8">
+                                {{ social_media_formset.empty_form.path.errors }}
+                                <div class="input-group">
+                                    <span class="input-group-addon partner-link-prefix" data-social-prefix>https://</span>
+                                    {{ social_media_formset.empty_form.path }}
+                                </div>
+                            </div>
+                            <div class="col-md-1 text-right">
+                                <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button>
+                                    <i class="fa fa-minus"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    <div class="partner-link-actions">
+                        <button type="button" class="btn btn-default btn-sm partner-link-add" data-formset-add>
+                            <i class="fa fa-plus"></i> {% trans "Add social media link" %}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="col-md-3 control-label partner-link-group-label">{% trans "Extra Links" %}</label>
+            <div class="col-md-9">
+                <div id="extra-links-formset" class="partner-link-formset formset" data-formset data-formset-prefix="{{ extra_links_formset.prefix }}">
+                    {{ extra_links_formset.management_form }}
+                    {{ extra_links_formset.non_form_errors }}
+                    <div data-formset-body>
+                        {% for extra_form in extra_links_formset %}
+                            <div class="row partner-link-row" data-formset-form>
+                                <div class="sr-only">{{ extra_form.id }} {{ extra_form.DELETE }}</div>
+                                <div class="col-md-4">
+                                    {{ extra_form.label.errors }}
+                                    {{ extra_form.label }}
+                                </div>
+                                <div class="col-md-7">
+                                    {{ extra_form.url.errors }}
+                                    {{ extra_form.url }}
+                                </div>
+                                <div class="col-md-1 text-right">
+                                    <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button>
+                                        <i class="fa fa-minus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <template data-formset-empty-form>
+                        <div class="row partner-link-row" data-formset-form>
+                            <div class="sr-only">{{ extra_links_formset.empty_form.id }} {{ extra_links_formset.empty_form.DELETE }}</div>
+                            <div class="col-md-4">
+                                {{ extra_links_formset.empty_form.label.errors }}
+                                {{ extra_links_formset.empty_form.label }}
+                            </div>
+                            <div class="col-md-7">
+                                {{ extra_links_formset.empty_form.url.errors }}
+                                {{ extra_links_formset.empty_form.url }}
+                            </div>
+                            <div class="col-md-1 text-right">
+                                <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button>
+                                    <i class="fa fa-minus"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    <div class="partner-link-actions">
+                        <button type="button" class="btn btn-default btn-sm partner-link-add" data-formset-add>
+                            <i class="fa fa-plus"></i> {% trans "Add extra link" %}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div
+            data-partner-image-source-pair
+            data-file-input-id="{{ form.logo.id_for_label }}"
+            data-url-input-id="{{ form.logo_url.id_for_label }}"
+            data-current-preview-url="{{ form.instance.visible_logo_url }}"
+            data-has-current-file="{{ form.instance.logo|yesno:'true,false' }}"
+        >
+            {% bootstrap_field form.logo layout="control" %}
+            {% bootstrap_field form.logo_url layout="control" %}
+            <div class="form-group" data-image-preview hidden>
+                <label class="col-md-3 control-label">{% trans "Logo preview" %}</label>
+                <div class="col-md-9">
+                    <a data-image-preview-link href="" target="_blank" rel="noopener noreferrer" hidden>
+                        <img loading="lazy" data-image-preview-image class="img-responsive img-thumbnail partner-image-preview partner-image-preview-logo" alt="{% trans 'Logo preview' %}" hidden>
+                    </a>
+                    <p class="help-block text-danger" data-image-preview-error hidden>{% trans "We could not load this image preview." %}</p>
+                </div>
+            </div>
+        </div>
+        <div
+            data-partner-image-source-pair
+            data-file-input-id="{{ form.header_image.id_for_label }}"
+            data-url-input-id="{{ form.header_image_url.id_for_label }}"
+            data-current-preview-url="{{ form.instance.visible_header_image_url }}"
+            data-has-current-file="{{ form.instance.header_image|yesno:'true,false' }}"
+        >
+            {% bootstrap_field form.header_image layout="control" %}
+            {% bootstrap_field form.header_image_url layout="control" %}
+            <div class="form-group" data-image-preview hidden>
+                <label class="col-md-3 control-label">{% trans "Header image preview" %}</label>
+                <div class="col-md-9">
+                    <a data-image-preview-link href="" target="_blank" rel="noopener noreferrer" hidden>
+                        <img loading="lazy" data-image-preview-image class="img-responsive img-thumbnail partner-image-preview partner-image-preview-header" alt="{% trans 'Header image preview' %}" hidden>
+                    </a>
+                    <p class="help-block text-danger" data-image-preview-error hidden>{% trans "We could not load this image preview." %}</p>
+                </div>
+            </div>
+        </div>
         {% bootstrap_field form.url layout="control" %}
-        {% bootstrap_field form.booth_name layout="control" %}
-        {% bootstrap_field form.booth_id layout="control" %}
+        <div id="is-sponsor-wrapper">
+            {% bootstrap_field form.is_sponsor layout="control" %}
+        </div>
+        <div id="sponsor-group-wrapper">
+            {% bootstrap_field form.sponsor_group layout="control" %}
+        </div>
+        <div id="not-an-exhibitor-wrapper">
+            {% bootstrap_field form.not_an_exhibitor layout="control" %}
+        </div>
+        <div id="booth-name-wrapper">
+            {% bootstrap_field form.booth_name layout="control" %}
+        </div>
+        <div id="booth-id-wrapper">
+            {% bootstrap_field form.booth_id layout="control" %}
+        </div>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="lead-scanning-section">
         <legend>{% trans "Lead scanning" %}</legend>
         {% bootstrap_field form.allow_voucher_access layout="control" %}
         {% bootstrap_field form.lead_scanning_enabled layout="control" %}
@@ -67,4 +239,5 @@
         </a>
     </div>
 </form>
+<script type="text/javascript" src="{% static 'exhibition/js/exhibitors-add.js' %}"></script>
 {% endblock %}
