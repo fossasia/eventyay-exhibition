@@ -95,14 +95,43 @@
         showButton.classList.remove('hidden')
     }
 
+    function closeAllEditorRows() {
+        document.querySelectorAll('.sponsor-group-editor-row').forEach(function (row) {
+            row.classList.add('hidden')
+        })
+        document.querySelectorAll('[data-group-editor-toggle]').forEach(function (button) {
+            button.setAttribute('aria-expanded', 'false')
+        })
+    }
+
+    function toggleEditorRow(targetId) {
+        var target = document.getElementById(targetId)
+        var toggle = document.querySelector('[data-group-editor-toggle="' + targetId + '"]')
+        if (!target) {
+            return
+        }
+
+        var isHidden = target.classList.contains('hidden')
+        closeAllEditorRows()
+        if (isHidden) {
+            target.classList.remove('hidden')
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', 'true')
+            }
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var showButton = document.getElementById('show-add-group-form')
         var addForm = document.getElementById('add-group-form')
         var cancelButton = document.getElementById('cancel-add-group-form')
         var frontPageToggles = document.querySelectorAll('.sponsor-group-front-page-toggle')
+        var editToggles = document.querySelectorAll('[data-group-editor-toggle]')
+        var closeEditorButtons = document.querySelectorAll('[data-group-editor-close]')
 
         if (showButton) {
             showButton.addEventListener('click', function () {
+                closeAllEditorRows()
                 showAddGroupForm(addForm, showButton)
             })
         }
@@ -112,6 +141,28 @@
                 hideAddGroupForm(addForm, showButton)
             })
         }
+
+        editToggles.forEach(function (toggle) {
+            toggle.addEventListener('click', function () {
+                hideAddGroupForm(addForm, showButton)
+                toggleEditorRow(toggle.dataset.groupEditorToggle)
+            })
+        })
+
+        closeEditorButtons.forEach(function (button) {
+            button.addEventListener('click', function () {
+                var target = document.getElementById(button.dataset.groupEditorClose)
+                if (target) {
+                    target.classList.add('hidden')
+                }
+                var toggle = document.querySelector(
+                    '[data-group-editor-toggle="' + button.dataset.groupEditorClose + '"]'
+                )
+                if (toggle) {
+                    toggle.setAttribute('aria-expanded', 'false')
+                }
+            })
+        })
 
         frontPageToggles.forEach(function (toggle) {
             toggle.addEventListener('change', function () {

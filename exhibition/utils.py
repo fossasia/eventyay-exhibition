@@ -1,13 +1,16 @@
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 from django.db.models import Q, QuerySet
-
 from eventyay.common.urls import get_url_origin, normalize_url_scheme
 
-from .models import ExhibitorInfo
+if TYPE_CHECKING:
+    from .models import ExhibitorInfo
 
 
-def public_exhibitors_queryset(event) -> QuerySet[ExhibitorInfo]:
+def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
+    from .models import ExhibitorInfo
+
     has_logo = (Q(logo__isnull=False) & ~Q(logo="")) | (
         Q(logo_url__isnull=False) & ~Q(logo_url="")
     )
@@ -26,10 +29,18 @@ def add_external_image_csp_sources(request, image_urls):
     if not request:
         return
 
-    sources = list(getattr(request, "_external_image_csp_sources", []))
+    existing_sources = list(getattr(request, "_external_image_csp_sources", []))
+    sources = []
+    seen = set()
+    for existing in existing_sources:
+        if existing not in seen:
+            seen.add(existing)
+            sources.append(existing)
+
     for image_url in image_urls:
         origin = get_url_origin(image_url)
-        if origin:
+        if origin and origin not in seen:
+            seen.add(origin)
             sources.append(origin)
 
     request._external_image_csp_sources = sources

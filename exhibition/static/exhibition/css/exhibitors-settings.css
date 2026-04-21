@@ -5,3 +5,44 @@
 .sponsor-group-front-page-cell i {
     margin-left: 6px;
 }
+
+.sponsor-group-display-name {
+    font-weight: 600;
+}
+
+.sponsor-group-edit-toggle {
+    margin-right: 6px;
+}
+
+.sponsor-group-actions-cell {
+    white-space: nowrap;
+}
+
+.sponsor-group-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.sponsor-group-actions .btn {
+    vertical-align: middle;
+}
+
+.sponsor-group-delete-form {
+    margin: 0;
+}
+
+.sponsor-group-editor-row > td {
+    background: #f8fafc;
+    padding-top: 18px !important;
+    padding-bottom: 12px !important;
+}
+
+.sponsor-group-editor-form {
+    margin-bottom: 0;
+}
+
+.sponsor-group-editor-actions {
+    margin-bottom: 0;
+}

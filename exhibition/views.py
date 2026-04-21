@@ -14,6 +14,7 @@ from .forms import (
     ExhibitorExtraLinkFormSet,
     ExhibitorInfoForm,
     ExhibitorSocialLinkFormSet,
+    SponsorGroupForm,
     social_link_prefixes,
 )
 from .models import ExhibitorInfo, ExhibitorSettings, SponsorGroup, generate_booth_id
@@ -48,11 +49,28 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         ctx["settings"] = settings
         ctx["default_fields"] = ["attendee_name", "attendee_email"]
         ctx["active_tab"] = self.get_active_tab()
-        ctx["sponsor_groups"] = (
-            SponsorGroup.objects.filter(event=self.request.event)
-            .annotate(partner_count=Count("partners"))
-            .order_by("name")
+
+        edit_group_forms = kwargs.get("edit_group_forms", {})
+        sponsor_groups = list(
+            SponsorGroup.objects.filter(event=self.request.event).annotate(
+                partner_count=Count("partners")
+            )
         )
+        sponsor_groups.sort(key=lambda group: group.localized_name.lower())
+        for group in sponsor_groups:
+            group.edit_form = edit_group_forms.get(group.pk) or SponsorGroupForm(
+                instance=group,
+                event=self.request.event,
+                prefix=f"group-{group.pk}",
+            )
+
+        ctx["sponsor_groups"] = sponsor_groups
+        ctx["add_group_form"] = kwargs.get("add_group_form") or SponsorGroupForm(
+            event=self.request.event,
+            prefix="new-group",
+        )
+        ctx["show_add_group_form"] = kwargs.get("show_add_group_form", False)
+        ctx["expanded_group_pk"] = kwargs.get("expanded_group_pk")
         return ctx
 
     def post(self, request, *args, **kwargs):
@@ -74,42 +92,46 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             return redirect(f"{request.path}?tab=exhibitors")
 
         if action == "add_group":
-            group_name = request.POST.get("group_name", "").strip()
-            if not group_name:
-                messages.error(self.request, _("Please enter a group name."))
-            elif SponsorGroup.objects.filter(
-                event=request.event, name__iexact=group_name
-            ).exists():
-                messages.error(
-                    self.request, _("A sponsor group with this name already exists.")
-                )
-            else:
-                SponsorGroup.objects.create(event=request.event, name=group_name)
+            form = SponsorGroupForm(
+                request.POST,
+                event=request.event,
+                prefix="new-group",
+            )
+            if form.is_valid():
+                group = form.save(commit=False)
+                group.event = request.event
+                group.save()
                 messages.success(self.request, _("Sponsor group added."))
-            return redirect(f"{request.path}?tab=sponsors")
+                return redirect(f"{request.path}?tab=sponsors")
+
+            return self.render_to_response(
+                self.get_context_data(
+                    add_group_form=form,
+                    show_add_group_form=True,
+                )
+            )
 
         if action == "rename_group":
             group = get_object_or_404(
                 SponsorGroup, pk=request.POST.get("group_id"), event=request.event
             )
-            group_name = request.POST.get("group_name", "").strip()
-            if not group_name:
-                messages.error(self.request, _("Please enter a group name."))
-            elif (
-                SponsorGroup.objects.filter(
-                    event=request.event, name__iexact=group_name
-                )
-                .exclude(pk=group.pk)
-                .exists()
-            ):
-                messages.error(
-                    self.request, _("A sponsor group with this name already exists.")
-                )
-            else:
-                group.name = group_name
-                group.save(update_fields=["name"])
+            form = SponsorGroupForm(
+                request.POST,
+                instance=group,
+                event=request.event,
+                prefix=f"group-{group.pk}",
+            )
+            if form.is_valid():
+                form.save()
                 messages.success(self.request, _("Sponsor group updated."))
-            return redirect(f"{request.path}?tab=sponsors")
+                return redirect(f"{request.path}?tab=sponsors")
+
+            return self.render_to_response(
+                self.get_context_data(
+                    edit_group_forms={group.pk: form},
+                    expanded_group_pk=group.pk,
+                )
+            )
 
         if action == "delete_group":
             group = get_object_or_404(

@@ -14,6 +14,7 @@
         var boothIdWrapper = document.getElementById('booth-id-wrapper')
         var leadScanningSection = document.getElementById('lead-scanning-section')
         var socialLinksFormset = document.getElementById('social-links-formset')
+        var extraLinksFormset = document.getElementById('extra-links-formset')
         var socialLinkPrefixes = {}
 
         if (socialLinksFormset && socialLinksFormset.dataset.socialLinkPrefixes) {
@@ -194,10 +195,26 @@
         document.querySelectorAll('[data-partner-image-source-pair]').forEach(initImageSourcePair)
         document.querySelectorAll('[data-social-link-row]').forEach(initSocialLinkRow)
 
-        if (window.jQuery && socialLinksFormset) {
-            window.jQuery(socialLinksFormset).on('formAdded', 'div', function (event) {
-                initSocialLinkRow(event.target)
-            })
+        if (window.jQuery) {
+            if (socialLinksFormset) {
+                var $socialLinksFormset = window.jQuery(socialLinksFormset)
+                $socialLinksFormset.formset({
+                    animateForms: true,
+                    reorderMode: 'animate',
+                    emptyForm: 'template[data-formset-empty-form]',
+                })
+                $socialLinksFormset.on('formAdded', 'div', function (event) {
+                    initSocialLinkRow(event.target)
+                })
+            }
+
+            if (extraLinksFormset) {
+                window.jQuery(extraLinksFormset).formset({
+                    animateForms: true,
+                    reorderMode: 'animate',
+                    emptyForm: 'template[data-formset-empty-form]',
+                })
+            }
         }
     })
 })()

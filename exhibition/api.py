@@ -1,9 +1,9 @@
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from eventyay.common.urls import normalize_url_scheme
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
 from eventyay.base.models import OrderPosition
+from eventyay.common.urls import normalize_url_scheme
 from i18nfield.strings import LazyI18nString
 from rest_framework import serializers, status, views, viewsets
 from rest_framework.response import Response
@@ -19,7 +19,6 @@ from .models import (
     generate_booth_id,
 )
 from .social_links import SOCIAL_LINK_SPECS
-
 
 UNSET = object()
 
@@ -69,8 +68,12 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     sponsor_group_name = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, write_only=True
     )
-    social_links = serializers.ListField(child=serializers.DictField(), required=False)
-    extra_links = serializers.ListField(child=serializers.DictField(), required=False)
+    social_links = serializers.ListField(
+        child=serializers.DictField(), required=False, write_only=True
+    )
+    extra_links = serializers.ListField(
+        child=serializers.DictField(), required=False, write_only=True
+    )
 
     class Meta:
         model = ExhibitorInfo
@@ -104,7 +107,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["sponsor_group_name"] = (
-            instance.sponsor_group.name if instance.sponsor_group else None
+            instance.sponsor_group.localized_name if instance.sponsor_group else None
         )
         data["logo_url"] = instance.visible_logo_url
         data["header_image_url"] = instance.visible_header_image_url
@@ -174,10 +177,16 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         sponsor_group_name = str(sponsor_group_name or "").strip()
         if not sponsor_group_name:
             return None
-        return SponsorGroup.objects.get_or_create(
-            event=self.context["event"],
-            name=sponsor_group_name,
-        )[0]
+
+        event = self.context["event"]
+        for group in SponsorGroup.objects.filter(event=event):
+            if group.localized_name == sponsor_group_name:
+                return group
+
+        return SponsorGroup.objects.create(
+            event=event,
+            name={event.locale or settings.LANGUAGE_CODE: sponsor_group_name},
+        )
 
     def _apply_business_rules(self, instance, sponsor_group_name=UNSET):
         if instance.is_sponsor:

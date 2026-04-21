@@ -1,6 +1,7 @@
 from django import forms
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+from django.db import transaction
 from django.forms import inlineformset_factory
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.forms import I18nModelForm
@@ -115,7 +116,6 @@ class ExhibitorInfoForm(I18nModelForm):
             "header_image_url",
             "is_sponsor",
             "sponsor_group",
-            "not_an_exhibitor",
             "booth_id",
             "booth_name",
             "lead_scanning_enabled",
@@ -144,7 +144,7 @@ class ExhibitorInfoForm(I18nModelForm):
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(
             event=self.event
-        ).order_by("name")
+        ).order_by("pk")
         self.fields["sponsor_group"].empty_label = _("No sponsor group")
         for field_name in ("logo", "header_image"):
             self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
@@ -247,6 +247,7 @@ class ExhibitorInfoForm(I18nModelForm):
 
         instance = super().save(commit=False)
         instance.is_exhibitor = self.cleaned_data.get("is_exhibitor", True)
+        files_to_delete: set[str] = set()
 
         for image_field, url_field in self.file_url_fields.items():
             if image_field == "slides":
@@ -262,20 +263,20 @@ class ExhibitorInfoForm(I18nModelForm):
 
             if image_url:
                 if previous_file and previous_file.name:
-                    default_storage.delete(previous_file.name)
+                    files_to_delete.add(previous_file.name)
                 setattr(instance, image_field, None)
                 setattr(instance, url_field, image_url)
                 continue
 
             if uploaded_file:
                 if previous_file and previous_file.name:
-                    default_storage.delete(previous_file.name)
+                    files_to_delete.add(previous_file.name)
                 setattr(instance, url_field, "")
                 continue
 
             if clear_selected:
                 if previous_file and previous_file.name:
-                    default_storage.delete(previous_file.name)
+                    files_to_delete.add(previous_file.name)
                 setattr(instance, image_field, None)
                 setattr(instance, url_field, "")
 
@@ -288,24 +289,41 @@ class ExhibitorInfoForm(I18nModelForm):
 
         if slides_url:
             if previous_slides and previous_slides.name:
-                default_storage.delete(previous_slides.name)
+                files_to_delete.add(previous_slides.name)
             instance.slides = None
             instance.slides_url = slides_url
         elif uploaded_slides:
             if previous_slides and previous_slides.name:
-                default_storage.delete(previous_slides.name)
+                files_to_delete.add(previous_slides.name)
             instance.slides_url = ""
         elif clear_slides:
             if previous_slides and previous_slides.name:
-                default_storage.delete(previous_slides.name)
+                files_to_delete.add(previous_slides.name)
             instance.slides = None
             instance.slides_url = ""
 
         if commit:
             instance.save()
             self.save_m2m()
+            if files_to_delete:
+
+                def delete_replaced_files():
+                    for file_name in files_to_delete:
+                        default_storage.delete(file_name)
+
+                transaction.on_commit(delete_replaced_files)
 
         return instance
+
+
+class SponsorGroupForm(I18nModelForm):
+    class Meta:
+        model = SponsorGroup
+        localized_fields = "__all__"
+        fields = ["name"]
+        labels = {
+            "name": _("Group Name"),
+        }
 
 
 class ExhibitorSocialLinkForm(forms.ModelForm):

@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.models import Event
+from eventyay.common.utils.language import localize_event_text
 from i18nfield.fields import I18nCharField, I18nTextField
 from i18nfield.strings import LazyI18nString
 
@@ -79,23 +80,21 @@ class SponsorGroup(models.Model):
     event = models.ForeignKey(
         Event, on_delete=models.CASCADE, related_name="sponsor_groups"
     )
-    name = models.CharField(max_length=120, verbose_name=_("Group Name"))
+    name = I18nCharField(max_length=120, verbose_name=_("Group Name"))
     show_on_front_page = models.BooleanField(
         default=False,
         verbose_name=_("Show this sponsor group on the front page."),
     )
 
     class Meta:
-        ordering = ("name",)
-        constraints = [
-            models.UniqueConstraint(
-                fields=["event", "name"],
-                name="exhibition_event_sponsor_group_name_uniq",
-            ),
-        ]
+        ordering = ("pk",)
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
 
     def __str__(self):
-        return self.name
+        return self.localized_name or str(self.name)
 
 
 class ExhibitorInfo(models.Model):
