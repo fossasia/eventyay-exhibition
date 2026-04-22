@@ -1,0 +1,63 @@
+.partner-image-preview {
+    object-fit: contain;
+    object-position: center;
+    background: #f8f8f8;
+}
+
+.partner-image-preview-logo {
+    width: 180px;
+    height: 180px;
+}
+
+.partner-image-preview-header {
+    width: 420px;
+    height: 180px;
+    max-width: 100%;
+}
+
+.partner-link-formset {
+    margin-bottom: 8px;
+}
+
+.partner-link-group-label {
+    font-weight: 600;
+}
+
+.partner-link-actions {
+    margin-top: 10px;
+}
+
+.partner-link-add {
+    min-width: 40px;
+}
+
+.partner-link-row {
+    margin-bottom: 14px;
+}
+
+.partner-link-row .form-group {
+    margin-bottom: 0;
+}
+
+.partner-link-row .help-block,
+.partner-link-row .errorlist {
+    margin-bottom: 0;
+}
+
+.partner-link-prefix {
+    min-width: 170px;
+    max-width: 230px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.partner-link-remove {
+    min-width: 40px;
+}
+
+@media (max-width: 991px) {
+    .partner-link-remove {
+        margin-top: 10px;
+    }
+}
