@@ -121,6 +121,47 @@
         }
     }
 
+    function syncEditorRows(listElement) {
+        if (!listElement) {
+            return
+        }
+
+        listElement.querySelectorAll('.sponsor-group-row').forEach(function (row) {
+            var editorId = row.dataset.editorId
+            var editorRow = editorId ? document.getElementById(editorId) : null
+            if (!editorRow) {
+                return
+            }
+            if (row.nextElementSibling !== editorRow) {
+                listElement.insertBefore(editorRow, row.nextElementSibling)
+            }
+        })
+    }
+
+    function getOrderedGroupIds(listElement) {
+        return Array.prototype.map.call(
+            listElement.querySelectorAll('.sponsor-group-row'),
+            function (row) {
+                return row.dataset.groupId
+            }
+        )
+    }
+
+    function updateDisplayedLevels(listElement, levels) {
+        if (!listElement || !levels) {
+            return
+        }
+        levels.forEach(function (item) {
+            var row = listElement.querySelector(
+                '.sponsor-group-row[data-group-id="' + item.id + '"]'
+            )
+            var levelElement = row ? row.querySelector('[data-group-level]') : null
+            if (levelElement) {
+                levelElement.textContent = item.level
+            }
+        })
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var showButton = document.getElementById('show-add-group-form')
         var addForm = document.getElementById('add-group-form')
@@ -128,6 +169,8 @@
         var frontPageToggles = document.querySelectorAll('.sponsor-group-front-page-toggle')
         var editToggles = document.querySelectorAll('[data-group-editor-toggle]')
         var closeEditorButtons = document.querySelectorAll('[data-group-editor-close]')
+        var sponsorGroupsTable = document.querySelector('.sponsor-groups-table')
+        var sponsorGroupList = document.querySelector('[data-sponsor-group-list]')
 
         if (showButton) {
             showButton.addEventListener('click', function () {
@@ -169,5 +212,45 @@
                 handleFrontPageToggle(toggle)
             })
         })
+
+        if (window.Sortable && sponsorGroupList && sponsorGroupsTable) {
+            Sortable.create(sponsorGroupList, {
+                draggable: '.sponsor-group-row',
+                handle: '[data-group-drag-handle]',
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                chosenClass: 'sortable-chosen',
+                onEnd: function () {
+                    syncEditorRows(sponsorGroupList)
+                    var orderedGroupIds = getOrderedGroupIds(sponsorGroupList)
+
+                    fetch(sponsorGroupsTable.dataset.groupReorderUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('eventyay_csrftoken') || getCookie('csrftoken'),
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            action: 'reorder_groups',
+                            tab: 'sponsors',
+                            group_ids: orderedGroupIds,
+                        }),
+                    })
+                        .then(function (response) {
+                            if (!response.ok) {
+                                throw new Error('Could not update sponsor group order.')
+                            }
+                            return response.json()
+                        })
+                        .then(function (data) {
+                            updateDisplayedLevels(sponsorGroupList, data.levels)
+                        })
+                        .catch(function () {
+                            window.location.reload()
+                        })
+                },
+            })
+        }
     })
 })()

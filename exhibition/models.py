@@ -3,7 +3,7 @@ import secrets
 import string
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import Max, Q
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.models import Event
 from eventyay.common.utils.language import localize_event_text
@@ -31,6 +31,17 @@ def generate_booth_id(event=None):
             queryset = queryset.filter(event=event)
         if not queryset.exists():
             return booth_id
+
+
+def get_next_sponsor_group_level(event):
+    if not event:
+        return 1
+    return (
+        SponsorGroup.objects.filter(event=event)
+        .aggregate(max_level=Max("level"))
+        .get("max_level")
+        or 0
+    ) + 1
 
 
 def exhibitor_logo_path(instance, filename):
@@ -81,13 +92,16 @@ class SponsorGroup(models.Model):
         Event, on_delete=models.CASCADE, related_name="sponsor_groups"
     )
     name = I18nCharField(max_length=120, verbose_name=_("Group Name"))
+    level = models.PositiveIntegerField(
+        default=1, db_index=True, verbose_name=_("Level")
+    )
     show_on_front_page = models.BooleanField(
         default=False,
         verbose_name=_("Show this sponsor group on the front page."),
     )
 
     class Meta:
-        ordering = ("pk",)
+        ordering = ("level", "pk")
 
     @property
     def localized_name(self):
