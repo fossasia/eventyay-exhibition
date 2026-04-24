@@ -1,0 +1,40 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load event_tags %}
+{% load static %}
+
+{% block pagetitle %}{% trans "Exhibition" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-public-list.css' %}">
+{% endblock %}
+
+{% block content %}
+    <main aria-label="{% trans 'Exhibition' %}">
+        <section class="front-page exhibition-public-page" aria-labelledby="exhibition-heading">
+            <h2 id="exhibition-heading">{% trans "Exhibition" %}</h2>
+            {% if exhibitors %}
+                <div class="exhibition-public-grid">
+                    {% for exhibitor in exhibitors %}
+                        <a href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=exhibitor.pk %}" class="exhibition-public-card-link">
+                            <article class="exhibition-public-card">
+                                <div class="exhibition-public-card-image">
+                                    <img src="{{ exhibitor.visible_header_image_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
+                                </div>
+                                <div class="exhibition-public-card-body">
+                                    <span class="exhibition-public-card-logo-wrap">
+                                        <img class="exhibition-public-card-logo" src="{{ exhibitor.visible_logo_url }}" alt="{{ exhibitor.name|event_localize }} logo" loading="lazy">
+                                    </span>
+                                    <h3 class="exhibition-public-card-name">{{ exhibitor.name|event_localize }}</h3>
+                                </div>
+                            </article>
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p>{% trans "No exhibitors are currently available." %}</p>
+            {% endif %}
+        </section>
+    </main>
+{% endblock %}

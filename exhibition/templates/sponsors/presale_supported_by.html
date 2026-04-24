@@ -1,0 +1,29 @@
+{% load i18n %}
+{% load event_tags %}
+<section class="front-page exhibition-supported-by" aria-labelledby="supported-by-heading">
+    <h3 id="supported-by-heading">{% trans "Supported By" %}</h3>
+    {% for group in sponsor_groups %}
+        <div class="exhibition-supported-by-group">
+            <h4>{{ group.localized_name }}</h4>
+            <div class="row exhibition-supported-by-grid">
+                {% for partner in group.front_page_partners %}
+                    {% if partner.visible_logo_url %}
+                        <div class="col-md-3 col-sm-6 col-xs-12 exhibition-supported-by-card">
+                            {% if partner.url %}
+                                <a href="{{ partner.url }}" target="_blank" rel="noopener noreferrer" class="exhibition-supported-by-link">
+                            {% endif %}
+                                    <div class="thumbnail">
+                                        <div class="exhibition-supported-by-logo">
+                                            <img src="{{ partner.visible_logo_url }}" alt="{{ partner.name|event_localize }}" loading="lazy">
+                                        </div>
+                                    </div>
+                            {% if partner.url %}
+                                </a>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+</section>

@@ -1,0 +1,119 @@
+.exhibition-public-page {
+    margin-top: 32px;
+}
+
+.exhibition-public-page h2 {
+    margin-top: 0;
+    margin-bottom: 24px;
+}
+
+.exhibition-public-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 28px;
+}
+
+.exhibition-public-card-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    height: 100%;
+}
+
+.exhibition-public-card-link:hover,
+.exhibition-public-card-link:focus {
+    color: inherit;
+    text-decoration: none;
+}
+
+.exhibition-public-card {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: visible;
+    transition: none;
+}
+
+.exhibition-public-card-link:hover .exhibition-public-card,
+.exhibition-public-card-link:focus .exhibition-public-card {
+    transform: none;
+    box-shadow: none;
+}
+
+.exhibition-public-card-image {
+    background: #edf2f7;
+    height: 220px;
+    overflow: hidden;
+    border-radius: 16px;
+}
+
+.exhibition-public-card-image img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center;
+}
+
+.exhibition-public-card-body {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 84px;
+    padding: 16px 0 0;
+}
+
+.exhibition-public-card-logo-wrap {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.exhibition-public-card-logo {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+}
+
+.exhibition-public-card-name {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #1f2933;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
+@media (max-width: 992px) {
+    .exhibition-public-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .exhibition-public-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .exhibition-public-card-image {
+        height: 200px;
+    }
+
+    .exhibition-public-card-name {
+        font-size: 1.55rem;
+    }
+}
