@@ -1,7 +1,7 @@
 from django.db.models import Prefetch
 from django.dispatch import receiver
-from django.templatetags.static import static
 from django.template.loader import get_template
+from django.templatetags.static import static
 from django.urls import resolve, reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _

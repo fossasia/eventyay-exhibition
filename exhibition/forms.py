@@ -1,5 +1,4 @@
 from django import forms
-from django.db.models import Max
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
@@ -13,6 +12,7 @@ from .models import (
     ExhibitorInfo,
     ExhibitorSocialLink,
     SponsorGroup,
+    get_next_sponsor_group_level,
 )
 from .social_links import (
     SOCIAL_LINK_CHOICES,
@@ -140,9 +140,10 @@ class ExhibitorInfoForm(I18nModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        event = kwargs.pop("event", None)
         instance = kwargs.get("instance")
-        self.event = kwargs.get("event") or getattr(instance, "event", None)
         super().__init__(*args, **kwargs)
+        self.event = event or getattr(instance, "event", None)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(
             event=self.event
         ).order_by("pk")
@@ -329,29 +330,20 @@ class SponsorGroupForm(I18nModelForm):
         }
 
     def __init__(self, *args, **kwargs):
-        self.event = kwargs.get("event") or getattr(
-            kwargs.get("instance"), "event", None
-        )
+        event = kwargs.pop("event", None)
         super().__init__(*args, **kwargs)
+        self.event = event or getattr(self.instance, "event", None)
 
     def clean_level(self):
         level = self.cleaned_data.get("level")
-        if level:
+        if level is not None:
             return level
         if self.instance and self.instance.pk:
-            return self.instance.level or self._default_level()
+            return self.instance.level
         return self._default_level()
 
     def _default_level(self):
-        if not self.event:
-            return 1
-        max_level = (
-            SponsorGroup.objects.filter(event=self.event)
-            .aggregate(Max("level"))
-            .get("level__max")
-            or 0
-        )
-        return max_level + 1
+        return get_next_sponsor_group_level(self.event)
 
 
 class ExhibitorSocialLinkForm(forms.ModelForm):

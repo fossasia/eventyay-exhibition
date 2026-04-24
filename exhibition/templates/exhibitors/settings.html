@@ -157,7 +157,7 @@ Best regards, Your {event} team{% endblocktrans %}
                                     <td>
                                         <span class="sponsor-group-display-name">{{ group.localized_name }}</span>
                                     </td>
-                                    <td><span data-group-level>{% if group.level %}{{ group.level }}{% else %}{{ forloop.counter }}{% endif %}</span></td>
+                                    <td><span data-group-level>{{ group.level }}</span></td>
                                     <td>{{ group.partner_count }}</td>
                                     <td class="text-center sponsor-group-front-page-cell">
                                         <label class="toggle-switch" title="{% translate 'Show this sponsor group in the Supported By section on the front page.' %}">

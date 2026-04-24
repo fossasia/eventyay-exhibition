@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
             name="level",
             field=models.PositiveIntegerField(
                 db_index=True,
-                default=0,
+                default=1,
                 verbose_name="Level",
             ),
         ),

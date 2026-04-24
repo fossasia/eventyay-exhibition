@@ -2,7 +2,7 @@ import json
 
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Count, Max
+from django.db.models import Count
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -19,7 +19,13 @@ from .forms import (
     SponsorGroupForm,
     social_link_prefixes,
 )
-from .models import ExhibitorInfo, ExhibitorSettings, SponsorGroup, generate_booth_id
+from .models import (
+    ExhibitorInfo,
+    ExhibitorSettings,
+    SponsorGroup,
+    generate_booth_id,
+    get_next_sponsor_group_level,
+)
 from .social_links import serialize_social_link
 from .utils import (
     add_external_image_csp_sources,
@@ -76,12 +82,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         return ctx
 
     def get_next_sponsor_group_level(self):
-        return (
-            SponsorGroup.objects.filter(event=self.request.event)
-            .aggregate(Max("level"))
-            .get("level__max")
-            or 0
-        ) + 1
+        return get_next_sponsor_group_level(self.request.event)
 
     def post(self, request, *args, **kwargs):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
@@ -340,20 +341,38 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return JsonResponse({"detail": _("Invalid request body.")}, status=400)
 
-        groups = list(
-            SponsorGroup.objects.filter(event=request.event, pk__in=group_ids)
-        )
-        if len(groups) != len(group_ids):
+        if not isinstance(group_ids, list):
+            return JsonResponse({"detail": _("Invalid sponsor group IDs.")}, status=400)
+
+        try:
+            group_ids = [int(group_id) for group_id in group_ids]
+        except (TypeError, ValueError):
+            return JsonResponse({"detail": _("Invalid sponsor group IDs.")}, status=400)
+
+        if len(group_ids) != len(set(group_ids)):
             return JsonResponse(
-                {"detail": _("Unknown sponsor groups in reorder request.")},
+                {"detail": _("Sponsor group IDs must be unique.")},
+                status=400,
+            )
+
+        groups = list(
+            SponsorGroup.objects.filter(event=request.event).order_by("level", "pk")
+        )
+        known_group_ids = [group.pk for group in groups]
+        if len(group_ids) != len(known_group_ids) or set(group_ids) != set(
+            known_group_ids
+        ):
+            return JsonResponse(
+                {
+                    "detail": _(
+                        "Reorder request must include each sponsor group exactly once."
+                    )
+                },
                 status=400,
             )
 
         group_lookup = {group.pk: group for group in groups}
-        try:
-            ordered_groups = [group_lookup[int(group_id)] for group_id in group_ids]
-        except (KeyError, TypeError, ValueError):
-            return JsonResponse({"detail": _("Invalid sponsor group IDs.")}, status=400)
+        ordered_groups = [group_lookup[group_id] for group_id in group_ids]
 
         with transaction.atomic():
             for index, group in enumerate(ordered_groups, start=1):

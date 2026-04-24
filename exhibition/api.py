@@ -1,6 +1,5 @@
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
 from django.utils import timezone
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
 from eventyay.base.models import OrderPosition
@@ -18,6 +17,7 @@ from .models import (
     Lead,
     SponsorGroup,
     generate_booth_id,
+    get_next_sponsor_group_level,
 )
 from .social_links import SOCIAL_LINK_SPECS
 
@@ -33,6 +33,22 @@ def _localize_i18n_value(value, locale):
 def _get_exhibitor_locale(exhibitor):
     event = getattr(exhibitor, "event", None)
     return getattr(event, "locale", None) or settings.LANGUAGE_CODE
+
+
+class SponsorGroupNameField(serializers.CharField):
+    def get_attribute(self, instance):
+        return instance
+
+    def to_representation(self, value):
+        return value.sponsor_group.localized_name if value.sponsor_group else None
+
+
+class SponsorGroupLevelField(serializers.IntegerField):
+    def get_attribute(self, instance):
+        return instance
+
+    def to_representation(self, value):
+        return value.sponsor_group.level if value.sponsor_group else None
 
 
 class ExhibitorAuthView(views.APIView):
@@ -66,11 +82,11 @@ class ExhibitorAuthView(views.APIView):
 
 class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     sponsor_group = serializers.PrimaryKeyRelatedField(read_only=True)
-    sponsor_group_name = serializers.CharField(
-        required=False, allow_blank=True, allow_null=True, write_only=True
+    sponsor_group_name = SponsorGroupNameField(
+        required=False, allow_blank=True, allow_null=True
     )
-    sponsor_group_level = serializers.IntegerField(
-        required=False, allow_null=True, min_value=1, write_only=True
+    sponsor_group_level = SponsorGroupLevelField(
+        required=False, allow_null=True, min_value=1
     )
     social_links = serializers.ListField(
         child=serializers.DictField(), required=False, write_only=True
@@ -111,12 +127,6 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["sponsor_group_name"] = (
-            instance.sponsor_group.localized_name if instance.sponsor_group else None
-        )
-        data["sponsor_group_level"] = (
-            instance.sponsor_group.level if instance.sponsor_group else None
-        )
         data["logo_url"] = instance.visible_logo_url
         data["header_image_url"] = instance.visible_header_image_url
         data["slides_url"] = instance.visible_slides_url
@@ -188,30 +198,46 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
 
         event = self.context["event"]
         groups = list(SponsorGroup.objects.filter(event=event).order_by("level", "pk"))
+        name_matches = [
+            group for group in groups if group.localized_name == sponsor_group_name
+        ]
 
         if sponsor_group_level is not UNSET and sponsor_group_level is not None:
-            for group in groups:
-                if (
-                    group.localized_name == sponsor_group_name
-                    and group.level == sponsor_group_level
-                ):
-                    return group
-
-        for group in groups:
-            if group.localized_name == sponsor_group_name:
-                if sponsor_group_level is not UNSET and sponsor_group_level is not None:
-                    if group.level != sponsor_group_level:
-                        group.level = sponsor_group_level
-                        group.save(update_fields=["level"])
-                return group
+            exact_matches = [
+                group for group in name_matches if group.level == sponsor_group_level
+            ]
+            if len(exact_matches) == 1:
+                return exact_matches[0]
+            if len(exact_matches) > 1:
+                raise serializers.ValidationError(
+                    {
+                        "sponsor_group_name": (
+                            "Multiple sponsor groups match this name and level."
+                        )
+                    }
+                )
+            if name_matches:
+                raise serializers.ValidationError(
+                    {
+                        "sponsor_group_level": (
+                            "Level does not match existing sponsor group."
+                        )
+                    }
+                )
+        else:
+            if len(name_matches) == 1:
+                return name_matches[0]
+            if len(name_matches) > 1:
+                raise serializers.ValidationError(
+                    {
+                        "sponsor_group_name": (
+                            "Multiple sponsor groups match this name. Provide sponsor_group_level."
+                        )
+                    }
+                )
 
         if sponsor_group_level is UNSET or sponsor_group_level is None:
-            sponsor_group_level = (
-                SponsorGroup.objects.filter(event=event)
-                .aggregate(Max("level"))
-                .get("level__max")
-                or 0
-            ) + 1
+            sponsor_group_level = get_next_sponsor_group_level(event)
 
         return SponsorGroup.objects.create(
             event=event,
