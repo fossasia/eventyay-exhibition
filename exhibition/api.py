@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
 from eventyay.base.models import OrderPosition
@@ -68,6 +69,9 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     sponsor_group_name = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, write_only=True
     )
+    sponsor_group_level = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, write_only=True
+    )
     social_links = serializers.ListField(
         child=serializers.DictField(), required=False, write_only=True
     )
@@ -92,6 +96,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             "is_sponsor",
             "sponsor_group",
             "sponsor_group_name",
+            "sponsor_group_level",
             "is_exhibitor",
             "booth_id",
             "booth_name",
@@ -108,6 +113,9 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         data = super().to_representation(instance)
         data["sponsor_group_name"] = (
             instance.sponsor_group.localized_name if instance.sponsor_group else None
+        )
+        data["sponsor_group_level"] = (
+            instance.sponsor_group.level if instance.sponsor_group else None
         )
         data["logo_url"] = instance.visible_logo_url
         data["header_image_url"] = instance.visible_header_image_url
@@ -173,25 +181,52 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
 
         return data
 
-    def _resolve_sponsor_group(self, sponsor_group_name):
+    def _resolve_sponsor_group(self, sponsor_group_name, sponsor_group_level=UNSET):
         sponsor_group_name = str(sponsor_group_name or "").strip()
         if not sponsor_group_name:
             return None
 
         event = self.context["event"]
-        for group in SponsorGroup.objects.filter(event=event):
+        groups = list(SponsorGroup.objects.filter(event=event).order_by("level", "pk"))
+
+        if sponsor_group_level is not UNSET and sponsor_group_level is not None:
+            for group in groups:
+                if (
+                    group.localized_name == sponsor_group_name
+                    and group.level == sponsor_group_level
+                ):
+                    return group
+
+        for group in groups:
             if group.localized_name == sponsor_group_name:
+                if sponsor_group_level is not UNSET and sponsor_group_level is not None:
+                    if group.level != sponsor_group_level:
+                        group.level = sponsor_group_level
+                        group.save(update_fields=["level"])
                 return group
+
+        if sponsor_group_level is UNSET or sponsor_group_level is None:
+            sponsor_group_level = (
+                SponsorGroup.objects.filter(event=event)
+                .aggregate(Max("level"))
+                .get("level__max")
+                or 0
+            ) + 1
 
         return SponsorGroup.objects.create(
             event=event,
             name={event.locale or settings.LANGUAGE_CODE: sponsor_group_name},
+            level=sponsor_group_level,
         )
 
-    def _apply_business_rules(self, instance, sponsor_group_name=UNSET):
+    def _apply_business_rules(
+        self, instance, sponsor_group_name=UNSET, sponsor_group_level=UNSET
+    ):
         if instance.is_sponsor:
             if sponsor_group_name is not UNSET:
-                instance.sponsor_group = self._resolve_sponsor_group(sponsor_group_name)
+                instance.sponsor_group = self._resolve_sponsor_group(
+                    sponsor_group_name, sponsor_group_level=sponsor_group_level
+                )
         else:
             instance.sponsor_group = None
 
@@ -226,8 +261,13 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         social_links = validated_data.pop("social_links", [])
         extra_links = validated_data.pop("extra_links", [])
         sponsor_group_name = validated_data.pop("sponsor_group_name", UNSET)
+        sponsor_group_level = validated_data.pop("sponsor_group_level", UNSET)
         instance = ExhibitorInfo(event=self.context["event"], **validated_data)
-        self._apply_business_rules(instance, sponsor_group_name=sponsor_group_name)
+        self._apply_business_rules(
+            instance,
+            sponsor_group_name=sponsor_group_name,
+            sponsor_group_level=sponsor_group_level,
+        )
         instance.save()
         self._replace_links(
             instance, social_links=social_links, extra_links=extra_links
@@ -239,11 +279,16 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         social_links = validated_data.pop("social_links", UNSET)
         extra_links = validated_data.pop("extra_links", UNSET)
         sponsor_group_name = validated_data.pop("sponsor_group_name", UNSET)
+        sponsor_group_level = validated_data.pop("sponsor_group_level", UNSET)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        self._apply_business_rules(instance, sponsor_group_name=sponsor_group_name)
+        self._apply_business_rules(
+            instance,
+            sponsor_group_name=sponsor_group_name,
+            sponsor_group_level=sponsor_group_level,
+        )
         instance.save()
         self._replace_links(
             instance, social_links=social_links, extra_links=extra_links

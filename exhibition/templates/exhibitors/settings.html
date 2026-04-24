@@ -124,6 +124,7 @@ Best regards, Your {event} team{% endblocktrans %}
                     <input type="hidden" name="action" value="add_group">
                     {% bootstrap_form_errors add_group_form %}
                     {% bootstrap_field add_group_form.name layout="control" %}
+                    {% bootstrap_field add_group_form.level layout="control" %}
                     <div class="form-group submit-group sponsor-group-editor-actions">
                         <div class="col-md-9 col-md-offset-3">
                             <button type="submit" class="btn btn-primary">{% trans "Add" %}</button>
@@ -134,21 +135,29 @@ Best regards, Your {event} team{% endblocktrans %}
 
                 {% if sponsor_groups %}
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover sponsor-groups-table" data-group-reorder-url="{% url 'plugins:exhibition:reorder_groups' organizer=request.event.organizer.slug event=request.event.slug %}">
                             <thead>
                             <tr>
+                                <th class="sponsor-group-handle-column"></th>
                                 <th>{% trans "Group Name" %}</th>
+                                <th>{% trans "Level" %}</th>
                                 <th>{% trans "Partners" %}</th>
                                 <th class="text-center">{% trans "Front Page" %}</th>
                                 <th class="action-col-2"></th>
                             </tr>
                             </thead>
-                            <tbody>
+                            <tbody data-sponsor-group-list>
                             {% for group in sponsor_groups %}
-                                <tr>
+                                <tr class="sponsor-group-row" data-group-id="{{ group.pk }}" data-editor-id="group-editor-{{ group.pk }}">
+                                    <td class="sponsor-group-handle-cell">
+                                        <button type="button" class="btn btn-default btn-sm sponsor-group-drag-handle" data-group-drag-handle aria-label="{% trans 'Reorder sponsor group' %}" title="{% trans 'Reorder sponsor group' %}">
+                                            <i class="fa fa-bars"></i>
+                                        </button>
+                                    </td>
                                     <td>
                                         <span class="sponsor-group-display-name">{{ group.localized_name }}</span>
                                     </td>
+                                    <td><span data-group-level>{% if group.level %}{{ group.level }}{% else %}{{ forloop.counter }}{% endif %}</span></td>
                                     <td>{{ group.partner_count }}</td>
                                     <td class="text-center sponsor-group-front-page-cell">
                                         <label class="toggle-switch" title="{% translate 'Show this sponsor group in the Supported By section on the front page.' %}">
@@ -186,7 +195,7 @@ Best regards, Your {event} team{% endblocktrans %}
                                     </td>
                                 </tr>
                                 <tr id="group-editor-{{ group.pk }}" class="sponsor-group-editor-row {% if expanded_group_pk != group.pk %}hidden{% endif %}">
-                                    <td colspan="4">
+                                    <td colspan="6">
                                         <form action="" method="post" class="form-horizontal sponsor-group-editor-form">
                                             {% csrf_token %}
                                             <input type="hidden" name="tab" value="sponsors">
@@ -194,6 +203,7 @@ Best regards, Your {event} team{% endblocktrans %}
                                             <input type="hidden" name="group_id" value="{{ group.pk }}">
                                             {% bootstrap_form_errors group.edit_form %}
                                             {% bootstrap_field group.edit_form.name layout="control" %}
+                                            {% bootstrap_field group.edit_form.level layout="control" %}
                                             <div class="form-group submit-group sponsor-group-editor-actions">
                                                 <div class="col-md-9 col-md-offset-3">
                                                     <button type="submit" class="btn btn-primary">{% trans "Save" %}</button>

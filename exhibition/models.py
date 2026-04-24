@@ -81,13 +81,16 @@ class SponsorGroup(models.Model):
         Event, on_delete=models.CASCADE, related_name="sponsor_groups"
     )
     name = I18nCharField(max_length=120, verbose_name=_("Group Name"))
+    level = models.PositiveIntegerField(
+        default=0, db_index=True, verbose_name=_("Level")
+    )
     show_on_front_page = models.BooleanField(
         default=False,
         verbose_name=_("Show this sponsor group on the front page."),
     )
 
     class Meta:
-        ordering = ("pk",)
+        ordering = ("level", "pk")
 
     @property
     def localized_name(self):

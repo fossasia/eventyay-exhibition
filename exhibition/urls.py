@@ -19,6 +19,7 @@ from .views import (
     PublicExhibitorListView,
     SettingsView,
     SponsorGroupFrontPageToggleView,
+    SponsorGroupReorderView,
 )
 
 urlpatterns = [
@@ -41,6 +42,11 @@ urlpatterns = [
         "control/event/<str:organizer>/<str:event>/settings/exhibitors/groups/<int:pk>/toggle-front-page",
         SponsorGroupFrontPageToggleView.as_view(),
         name="toggle_front_page",
+    ),
+    path(
+        "control/event/<str:organizer>/<str:event>/settings/exhibitors/groups/reorder",
+        SponsorGroupReorderView.as_view(),
+        name="reorder_groups",
     ),
     path(
         "control/event/<str:organizer>/<str:event>/exhibitors",

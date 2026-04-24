@@ -1,6 +1,8 @@
+import json
+
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -52,11 +54,10 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
 
         edit_group_forms = kwargs.get("edit_group_forms", {})
         sponsor_groups = list(
-            SponsorGroup.objects.filter(event=self.request.event).annotate(
-                partner_count=Count("partners")
-            )
+            SponsorGroup.objects.filter(event=self.request.event)
+            .annotate(partner_count=Count("partners"))
+            .order_by("level", "pk")
         )
-        sponsor_groups.sort(key=lambda group: group.localized_name.lower())
         for group in sponsor_groups:
             group.edit_form = edit_group_forms.get(group.pk) or SponsorGroupForm(
                 instance=group,
@@ -67,11 +68,20 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         ctx["sponsor_groups"] = sponsor_groups
         ctx["add_group_form"] = kwargs.get("add_group_form") or SponsorGroupForm(
             event=self.request.event,
+            initial={"level": self.get_next_sponsor_group_level()},
             prefix="new-group",
         )
         ctx["show_add_group_form"] = kwargs.get("show_add_group_form", False)
         ctx["expanded_group_pk"] = kwargs.get("expanded_group_pk")
         return ctx
+
+    def get_next_sponsor_group_level(self):
+        return (
+            SponsorGroup.objects.filter(event=self.request.event)
+            .aggregate(Max("level"))
+            .get("level__max")
+            or 0
+        ) + 1
 
     def post(self, request, *args, **kwargs):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
@@ -319,6 +329,44 @@ class SponsorGroupFrontPageToggleView(EventPermissionRequiredMixin, View):
         group.show_on_front_page = not group.show_on_front_page
         group.save(update_fields=["show_on_front_page"])
         return JsonResponse({"show_on_front_page": group.show_on_front_page})
+
+
+class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
+    permission = "can_change_settings"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            group_ids = json.loads(request.body.decode("utf-8")).get("group_ids", [])
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JsonResponse({"detail": _("Invalid request body.")}, status=400)
+
+        groups = list(
+            SponsorGroup.objects.filter(event=request.event, pk__in=group_ids)
+        )
+        if len(groups) != len(group_ids):
+            return JsonResponse(
+                {"detail": _("Unknown sponsor groups in reorder request.")},
+                status=400,
+            )
+
+        group_lookup = {group.pk: group for group in groups}
+        try:
+            ordered_groups = [group_lookup[int(group_id)] for group_id in group_ids]
+        except (KeyError, TypeError, ValueError):
+            return JsonResponse({"detail": _("Invalid sponsor group IDs.")}, status=400)
+
+        with transaction.atomic():
+            for index, group in enumerate(ordered_groups, start=1):
+                group.level = index
+            SponsorGroup.objects.bulk_update(ordered_groups, ["level"])
+
+        return JsonResponse(
+            {
+                "levels": [
+                    {"id": group.pk, "level": group.level} for group in ordered_groups
+                ]
+            }
+        )
 
 
 class ExhibitorCreateView(

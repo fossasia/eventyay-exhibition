@@ -5,10 +5,10 @@
     {% for group in sponsor_groups %}
         <div class="exhibition-supported-by-group">
             <h4>{{ group.localized_name }}</h4>
-            <div class="row exhibition-supported-by-grid">
+            <div class="exhibition-supported-by-grid">
                 {% for partner in group.front_page_partners %}
                     {% if partner.visible_logo_url %}
-                        <div class="col-md-3 col-sm-6 col-xs-12 exhibition-supported-by-card">
+                        <div class="exhibition-supported-by-card">
                             {% if partner.url %}
                                 <a href="{{ partner.url }}" target="_blank" rel="noopener noreferrer" class="exhibition-supported-by-link">
                             {% endif %}

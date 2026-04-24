@@ -1,5 +1,6 @@
 from django.db.models import Prefetch
 from django.dispatch import receiver
+from django.templatetags.static import static
 from django.template.loader import get_template
 from django.urls import resolve, reverse
 from django.utils.html import format_html
@@ -8,7 +9,7 @@ from eventyay.control.signals import nav_event, nav_event_settings
 from eventyay.presale.signals import (
     front_page_after_content,
     header_nav_tabs,
-    sass_postamble,
+    html_head,
 )
 
 from .models import ExhibitorInfo, SponsorGroup
@@ -78,7 +79,7 @@ def presale_supported_by(sender, request=None, **kwargs):
         for group in sponsor_groups
         if any(partner.visible_logo_url for partner in group.front_page_partners)
     ]
-    sponsor_groups.sort(key=lambda group: group.localized_name.lower())
+    sponsor_groups.sort(key=lambda group: (group.level, group.pk))
 
     if not sponsor_groups:
         return ""
@@ -122,76 +123,9 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
     )
 
 
-@receiver(sass_postamble, dispatch_uid="exhibition_front_page_supporters_styles")
-def presale_supported_by_styles(sender, filename="", **kwargs):
-    if filename != "main.scss":
-        return ""
-
-    return """
-    .front-page.exhibition-supported-by {
-        margin-top: 32px;
-    }
-
-    .front-page.exhibition-supported-by h3 {
-        margin-top: 0;
-        margin-bottom: 20px;
-    }
-
-    .exhibition-supported-by-group + .exhibition-supported-by-group {
-        margin-top: 28px;
-    }
-
-    .exhibition-supported-by-group h4 {
-        margin: 0 0 14px;
-        font-size: 24px;
-        font-weight: 600;
-    }
-
-    .exhibition-supported-by-grid {
-        margin-left: -9px;
-        margin-right: -9px;
-    }
-
-    .exhibition-supported-by-card {
-        margin-bottom: 18px;
-    }
-
-    .exhibition-supported-by-link {
-        display: block;
-        color: inherit;
-        text-decoration: none;
-    }
-
-    .exhibition-supported-by-link:hover,
-    .exhibition-supported-by-link:focus {
-        color: inherit;
-        text-decoration: none;
-    }
-
-    .exhibition-supported-by-card .thumbnail {
-        margin-bottom: 0;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-
-    .exhibition-supported-by-logo {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        aspect-ratio: 1 / 1;
-        min-height: 220px;
-        padding: 24px;
-        background: #fff;
-    }
-
-    .exhibition-supported-by-logo img {
-        width: 100%;
-        height: 100%;
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-        display: block;
-        margin: 0 auto;
-    }
-
-    """
+@receiver(html_head, dispatch_uid="exhibition_front_page_supporters_styles")
+def presale_supported_by_styles(sender, request=None, **kwargs):
+    return format_html(
+        '<link rel="stylesheet" type="text/css" href="{}">',
+        static("exhibition/css/presale-supported-by.css"),
+    )

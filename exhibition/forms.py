@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Max
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
@@ -317,13 +318,40 @@ class ExhibitorInfoForm(I18nModelForm):
 
 
 class SponsorGroupForm(I18nModelForm):
+    level = forms.IntegerField(min_value=1, required=False, label=_("Level"))
+
     class Meta:
         model = SponsorGroup
         localized_fields = "__all__"
-        fields = ["name"]
+        fields = ["name", "level"]
         labels = {
             "name": _("Group Name"),
         }
+
+    def __init__(self, *args, **kwargs):
+        self.event = kwargs.get("event") or getattr(
+            kwargs.get("instance"), "event", None
+        )
+        super().__init__(*args, **kwargs)
+
+    def clean_level(self):
+        level = self.cleaned_data.get("level")
+        if level:
+            return level
+        if self.instance and self.instance.pk:
+            return self.instance.level or self._default_level()
+        return self._default_level()
+
+    def _default_level(self):
+        if not self.event:
+            return 1
+        max_level = (
+            SponsorGroup.objects.filter(event=self.event)
+            .aggregate(Max("level"))
+            .get("level__max")
+            or 0
+        )
+        return max_level + 1
 
 
 class ExhibitorSocialLinkForm(forms.ModelForm):
