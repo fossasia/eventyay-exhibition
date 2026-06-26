@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout eventyay_exhibition plugin
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Clone eventyay
         run: |
