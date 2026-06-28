@@ -51,9 +51,7 @@ class ExhibitorInfoForm(I18nModelForm):
     header_image_url = forms.URLField(
         required=False,
         label=_("Header Image URL"),
-        help_text=_(
-            "Use an external image URL instead of uploading a header image file."
-        ),
+        help_text=_("Use an external image URL instead of uploading a header image file."),
     )
     sponsor_group = forms.ModelChoiceField(
         queryset=SponsorGroup.objects.none(),
@@ -159,17 +157,13 @@ class ExhibitorInfoForm(I18nModelForm):
         instance = kwargs.get("instance")
         super().__init__(*args, **kwargs)
         self.event = event or getattr(instance, "event", None)
-        self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(
-            event=self.event
-        ).order_by("pk")
+        self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("pk")
         self.fields["sponsor_group"].empty_label = _("No sponsor group")
         for field_name in ("logo", "header_image"):
             self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         if self.instance and self.instance.pk:
-            self.initial["lead_scanning_scope_by_device"] = (
-                self.instance.lead_scanning_scope_by_device
-            )
+            self.initial["lead_scanning_scope_by_device"] = self.instance.lead_scanning_scope_by_device
             self.initial["not_an_exhibitor"] = not self.instance.is_exhibitor
         description_field = self.fields.get("description")
         if description_field:
@@ -202,18 +196,14 @@ class ExhibitorInfoForm(I18nModelForm):
             if slides_url:
                 normalized_slides_url = normalize_url_scheme(slides_url)
                 if not normalized_slides_url.lower().split("?", 1)[0].endswith(".pdf"):
-                    self.add_error(
-                        "slides_url", _("Slides URL must point to a PDF file.")
-                    )
+                    self.add_error("slides_url", _("Slides URL must point to a PDF file."))
                 else:
                     cleaned_data["slides_url"] = normalized_slides_url
 
             if has_new_slides_upload:
                 slides_file = self.files.get(self.add_prefix("slides"))
                 filename = (slides_file.name or "").lower() if slides_file else ""
-                content_type = (
-                    (slides_file.content_type or "").lower() if slides_file else ""
-                )
+                content_type = (slides_file.content_type or "").lower() if slides_file else ""
                 if not filename.endswith(".pdf"):
                     self.add_error("slides", _("Slides upload must be a PDF file."))
                 elif content_type and content_type not in {
@@ -269,13 +259,9 @@ class ExhibitorInfoForm(I18nModelForm):
         for image_field, url_field in self.file_url_fields.items():
             if image_field == "slides":
                 continue
-            previous_file = (
-                getattr(old_instance, image_field, None) if old_instance else None
-            )
+            previous_file = getattr(old_instance, image_field, None) if old_instance else None
             uploaded_file = self.files.get(self.add_prefix(image_field))
-            clear_selected = bool(
-                self.data.get(self.add_prefix(f"{image_field}-clear"))
-            )
+            clear_selected = bool(self.data.get(self.add_prefix(f"{image_field}-clear")))
             image_url = self.cleaned_data.get(url_field) or ""
 
             if image_url:
@@ -297,9 +283,7 @@ class ExhibitorInfoForm(I18nModelForm):
                 setattr(instance, image_field, None)
                 setattr(instance, url_field, "")
 
-        previous_slides = (
-            getattr(old_instance, "slides", None) if old_instance else None
-        )
+        previous_slides = getattr(old_instance, "slides", None) if old_instance else None
         uploaded_slides = self.files.get(self.add_prefix("slides"))
         clear_slides = bool(self.data.get(self.add_prefix("slides-clear")))
         slides_url = self.cleaned_data.get("slides_url") or ""
@@ -538,9 +522,7 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     header_image_url = forms.URLField(
         required=False,
         label=_("Header Image URL"),
-        help_text=_(
-            "Use an external image URL instead of uploading a header image file."
-        ),
+        help_text=_("Use an external image URL instead of uploading a header image file."),
     )
 
     file_url_fields = {
@@ -609,18 +591,10 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self.active_proposal_fields = {}
         self.required_proposal_fields = {}
         if self.event:
-            self.exhibition_settings = ExhibitorSettings.objects.get_or_create(
-                event=self.event
-            )[0]
-            proposal_field_settings = (
-                self.exhibition_settings.normalized_proposal_field_settings
-            )
-            self.active_proposal_fields = {
-                key: value["active"] for key, value in proposal_field_settings.items()
-            }
-            self.required_proposal_fields = {
-                key: value["required"] for key, value in proposal_field_settings.items()
-            }
+            self.exhibition_settings = ExhibitorSettings.objects.get_or_create(event=self.event)[0]
+            proposal_field_settings = self.exhibition_settings.normalized_proposal_field_settings
+            self.active_proposal_fields = {key: value["active"] for key, value in proposal_field_settings.items()}
+            self.required_proposal_fields = {key: value["required"] for key, value in proposal_field_settings.items()}
         self.fields["applying_for"].initial = self.get_applying_for_initial(instance)
         for field_name in ("logo", "header_image"):
             if field_name in self.fields:
@@ -757,9 +731,7 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         return cleaned_data
 
     def validate_required_file_or_url(self, field_name, has_new_upload):
-        if not self.field_setting_is_active(field_name) or not self.field_setting_is_required(
-            field_name
-        ):
+        if not self.field_setting_is_active(field_name) or not self.field_setting_is_required(field_name):
             return
         file_field = self.fields.get(field_name)
         url_field_name = self.file_url_fields[field_name]
@@ -821,9 +793,7 @@ class ExhibitionProposalReviewForm(I18nModelForm):
         instance = kwargs.get("instance")
         super().__init__(*args, **kwargs)
         self.event = event or getattr(instance, "event", None)
-        self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(
-            event=self.event
-        ).order_by("level", "pk")
+        self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
         self.fields["sponsor_group"].empty_label = _("No sponsor group")
 
     def clean(self):
@@ -874,23 +844,17 @@ class ExhibitionQuestionForm(I18nModelForm):
         self.event = kwargs.get("event")
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
-            self.fields["options_text"].initial = "\n".join(
-                str(option) for option in self.instance.options.all()
-            )
+            self.fields["options_text"].initial = "\n".join(str(option) for option in self.instance.options.all())
         elif not self.initial.get("position") and self.event:
-            max_position = ExhibitionQuestion.objects.filter(event=self.event).aggregate(
-                Max("position")
-            )["position__max"]
+            max_position = ExhibitionQuestion.objects.filter(event=self.event).aggregate(Max("position"))[
+                "position__max"
+            ]
             self.initial["position"] = (max_position or -1) + 1
 
     def clean(self):
         cleaned_data = super().clean()
         variant = cleaned_data.get("variant")
-        options = [
-            option.strip()
-            for option in (cleaned_data.get("options_text") or "").splitlines()
-            if option.strip()
-        ]
+        options = [option.strip() for option in (cleaned_data.get("options_text") or "").splitlines() if option.strip()]
         if variant in self.choice_variants and not options:
             self.add_error(
                 "options_text",
@@ -912,9 +876,7 @@ class ExhibitionQuestionForm(I18nModelForm):
             question.options.all().delete()
             return
         options = [
-            option.strip()
-            for option in (self.cleaned_data.get("options_text") or "").splitlines()
-            if option.strip()
+            option.strip() for option in (self.cleaned_data.get("options_text") or "").splitlines() if option.strip()
         ]
         question.options.all().delete()
         locale = self.event.locale if self.event else "en"

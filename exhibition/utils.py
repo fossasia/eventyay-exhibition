@@ -12,9 +12,7 @@ if TYPE_CHECKING:
 def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
     from .models import ExhibitorInfo
 
-    has_logo = (Q(logo__isnull=False) & ~Q(logo="")) | (
-        Q(logo_url__isnull=False) & ~Q(logo_url="")
-    )
+    has_logo = (Q(logo__isnull=False) & ~Q(logo="")) | (Q(logo_url__isnull=False) & ~Q(logo_url=""))
     has_header = (Q(header_image__isnull=False) & ~Q(header_image="")) | (
         Q(header_image_url__isnull=False) & ~Q(header_image_url="")
     )
@@ -94,10 +92,7 @@ def build_exhibitor_video_embed(url: str) -> dict | None:
                 "url": f"https://player.vimeo.com/video/{video_id}",
             }
 
-    if any(
-        parsed.path.lower().endswith(ext)
-        for ext in (".mp4", ".m4v", ".webm", ".ogg", ".mov")
-    ):
+    if any(parsed.path.lower().endswith(ext) for ext in (".mp4", ".m4v", ".webm", ".ogg", ".mov")):
         return {"type": "video", "url": normalized}
 
     if "/embed/" in parsed.path and parsed.scheme == "https":

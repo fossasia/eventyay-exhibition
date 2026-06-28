@@ -160,9 +160,7 @@ SOCIAL_LINK_SPECS = OrderedDict(
     )
 )
 
-SOCIAL_LINK_CHOICES = tuple(
-    (spec.key, spec.label) for spec in SOCIAL_LINK_SPECS.values()
-)
+SOCIAL_LINK_CHOICES = tuple((spec.key, spec.label) for spec in SOCIAL_LINK_SPECS.values())
 
 
 def get_social_link_spec(key: str) -> SocialLinkSpec:

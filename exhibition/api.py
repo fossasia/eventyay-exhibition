@@ -56,9 +56,7 @@ class ExhibitorAuthView(views.APIView):
         key = request.data.get("key")
 
         if not key:
-            return Response(
-                {"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
@@ -82,18 +80,10 @@ class ExhibitorAuthView(views.APIView):
 
 class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     sponsor_group = serializers.PrimaryKeyRelatedField(read_only=True)
-    sponsor_group_name = SponsorGroupNameField(
-        required=False, allow_blank=True, allow_null=True
-    )
-    sponsor_group_level = SponsorGroupLevelField(
-        required=False, allow_null=True, min_value=1
-    )
-    social_links = serializers.ListField(
-        child=serializers.DictField(), required=False, write_only=True
-    )
-    extra_links = serializers.ListField(
-        child=serializers.DictField(), required=False, write_only=True
-    )
+    sponsor_group_name = SponsorGroupNameField(required=False, allow_blank=True, allow_null=True)
+    sponsor_group_level = SponsorGroupLevelField(required=False, allow_null=True, min_value=1)
+    social_links = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
+    extra_links = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
 
     class Meta:
         model = ExhibitorInfo
@@ -130,14 +120,8 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         data["logo_url"] = instance.visible_logo_url
         data["header_image_url"] = instance.visible_header_image_url
         data["slides_url"] = instance.visible_slides_url
-        data["social_links"] = [
-            {"network": link.network, "url": link.url}
-            for link in instance.social_links.all()
-        ]
-        data["extra_links"] = [
-            {"label": link.label, "url": link.url}
-            for link in instance.extra_links.all()
-        ]
+        data["social_links"] = [{"network": link.network, "url": link.url} for link in instance.social_links.all()]
+        data["extra_links"] = [{"label": link.label, "url": link.url} for link in instance.extra_links.all()]
         return data
 
     def validate_social_links(self, value):
@@ -146,13 +130,9 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             network = str(item.get("network", "") or "").strip()
             url = str(item.get("url", "") or "").strip()
             if not network or not url:
-                raise serializers.ValidationError(
-                    "Each social link requires network and url."
-                )
+                raise serializers.ValidationError("Each social link requires network and url.")
             if network not in SOCIAL_LINK_SPECS:
-                raise serializers.ValidationError(
-                    f"Unsupported social network: {network}."
-                )
+                raise serializers.ValidationError(f"Unsupported social network: {network}.")
             normalized.append({"network": network, "url": normalize_url_scheme(url)})
         return normalized
 
@@ -162,9 +142,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             label = str(item.get("label", "") or "").strip()
             url = str(item.get("url", "") or "").strip()
             if not label or not url:
-                raise serializers.ValidationError(
-                    "Each extra link requires label and url."
-                )
+                raise serializers.ValidationError("Each extra link requires label and url.")
             normalized.append({"label": label, "url": normalize_url_scheme(url)})
         return normalized
 
@@ -182,12 +160,8 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             if data.get(field):
                 data[field] = normalize_url_scheme(data[field])
 
-        if data.get("slides_url") and not data["slides_url"].lower().split("?", 1)[
-            0
-        ].endswith(".pdf"):
-            raise serializers.ValidationError(
-                {"slides_url": "Slides URL must point to a PDF file."}
-            )
+        if data.get("slides_url") and not data["slides_url"].lower().split("?", 1)[0].endswith(".pdf"):
+            raise serializers.ValidationError({"slides_url": "Slides URL must point to a PDF file."})
 
         return data
 
@@ -198,42 +172,26 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
 
         event = self.context["event"]
         groups = list(SponsorGroup.objects.filter(event=event).order_by("level", "pk"))
-        name_matches = [
-            group for group in groups if group.localized_name == sponsor_group_name
-        ]
+        name_matches = [group for group in groups if group.localized_name == sponsor_group_name]
 
         if sponsor_group_level is not UNSET and sponsor_group_level is not None:
-            exact_matches = [
-                group for group in name_matches if group.level == sponsor_group_level
-            ]
+            exact_matches = [group for group in name_matches if group.level == sponsor_group_level]
             if len(exact_matches) == 1:
                 return exact_matches[0]
             if len(exact_matches) > 1:
                 raise serializers.ValidationError(
-                    {
-                        "sponsor_group_name": (
-                            "Multiple sponsor groups match this name and level."
-                        )
-                    }
+                    {"sponsor_group_name": ("Multiple sponsor groups match this name and level.")}
                 )
             if name_matches:
                 raise serializers.ValidationError(
-                    {
-                        "sponsor_group_level": (
-                            "Level does not match existing sponsor group."
-                        )
-                    }
+                    {"sponsor_group_level": ("Level does not match existing sponsor group.")}
                 )
         else:
             if len(name_matches) == 1:
                 return name_matches[0]
             if len(name_matches) > 1:
                 raise serializers.ValidationError(
-                    {
-                        "sponsor_group_name": (
-                            "Multiple sponsor groups match this name. Provide sponsor_group_level."
-                        )
-                    }
+                    {"sponsor_group_name": ("Multiple sponsor groups match this name. Provide sponsor_group_level.")}
                 )
 
         if sponsor_group_level is UNSET or sponsor_group_level is None:
@@ -246,9 +204,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             show_on_front_page=True,
         )
 
-    def _apply_business_rules(
-        self, instance, sponsor_group_name=UNSET, sponsor_group_level=UNSET
-    ):
+    def _apply_business_rules(self, instance, sponsor_group_name=UNSET, sponsor_group_level=UNSET):
         if instance.is_sponsor:
             if sponsor_group_name is not UNSET:
                 instance.sponsor_group = self._resolve_sponsor_group(
@@ -271,10 +227,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         if social_links is not UNSET:
             instance.social_links.all().delete()
             ExhibitorSocialLink.objects.bulk_create(
-                [
-                    ExhibitorSocialLink(exhibitor=instance, **item)
-                    for item in social_links
-                ]
+                [ExhibitorSocialLink(exhibitor=instance, **item) for item in social_links]
             )
 
         if extra_links is not UNSET:
@@ -296,9 +249,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             sponsor_group_level=sponsor_group_level,
         )
         instance.save()
-        self._replace_links(
-            instance, social_links=social_links, extra_links=extra_links
-        )
+        self._replace_links(instance, social_links=social_links, extra_links=extra_links)
         return instance
 
     @transaction.atomic
@@ -317,9 +268,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             sponsor_group_level=sponsor_group_level,
         )
         instance.save()
-        self._replace_links(
-            instance, social_links=social_links, extra_links=extra_links
-        )
+        self._replace_links(instance, social_links=social_links, extra_links=extra_links)
         return instance
 
 
@@ -359,9 +308,7 @@ class LeadCreateView(views.APIView):
             "email": order_position.attendee_email,  # Always included
             "company": order_position.company,  # Always included
             "city": order_position.city if "attendee_city" in allowed_fields else None,
-            "country": str(order_position.country)
-            if "attendee_country" in allowed_fields
-            else None,
+            "country": str(order_position.country) if "attendee_country" in allowed_fields else None,
             "note": "",
             "tags": [],
         }
@@ -378,9 +325,7 @@ class LeadCreateView(views.APIView):
         key = request.headers.get("Exhibitor")
 
         if not all([pseudonymization_id, scanned, scan_type, device_name]):
-            return Response(
-                {"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Authenticate the exhibitor
         try:
@@ -397,9 +342,7 @@ class LeadCreateView(views.APIView):
             if open_event:
                 order_position = OrderPosition.objects.get(secret=pseudonymization_id)
             else:
-                order_position = OrderPosition.objects.get(
-                    pseudonymization_id=pseudonymization_id
-                )
+                order_position = OrderPosition.objects.get(pseudonymization_id=pseudonymization_id)
         except OrderPosition.DoesNotExist:
             return Response(
                 {"success": False, "error": "Attendee not found"},
@@ -407,12 +350,8 @@ class LeadCreateView(views.APIView):
             )
 
         # Check for duplicate scan
-        if Lead.objects.filter(
-            exhibitor=exhibitor, pseudonymization_id=pseudonymization_id
-        ).exists():
-            attendee_data = self.get_allowed_attendee_data(
-                order_position, settings, exhibitor
-            )
+        if Lead.objects.filter(exhibitor=exhibitor, pseudonymization_id=pseudonymization_id).exists():
+            attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
             return Response(
                 {
                     "success": False,
@@ -423,9 +362,7 @@ class LeadCreateView(views.APIView):
             )
 
         # Get allowed attendee data based on settings
-        attendee_data = self.get_allowed_attendee_data(
-            order_position, settings, exhibitor
-        )
+        attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
         # Create the lead entry
         locale = _get_exhibitor_locale(exhibitor)
         lead = Lead.objects.create(
@@ -471,9 +408,7 @@ class LeadRetrieveView(views.APIView):
             "attendee",
         )
 
-        return Response(
-            {"success": True, "leads": list(leads)}, status=status.HTTP_200_OK
-        )
+        return Response({"success": True, "leads": list(leads)}, status=status.HTTP_200_OK)
 
 
 class TagListView(views.APIView):
@@ -521,9 +456,7 @@ class LeadUpdateView(views.APIView):
 
             # Update tag usage counts and create new tags
             for tag_name in tags:
-                tag, created = ExhibitorTag.objects.get_or_create(
-                    exhibitor=exhibitor, name=tag_name
-                )
+                tag, created = ExhibitorTag.objects.get_or_create(exhibitor=exhibitor, name=tag_name)
                 if not created:
                     tag.use_count += 1
                     tag.save()

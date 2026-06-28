@@ -28,12 +28,12 @@ from .forms import (
     social_link_prefixes,
 )
 from .models import (
+    PROPOSAL_DEFAULT_FIELDS,
     ExhibitionProposal,
     ExhibitionProposalState,
     ExhibitionQuestion,
     ExhibitorInfo,
     ExhibitorSettings,
-    PROPOSAL_DEFAULT_FIELDS,
     SponsorGroup,
     generate_booth_id,
     get_next_sponsor_group_level,
@@ -69,11 +69,7 @@ class PublicCallEnabledMixin:
         settings = self.get_exhibition_settings()
         if not settings.call_enabled:
             raise Http404()
-        if (
-            self.hide_after_deadline
-            and settings.call_hide_after_deadline
-            and not settings.call_is_open
-        ):
+        if self.hide_after_deadline and settings.call_hide_after_deadline and not settings.call_is_open:
             raise Http404()
         return super().dispatch(request, *args, **kwargs)
 
@@ -89,9 +85,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         return ExhibitorInfo.objects.filter(event=self.request.event)
 
     def get_active_tab(self):
-        tab = (
-            self.request.GET.get("tab") or self.request.POST.get("tab") or self.active_tab
-        )
+        tab = self.request.GET.get("tab") or self.request.POST.get("tab") or self.active_tab
         if tab not in {"exhibitors", "sponsors", "call"}:
             return "exhibitors"
         return tab
@@ -152,12 +146,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         if action == "save_exhibitor_settings":
             allowed_fields = request.POST.getlist("exhibitors_access_voucher")
             settings.allowed_fields = allowed_fields
-            settings.exhibitors_access_mail_subject = request.POST.get(
-                "exhibitors_access_mail_subject", ""
-            )
-            settings.exhibitors_access_mail_body = request.POST.get(
-                "exhibitors_access_mail_body", ""
-            )
+            settings.exhibitors_access_mail_subject = request.POST.get("exhibitors_access_mail_subject", "")
+            settings.exhibitors_access_mail_body = request.POST.get("exhibitors_access_mail_body", "")
             settings.save()
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("exhibitors"))
@@ -172,9 +162,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 form.save()
                 messages.success(self.request, _("Call settings have been saved."))
                 return redirect(self.get_settings_url("call"))
-            return self.render_to_response(
-                self.get_context_data(call_settings_form=form)
-            )
+            return self.render_to_response(self.get_context_data(call_settings_form=form))
 
         if action == "add_group":
             form = SponsorGroupForm(
@@ -197,9 +185,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             )
 
         if action == "rename_group":
-            group = get_object_or_404(
-                SponsorGroup, pk=request.POST.get("group_id"), event=request.event
-            )
+            group = get_object_or_404(SponsorGroup, pk=request.POST.get("group_id"), event=request.event)
             form = SponsorGroupForm(
                 request.POST,
                 instance=group,
@@ -219,15 +205,11 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             )
 
         if action == "delete_group":
-            group = get_object_or_404(
-                SponsorGroup, pk=request.POST.get("group_id"), event=request.event
-            )
+            group = get_object_or_404(SponsorGroup, pk=request.POST.get("group_id"), event=request.event)
             if group.partners.exists():
                 messages.error(
                     self.request,
-                    _(
-                        "This sponsor group cannot be deleted while it is assigned to partners."
-                    ),
+                    _("This sponsor group cannot be deleted while it is assigned to partners."),
                 )
             else:
                 group.delete()
@@ -245,9 +227,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, ListView):
     context_object_name = "exhibitors"
 
     def get_queryset(self):
-        return ExhibitorInfo.objects.filter(event=self.request.event).select_related(
-            "sponsor_group"
-        )
+        return ExhibitorInfo.objects.filter(event=self.request.event).select_related("sponsor_group")
 
     def get_success_url(self) -> str:
         return reverse(
@@ -298,30 +278,18 @@ class PublicExhibitorDetailView(DetailView):
         context = super().get_context_data(**kwargs)
         exhibitors = list(public_exhibitors_queryset(self.request.event))
         context["event"] = self.request.event
-        context["social_image"] = (
-            self.object.visible_header_image_url or self.object.visible_logo_url
-        )
+        context["social_image"] = self.object.visible_header_image_url or self.object.visible_logo_url
         if len(exhibitors) > 1:
-            current_index = next(
-                index
-                for index, exhibitor in enumerate(exhibitors)
-                if exhibitor.pk == self.object.pk
-            )
+            current_index = next(index for index, exhibitor in enumerate(exhibitors) if exhibitor.pk == self.object.pk)
             context["previous_exhibitor"] = exhibitors[current_index - 1]
-            context["next_exhibitor"] = exhibitors[
-                (current_index + 1) % len(exhibitors)
-            ]
+            context["next_exhibitor"] = exhibitors[(current_index + 1) % len(exhibitors)]
         else:
             context["previous_exhibitor"] = None
             context["next_exhibitor"] = None
 
-        context["social_links"] = [
-            serialize_social_link(link) for link in self.object.social_links.all()
-        ]
+        context["social_links"] = [serialize_social_link(link) for link in self.object.social_links.all()]
         context["extra_links"] = list(self.object.extra_links.all())
-        context["video_embed"] = build_exhibitor_video_embed(
-            self.object.video_url or ""
-        )
+        context["video_embed"] = build_exhibitor_video_embed(self.object.video_url or "")
         context["slides_document_url"] = self.object.visible_slides_url
 
         add_external_image_csp_sources(
@@ -354,9 +322,7 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         return context
 
 
-class UserProposalListView(
-    PublicCallEnabledMixin, PublicEventLoginRequiredMixin, ListView
-):
+class UserProposalListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, ListView):
     model = ExhibitionProposal
     template_name = "exhibitors/public_proposal_list.html"
     context_object_name = "proposals"
@@ -406,22 +372,14 @@ class ProposalLinkFormsetMixin:
 
     def post_with_formsets(self):
         form = self.get_form()
-        self.social_media_formset = (
-            self.get_social_formset()
-            if self.proposal_field_is_active("social_links")
-            else None
-        )
+        self.social_media_formset = self.get_social_formset() if self.proposal_field_is_active("social_links") else None
         self.extra_links_formset = (
-            self.get_extra_link_formset()
-            if self.proposal_field_is_active("extra_links")
-            else None
+            self.get_extra_link_formset() if self.proposal_field_is_active("extra_links") else None
         )
 
         if (
             form.is_valid()
-            and (
-                self.social_media_formset is None or self.social_media_formset.is_valid()
-            )
+            and (self.social_media_formset is None or self.social_media_formset.is_valid())
             and (self.extra_links_formset is None or self.extra_links_formset.is_valid())
         ):
             return self.form_valid(form)
@@ -589,11 +547,7 @@ class ExhibitorLinkFormsetMixin:
         self.social_media_formset = self.get_social_formset()
         self.extra_links_formset = self.get_extra_link_formset()
 
-        if (
-            form.is_valid()
-            and self.social_media_formset.is_valid()
-            and self.extra_links_formset.is_valid()
-        ):
+        if form.is_valid() and self.social_media_formset.is_valid() and self.extra_links_formset.is_valid():
             return self.form_valid(form)
         return self.form_invalid(form)
 
@@ -653,19 +607,11 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
                 status=400,
             )
 
-        groups = list(
-            SponsorGroup.objects.filter(event=request.event).order_by("level", "pk")
-        )
+        groups = list(SponsorGroup.objects.filter(event=request.event).order_by("level", "pk"))
         known_group_ids = [group.pk for group in groups]
-        if len(group_ids) != len(known_group_ids) or set(group_ids) != set(
-            known_group_ids
-        ):
+        if len(group_ids) != len(known_group_ids) or set(group_ids) != set(known_group_ids):
             return JsonResponse(
-                {
-                    "detail": _(
-                        "Reorder request must include each sponsor group exactly once."
-                    )
-                },
+                {"detail": _("Reorder request must include each sponsor group exactly once.")},
                 status=400,
             )
 
@@ -677,13 +623,7 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
                 group.level = index
             SponsorGroup.objects.bulk_update(ordered_groups, ["level"])
 
-        return JsonResponse(
-            {
-                "levels": [
-                    {"id": group.pk, "level": group.level} for group in ordered_groups
-                ]
-            }
-        )
+        return JsonResponse({"levels": [{"id": group.pk, "level": group.level} for group in ordered_groups]})
 
 
 class ProposalListView(EventPermissionRequiredMixin, ListView):
@@ -729,9 +669,7 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["answers"] = self.object.answers.select_related("question").prefetch_related(
-            "options"
-        )
+        context["answers"] = self.object.answers.select_related("question").prefetch_related("options")
         return context
 
     @transaction.atomic
@@ -778,9 +716,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
     context_object_name = "questions"
 
     def get_queryset(self):
-        return ExhibitionQuestion.objects.filter(event=self.request.event).annotate(
-            answer_count=Count("answers")
-        )
+        return ExhibitionQuestion.objects.filter(event=self.request.event).annotate(answer_count=Count("answers"))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -804,10 +740,8 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             state=ExhibitionProposalState.DRAFT
         )
         file_has_value = {
-            "slides": (Q(slides__isnull=False) & ~Q(slides=""))
-            | (Q(slides_url__isnull=False) & ~Q(slides_url="")),
-            "logo": (Q(logo__isnull=False) & ~Q(logo=""))
-            | (Q(logo_url__isnull=False) & ~Q(logo_url="")),
+            "slides": (Q(slides__isnull=False) & ~Q(slides="")) | (Q(slides_url__isnull=False) & ~Q(slides_url="")),
+            "logo": (Q(logo__isnull=False) & ~Q(logo="")) | (Q(logo_url__isnull=False) & ~Q(logo_url="")),
             "header_image": (Q(header_image__isnull=False) & ~Q(header_image=""))
             | (Q(header_image_url__isnull=False) & ~Q(header_image_url="")),
         }
@@ -821,28 +755,15 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             "notes",
         )
         counts = {
-            "applying_for": proposals.filter(
-                Q(is_exhibitor=True) | Q(is_sponsor=True)
-            ).count(),
+            "applying_for": proposals.filter(Q(is_exhibitor=True) | Q(is_sponsor=True)).count(),
             "name": proposals.count(),
-            "social_links": proposals.filter(social_links__isnull=False)
-            .distinct()
-            .count(),
-            "extra_links": proposals.filter(extra_links__isnull=False)
-            .distinct()
-            .count(),
+            "social_links": proposals.filter(social_links__isnull=False).distinct().count(),
+            "extra_links": proposals.filter(extra_links__isnull=False).distinct().count(),
         }
+        counts.update({key: proposals.filter(condition).count() for key, condition in file_has_value.items()})
         counts.update(
             {
-                key: proposals.filter(condition).count()
-                for key, condition in file_has_value.items()
-            }
-        )
-        counts.update(
-            {
-                field: proposals.exclude(**{f"{field}__isnull": True})
-                .exclude(**{field: ""})
-                .count()
+                field: proposals.exclude(**{f"{field}__isnull": True}).exclude(**{field: ""}).count()
                 for field in text_fields
             }
         )
@@ -858,10 +779,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             proposal_field_settings[key]["active"] = is_active
             proposal_field_settings[key]["required"] = is_active and (
                 field.get("required_locked")
-                or (
-                    field.get("supports_required", True)
-                    and request.POST.get(f"{key}_required") == "on"
-                )
+                or (field.get("supports_required", True) and request.POST.get(f"{key}_required") == "on")
             )
             if field.get("supports_required") is False:
                 proposal_field_settings[key]["required"] = False
@@ -934,9 +852,7 @@ class ExhibitionQuestionDeleteView(EventPermissionRequiredMixin, DeleteView):
         )
 
 
-class ExhibitorCreateView(
-    ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, CreateView
-):
+class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, CreateView):
     model = ExhibitorInfo
     form_class = ExhibitorInfoForm
     template_name = "exhibitors/add.html"
@@ -951,9 +867,7 @@ class ExhibitorCreateView(
         form.instance.event = self.request.event
 
         # Only generate booth_id for exhibitors if none was provided.
-        if form.cleaned_data.get("is_exhibitor", True) and not form.cleaned_data.get(
-            "booth_id"
-        ):
+        if form.cleaned_data.get("is_exhibitor", True) and not form.cleaned_data.get("booth_id"):
             form.instance.booth_id = generate_booth_id(event=self.request.event)
 
         response = super().form_valid(form)
@@ -975,9 +889,7 @@ class ExhibitorCreateView(
         )
 
 
-class ExhibitorEditView(
-    ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, UpdateView
-):
+class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, UpdateView):
     model = ExhibitorInfo
     form_class = ExhibitorInfoForm
     template_name = "exhibitors/add.html"
@@ -1047,9 +959,7 @@ class ExhibitorCopyKeyView(EventPermissionRequiredMixin, View):
     permission = ("can_change_event_settings",)
 
     def get(self, request, *args, **kwargs):
-        exhibitor = get_object_or_404(
-            ExhibitorInfo, pk=kwargs["pk"], event=request.event
-        )
+        exhibitor = get_object_or_404(ExhibitorInfo, pk=kwargs["pk"], event=request.event)
         response = HttpResponse(exhibitor.key)
         response["Content-Disposition"] = 'attachment; filename="password.txt"'
         return response

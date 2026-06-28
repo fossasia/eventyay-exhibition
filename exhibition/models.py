@@ -44,12 +44,7 @@ def generate_booth_id(event=None):
 def get_next_sponsor_group_level(event):
     if not event:
         return 1
-    return (
-        SponsorGroup.objects.filter(event=event)
-        .aggregate(max_level=Max("level"))
-        .get("max_level")
-        or 0
-    ) + 1
+    return (SponsorGroup.objects.filter(event=event).aggregate(max_level=Max("level")).get("max_level") or 0) + 1
 
 
 def exhibitor_logo_path(instance, filename):
@@ -202,12 +197,8 @@ class ExhibitorSettings(models.Model):
         for field in PROPOSAL_DEFAULT_FIELDS:
             key = field["key"]
             stored_field = stored_settings.get(key, {})
-            normalized[key]["active"] = bool(
-                stored_field.get("active", normalized[key]["active"])
-            )
-            normalized[key]["required"] = bool(
-                stored_field.get("required", normalized[key]["required"])
-            )
+            normalized[key]["active"] = bool(stored_field.get("active", normalized[key]["active"]))
+            normalized[key]["required"] = bool(stored_field.get("required", normalized[key]["required"]))
             if field.get("active_locked"):
                 normalized[key]["active"] = True
             if field.get("required_locked"):
@@ -229,13 +220,9 @@ class ExhibitorSettings(models.Model):
 
 
 class SponsorGroup(models.Model):
-    event = models.ForeignKey(
-        Event, on_delete=models.CASCADE, related_name="sponsor_groups"
-    )
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="sponsor_groups")
     name = I18nCharField(max_length=120, verbose_name=_("Group Name"))
-    level = models.PositiveIntegerField(
-        default=1, db_index=True, verbose_name=_("Level")
-    )
+    level = models.PositiveIntegerField(default=1, db_index=True, verbose_name=_("Level"))
     show_on_front_page = models.BooleanField(
         default=False,
         verbose_name=_("Show this sponsor group on the front page."),
@@ -269,12 +256,8 @@ class ExhibitorInfo(models.Model):
     slides_url = models.URLField(verbose_name=_("Slides URL"), null=True, blank=True)
     logo = models.ImageField(upload_to=exhibitor_logo_path, null=True, blank=True)
     logo_url = models.URLField(verbose_name=_("Logo URL"), null=True, blank=True)
-    header_image = models.ImageField(
-        upload_to=exhibitor_header_image_path, null=True, blank=True
-    )
-    header_image_url = models.URLField(
-        verbose_name=_("Header Image URL"), null=True, blank=True
-    )
+    header_image = models.ImageField(upload_to=exhibitor_header_image_path, null=True, blank=True)
+    header_image_url = models.URLField(verbose_name=_("Header Image URL"), null=True, blank=True)
     key = models.CharField(
         max_length=8,
         default=generate_key,
@@ -350,9 +333,7 @@ class ExhibitorInfo(models.Model):
 
 
 class ExhibitorSocialLink(models.Model):
-    exhibitor = models.ForeignKey(
-        ExhibitorInfo, on_delete=models.CASCADE, related_name="social_links"
-    )
+    exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="social_links")
     network = models.CharField(max_length=32, choices=SOCIAL_LINK_CHOICES)
     url = models.URLField(verbose_name=_("URL"))
 
@@ -368,9 +349,7 @@ class ExhibitorSocialLink(models.Model):
 
 
 class ExhibitorExtraLink(models.Model):
-    exhibitor = models.ForeignKey(
-        ExhibitorInfo, on_delete=models.CASCADE, related_name="extra_links"
-    )
+    exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="extra_links")
     label = models.CharField(max_length=120, verbose_name=_("Label"))
     url = models.URLField(verbose_name=_("URL"))
 
@@ -433,12 +412,8 @@ class ExhibitionProposal(models.Model):
     slides_url = models.URLField(verbose_name=_("Slides URL"), null=True, blank=True)
     logo = models.ImageField(upload_to=proposal_logo_path, null=True, blank=True)
     logo_url = models.URLField(verbose_name=_("Logo URL"), null=True, blank=True)
-    header_image = models.ImageField(
-        upload_to=proposal_header_image_path, null=True, blank=True
-    )
-    header_image_url = models.URLField(
-        verbose_name=_("Header Image URL"), null=True, blank=True
-    )
+    header_image = models.ImageField(upload_to=proposal_header_image_path, null=True, blank=True)
+    header_image_url = models.URLField(verbose_name=_("Header Image URL"), null=True, blank=True)
     is_sponsor = models.BooleanField(default=False)
     sponsor_group = models.ForeignKey(
         SponsorGroup,
@@ -519,9 +494,7 @@ class ExhibitionProposal(models.Model):
 
 
 class ExhibitionProposalSocialLink(models.Model):
-    proposal = models.ForeignKey(
-        ExhibitionProposal, on_delete=models.CASCADE, related_name="social_links"
-    )
+    proposal = models.ForeignKey(ExhibitionProposal, on_delete=models.CASCADE, related_name="social_links")
     network = models.CharField(max_length=32, choices=SOCIAL_LINK_CHOICES)
     url = models.URLField(verbose_name=_("URL"))
 
@@ -537,9 +510,7 @@ class ExhibitionProposalSocialLink(models.Model):
 
 
 class ExhibitionProposalExtraLink(models.Model):
-    proposal = models.ForeignKey(
-        ExhibitionProposal, on_delete=models.CASCADE, related_name="extra_links"
-    )
+    proposal = models.ForeignKey(ExhibitionProposal, on_delete=models.CASCADE, related_name="extra_links")
     label = models.CharField(max_length=120, verbose_name=_("Label"))
     url = models.URLField(verbose_name=_("URL"))
 
@@ -662,9 +633,7 @@ class Lead(models.Model):
 
 
 class ExhibitorTag(models.Model):
-    exhibitor = models.ForeignKey(
-        ExhibitorInfo, on_delete=models.CASCADE, related_name="tags"
-    )
+    exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="tags")
     name = models.CharField(max_length=50)
     use_count = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

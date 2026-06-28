@@ -15,9 +15,7 @@ from exhibition.views import SponsorGroupReorderView
 @pytest.mark.django_db
 def test_create_exhibitor_info(event):
     # CREATE: Simulate an image upload and create an exhibitor
-    logo = SimpleUploadedFile(
-        "test_logo.jpg", b"file_content", content_type="image/jpeg"
-    )
+    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
 
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
@@ -44,9 +42,7 @@ def test_create_exhibitor_info(event):
 @pytest.mark.django_db
 def test_read_exhibitor_info(event):
     # CREATE an exhibitor first to test reading
-    logo = SimpleUploadedFile(
-        "test_logo.jpg", b"file_content", content_type="image/jpeg"
-    )
+    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
         name="Test Exhibitor",
@@ -69,9 +65,7 @@ def test_read_exhibitor_info(event):
 @pytest.mark.django_db
 def test_update_exhibitor_info(event):
     # CREATE an exhibitor first to test updating
-    logo = SimpleUploadedFile(
-        "test_logo.jpg", b"file_content", content_type="image/jpeg"
-    )
+    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
         name="Test Exhibitor",
@@ -98,9 +92,7 @@ def test_update_exhibitor_info(event):
 @pytest.mark.django_db
 def test_delete_exhibitor_info(event):
     # CREATE an exhibitor first to test deleting
-    logo = SimpleUploadedFile(
-        "test_logo.jpg", b"file_content", content_type="image/jpeg"
-    )
+    logo = SimpleUploadedFile("test_logo.jpg", b"file_content", content_type="image/jpeg")
     exhibitor = ExhibitorInfo.objects.create(
         event=event,
         name="Test Exhibitor",
@@ -164,10 +156,7 @@ def test_exhibitor_serializer_rejects_level_mismatch_without_mutating_group(even
         serializer._resolve_sponsor_group("Gold", sponsor_group_level=2)
 
     group.refresh_from_db()
-    assert (
-        str(excinfo.value.detail["sponsor_group_level"])
-        == "Level does not match existing sponsor group."
-    )
+    assert str(excinfo.value.detail["sponsor_group_level"]) == "Level does not match existing sponsor group."
     assert group.level == 1
 
 

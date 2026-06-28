@@ -29,7 +29,7 @@ def exhibition_dashboard_component(sender, request=None, **kwargs):
         '<div class="panel panel-default widget-container widget-small no-padding last-column">'
         '<div class="panel-heading"><h3 class="panel-title">{}</h3></div>'
         '<div class="panel-body"><p>{}</p><p>{} <a href="{}">{}</a></p></div>'
-        '</div>',
+        "</div>",
         str(_("Exhibitors & Sponsors")),
         str(_("Manage exhibitors and sponsors, maintain booth details, and create partner profiles for the event.")),
         str(_("Go to")),
@@ -41,22 +41,16 @@ def exhibition_dashboard_component(sender, request=None, **kwargs):
 @receiver(front_page_after_content, dispatch_uid="exhibition_front_page_supporters")
 def presale_supported_by(sender, request=None, **kwargs):
     sponsor_groups = list(
-        SponsorGroup.objects.filter(
-            event=sender, show_on_front_page=True
-        ).prefetch_related(
+        SponsorGroup.objects.filter(event=sender, show_on_front_page=True).prefetch_related(
             Prefetch(
                 "partners",
-                queryset=ExhibitorInfo.objects.filter(
-                    event=sender, is_sponsor=True
-                ).order_by("name"),
+                queryset=ExhibitorInfo.objects.filter(event=sender, is_sponsor=True).order_by("name"),
                 to_attr="front_page_partners",
             )
         )
     )
     sponsor_groups = [
-        group
-        for group in sponsor_groups
-        if any(partner.visible_logo_url for partner in group.front_page_partners)
+        group for group in sponsor_groups if any(partner.visible_logo_url for partner in group.front_page_partners)
     ]
     sponsor_groups.sort(key=lambda group: (group.level, group.pk))
 
@@ -101,8 +95,7 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
                     },
                 ),
                 "active"
-                if "/exhibition/" in request.path_info
-                and "/exhibition/call/" not in request.path_info
+                if "/exhibition/" in request.path_info and "/exhibition/call/" not in request.path_info
                 else "",
                 _("Exhibition"),
             )
