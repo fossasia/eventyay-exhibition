@@ -30,33 +30,10 @@ jobs:
           enable-cache: true
 
       - name: Install Dependencies
-        run: |
-          uv sync
-          uv pip install psycopg2-binary ruff
+        run: uv sync --group dev
 
-      - name: Run ruff (import sorting)
-        run: uv run ruff check --select I .
+      - name: Run ruff (lint, including import sorting)
+        run: uv run ruff check .
 
-  flake:
-    name: flake8
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Install Dependencies
-        run: |
-          uv sync
-          uv pip install psycopg2-binary
-
-      - name: Run flake8
-        run: uv run flake8 .
+      - name: Run ruff (format check)
+        run: uv run ruff format --check .

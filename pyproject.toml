@@ -13,9 +13,7 @@ maintainers = [
     {name = "eventyay team", email = "support@eventyay.com"},
 ]
 
-dependencies = [
-    "flake8>=7.3.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
 test = [
@@ -23,6 +21,11 @@ test = [
     "pytest-django>=4.12.0",
     "pytest-env>=1.6.0",
     "pytest-rerunfailures>=16.3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.13",
 ]
 
 [project.entry-points."pretix.plugin"]
@@ -49,3 +52,27 @@ version = {attr = "exhibition.__version__"}
 [tool.setuptools.packages.find]
 include = ["exhibition*"]
 namespaces = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["migrations", "static", "_static", "build", ".ropeproject"]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "double"
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "PLE", "PLW", "UP"]
+ignore = ["E203", "E402", "E722", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files re-export models.
+"**/__init__.py" = ["F401"]
+"setup.py" = ["I"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["exhibition"]
+known-third-party = ["eventyay"]
