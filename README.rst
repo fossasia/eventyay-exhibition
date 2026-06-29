@@ -111,9 +111,9 @@ Code style
 The repository uses Ruff for formatting, import sorting, and linting. Run Ruff
 and the test suite before opening a pull request.
 
-To install the local commit hooks, run::
+To install the local commit hooks, install `pre-commit`_ and run::
 
-    ./.install-hooks.sh
+    pre-commit install
 
 Project structure
 -----------------
@@ -187,3 +187,4 @@ Released under the terms of the Apache License 2.0.
 
 .. _eventyay: https://github.com/fossasia/eventyay
 .. _eventyay development setup: https://github.com/fossasia/eventyay?tab=readme-ov-file#getting-started
+.. _pre-commit: https://pre-commit.com/

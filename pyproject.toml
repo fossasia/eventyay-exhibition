@@ -70,9 +70,43 @@ ignore = ["E203", "E402", "E722", "E741"]
 [tool.ruff.lint.per-file-ignores]
 # These files re-export models.
 "**/__init__.py" = ["F401"]
-"setup.py" = ["I"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = ["exhibition"]
 known-third-party = ["eventyay"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "eventyay.config.settings"
+testpaths = ["tests"]
+
+[tool.pytest_env]
+EVY_RUNNING_ENVIRONMENT = "testing"
+EVY_POSTGRES_HOST = "localhost"
+EVY_POSTGRES_PORT = "5432"
+EVY_POSTGRES_USER = "postgres"
+EVY_POSTGRES_PASSWORD = "postgres"
+EVY_POSTGRES_DB = "eventyay-db"
+
+[tool.coverage.run]
+source = ["exhibition"]
+omit = ["*/migrations/*", "*/urls.py", "*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __str__",
+    "def __repr__",
+    "if settings.DEBUG",
+    "NOQA",
+    "NotImplementedError",
+]
+
+[tool.check-manifest]
+ignore = [
+    ".update-locales",
+    ".update-locales.sh",
+    "Makefile",
+    "manage.py",
+    "tests/*",
+]
