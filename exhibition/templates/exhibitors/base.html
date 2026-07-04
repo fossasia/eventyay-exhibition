@@ -32,13 +32,15 @@
       </ul>
     </li>
   {% endif %}
-  {% if 'can_change_event_settings' in request.eventpermset %}
+  {% if 'can_change_event_settings' in request.eventpermset or 'is_exhibition_reviewer' in request.eventpermset %}
     <li>
       <a href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'proposal.list' or url_name == 'proposal.detail' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-inbox"></span>
         <span class="sidebar-text">{% trans "Proposals" %}</span>
       </a>
     </li>
+  {% endif %}
+  {% if 'can_change_event_settings' in request.eventpermset %}
     <li>
       <a href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'call.questions' or url_name == 'call.questions.add' or url_name == 'call.questions.edit' or url_name == 'call.questions.delete' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-question-circle"></span>
@@ -46,12 +48,14 @@
       </a>
     </li>
   {% endif %}
-  <li>
-    <a href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name != 'settings' and url_name != 'settings.exhibitors' and url_name != 'settings.sponsors' and url_name != 'settings.call' and url_name != 'proposal.list' and url_name != 'proposal.detail' and url_name != 'call.questions' and url_name != 'call.questions.add' and url_name != 'call.questions.edit' and url_name != 'call.questions.delete' %}class="active"{% endif %}>
-      <span class="fa fa-fw fa-map-pin"></span>
-      <span class="sidebar-text">{% trans "Exhibitors & Sponsors" %}</span>
-    </a>
-  </li>
+  {% if 'can_change_event_settings' in request.eventpermset or 'can_view_orders' in request.eventpermset %}
+    <li>
+      <a href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name != 'settings' and url_name != 'settings.exhibitors' and url_name != 'settings.sponsors' and url_name != 'settings.call' and url_name != 'proposal.list' and url_name != 'proposal.detail' and url_name != 'call.questions' and url_name != 'call.questions.add' and url_name != 'call.questions.edit' and url_name != 'call.questions.delete' %}class="active"{% endif %}>
+        <span class="fa fa-fw fa-map-pin"></span>
+        <span class="sidebar-text">{% trans "Exhibitors & Sponsors" %}</span>
+      </a>
+    </li>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -66,19 +70,21 @@
         <a href="{% url 'eventyay_common:event.index' organizer=request.organizer.slug event=request.event.slug %}" class="header-nav btn btn-outline-success">
           <i class="fa fa-home"></i> {% trans "Home" %}
         </a>
-        <a href="{% url 'control:event.index' organizer=request.organizer.slug event=request.event.slug %}" class="header-nav btn btn-outline-success">
-          <i class="fa fa-ticket"></i> {% trans "Tickets" %}
-        </a>
-        {% if is_talk_event_created %}
-          <a href="{% url 'orga:event.dashboard' organizer=request.organizer.slug event=request.event.slug %}" class="header-nav btn btn-outline-success">
-            <i class="fa fa-group"></i> {% trans "Talks" %}
+        {% if 'can_change_event_settings' in request.eventpermset %}
+          <a href="{% url 'control:event.index' organizer=request.organizer.slug event=request.event.slug %}" class="header-nav btn btn-outline-success">
+            <i class="fa fa-ticket"></i> {% trans "Tickets" %}
+          </a>
+          {% if is_talk_event_created %}
+            <a href="{% url 'orga:event.dashboard' organizer=request.organizer.slug event=request.event.slug %}" class="header-nav btn btn-outline-success">
+              <i class="fa fa-group"></i> {% trans "Talks" %}
+            </a>
+          {% endif %}
+          <a class="header-nav btn btn-outline-success"
+             href="{% url 'eventyay_common:event.create_access_to_video' organizer=request.organizer.slug event=request.event.slug %}"
+             title="{% trans 'Access videos related to this event' %}">
+            <i class="fa fa-video-camera"></i> {% trans "Videos" %}
           </a>
         {% endif %}
-        <a class="header-nav btn btn-outline-success"
-           href="{% url 'eventyay_common:event.create_access_to_video' organizer=request.organizer.slug event=request.event.slug %}"
-           title="{% trans 'Access videos related to this event' %}">
-          <i class="fa fa-video-camera"></i> {% trans "Videos" %}
-        </a>
       </div>
     </div>
   </nav>

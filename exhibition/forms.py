@@ -806,6 +806,19 @@ class ExhibitionProposalReviewForm(I18nModelForm):
         return cleaned_data
 
 
+class ExhibitionProposalReviewNotesForm(I18nModelForm):
+    class Meta:
+        model = ExhibitionProposal
+        localized_fields = "__all__"
+        fields = ["review_notes"]
+        labels = {
+            "review_notes": _("Internal review notes"),
+        }
+        widgets = {
+            "review_notes": forms.Textarea(attrs={"rows": 4}),
+        }
+
+
 class ExhibitionQuestionForm(I18nModelForm):
     options_text = forms.CharField(
         required=False,

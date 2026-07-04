@@ -2,6 +2,7 @@ import json
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
@@ -19,6 +20,7 @@ from .forms import (
     ExhibitionProposalExtraLinkFormSet,
     ExhibitionProposalForm,
     ExhibitionProposalReviewForm,
+    ExhibitionProposalReviewNotesForm,
     ExhibitionProposalSocialLinkFormSet,
     ExhibitionQuestionForm,
     ExhibitorExtraLinkFormSet,
@@ -628,7 +630,7 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
 
 class ProposalListView(EventPermissionRequiredMixin, ListView):
     model = ExhibitionProposal
-    permission = "can_change_event_settings"
+    permission = ("can_change_event_settings", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_list.html"
     context_object_name = "proposals"
 
@@ -642,12 +644,24 @@ class ProposalListView(EventPermissionRequiredMixin, ListView):
 
 class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
     model = ExhibitionProposal
-    form_class = ExhibitionProposalReviewForm
-    permission = "can_change_event_settings"
+    permission = ("can_change_event_settings", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_detail.html"
     context_object_name = "proposal"
     slug_field = "code"
     slug_url_kwarg = "code"
+
+    def can_manage(self):
+        return self.request.user.has_event_permission(
+            self.request.event.organizer,
+            self.request.event,
+            "can_change_event_settings",
+            request=self.request,
+        )
+
+    def get_form_class(self):
+        if self.can_manage():
+            return ExhibitionProposalReviewForm
+        return ExhibitionProposalReviewNotesForm
 
     def get_queryset(self):
         return (
@@ -670,12 +684,15 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["answers"] = self.object.answers.select_related("question").prefetch_related("options")
+        context["can_manage"] = self.can_manage()
         return context
 
     @transaction.atomic
     def form_valid(self, form):
         self.object = form.save()
         action = self.request.POST.get("action", "save")
+        if action in ("approve", "reject") and not self.can_manage():
+            raise PermissionDenied()
         if action == "approve":
             exhibitor = create_exhibitor_from_proposal(self.object)
             messages.success(
