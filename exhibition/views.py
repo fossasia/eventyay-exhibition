@@ -630,7 +630,7 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
 
 class ProposalListView(EventPermissionRequiredMixin, ListView):
     model = ExhibitionProposal
-    permission = ("can_change_event_settings", "is_exhibition_reviewer")
+    permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_list.html"
     context_object_name = "proposals"
 
@@ -644,13 +644,21 @@ class ProposalListView(EventPermissionRequiredMixin, ListView):
 
 class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
     model = ExhibitionProposal
-    permission = ("can_change_event_settings", "is_exhibition_reviewer")
+    permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_detail.html"
     context_object_name = "proposal"
     slug_field = "code"
     slug_url_kwarg = "code"
 
     def can_manage(self):
+        return self.request.user.has_event_permission(
+            self.request.event.organizer,
+            self.request.event,
+            ("can_change_event_settings", "can_change_exhibition_proposals"),
+            request=self.request,
+        )
+
+    def can_edit_exhibitor(self):
         return self.request.user.has_event_permission(
             self.request.event.organizer,
             self.request.event,
@@ -685,6 +693,7 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
         context = super().get_context_data(**kwargs)
         context["answers"] = self.object.answers.select_related("question").prefetch_related("options")
         context["can_manage"] = self.can_manage()
+        context["can_edit_exhibitor"] = self.can_edit_exhibitor()
         return context
 
     @transaction.atomic
@@ -699,11 +708,13 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
                 self.request,
                 _("Proposal approved and partner profile created."),
             )
-            return redirect(
-                "plugins:exhibition:edit",
-                **event_kwargs(self.request.event),
-                pk=exhibitor.pk,
-            )
+            if self.can_edit_exhibitor():
+                return redirect(
+                    "plugins:exhibition:edit",
+                    **event_kwargs(self.request.event),
+                    pk=exhibitor.pk,
+                )
+            return redirect(self.get_success_url())
         if action == "reject":
             if self.object.approved_exhibitor_id:
                 messages.error(

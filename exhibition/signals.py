@@ -19,16 +19,19 @@ from .utils import add_external_image_csp_sources, public_exhibitors_queryset
 @receiver(event_dashboard_components, dispatch_uid="exhibition_dashboard_component")
 def exhibition_dashboard_component(sender, request=None, **kwargs):
     kwargs_url = {"organizer": sender.organizer.slug, "event": sender.slug}
-    can_manage = request and request.user.has_event_permission(
+    can_view_exhibitors = request and request.user.has_event_permission(
         sender.organizer,
         sender,
         ("can_change_event_settings", "can_view_orders"),
         request=request,
     )
-    is_reviewer = request and request.user.has_event_permission(
-        sender.organizer, sender, "is_exhibition_reviewer", request=request
+    can_review = request and request.user.has_event_permission(
+        sender.organizer,
+        sender,
+        ("can_change_exhibition_proposals", "is_exhibition_reviewer"),
+        request=request,
     )
-    if is_reviewer and not can_manage:
+    if can_review and not can_view_exhibitors:
         url = reverse("plugins:exhibition:proposal.list", kwargs=kwargs_url)
         description = _("Screen and evaluate exhibitor and sponsor proposals for the event.")
         link_label = _("Proposal Review Dashboard")

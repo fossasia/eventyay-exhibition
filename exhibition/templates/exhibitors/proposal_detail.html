@@ -118,20 +118,18 @@
             <button type="submit" class="btn btn-default" name="action" value="save">
                 {% trans "Save review notes" %}
             </button>
-            {% if can_manage %}
-                {% if not proposal.approved_exhibitor_id and proposal.state != "rejected" %}
-                    <button type="submit" class="btn btn-primary" name="action" value="approve">
-                        {% trans "Approve and create partner" %}
-                    </button>
-                    <button type="submit" class="btn btn-danger" name="action" value="reject">
-                        {% trans "Reject" %}
-                    </button>
-                {% endif %}
-                {% if proposal.approved_exhibitor_id %}
-                    <a class="btn btn-success" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=proposal.approved_exhibitor_id %}">
-                        {% trans "Open partner profile" %}
-                    </a>
-                {% endif %}
+            {% if can_manage and not proposal.approved_exhibitor_id and proposal.state != "rejected" %}
+                <button type="submit" class="btn btn-primary" name="action" value="approve">
+                    {% trans "Approve and create partner" %}
+                </button>
+                <button type="submit" class="btn btn-danger" name="action" value="reject">
+                    {% trans "Reject" %}
+                </button>
+            {% endif %}
+            {% if can_edit_exhibitor and proposal.approved_exhibitor_id %}
+                <a class="btn btn-success" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=proposal.approved_exhibitor_id %}">
+                    {% trans "Open partner profile" %}
+                </a>
             {% endif %}
         </div>
     </form>
