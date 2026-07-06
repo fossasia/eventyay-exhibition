@@ -46,6 +46,7 @@ from .utils import (
     build_exhibitor_video_embed,
     create_exhibitor_from_proposal,
     public_exhibitors_queryset,
+    should_hide_applicant_emails,
 )
 
 
@@ -641,6 +642,13 @@ class ProposalListView(EventPermissionRequiredMixin, ListView):
             .order_by("-updated", "-created")
         )
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["hide_applicant_emails"] = should_hide_applicant_emails(
+            self.request.user, self.request.event, request=self.request
+        )
+        return context
+
 
 class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
     model = ExhibitionProposal
@@ -694,6 +702,9 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
         context["answers"] = self.object.answers.select_related("question").prefetch_related("options")
         context["can_manage"] = self.can_manage()
         context["can_edit_exhibitor"] = self.can_edit_exhibitor()
+        context["hide_applicant_emails"] = should_hide_applicant_emails(
+            self.request.user, self.request.event, request=self.request
+        )
         return context
 
     @transaction.atomic

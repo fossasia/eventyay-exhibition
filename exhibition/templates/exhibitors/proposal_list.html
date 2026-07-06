@@ -31,7 +31,13 @@
                                 </a>
                             </strong>
                         </td>
-                        <td>{{ proposal.user.get_display_name|default:proposal.user.email }}</td>
+                        <td>
+                            {% if hide_applicant_emails %}
+                                {{ proposal.user.fullname|default:"—" }}
+                            {% else %}
+                                {{ proposal.user.get_display_name|default:proposal.user.email }}
+                            {% endif %}
+                        </td>
                         <td>
                             {% if proposal.is_exhibitor and proposal.is_sponsor %}
                                 {% trans "Exhibitor and sponsor" %}

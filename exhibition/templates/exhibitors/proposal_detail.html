@@ -23,9 +23,21 @@
         <div class="panel-body">
             <dl class="dl-horizontal">
                 <dt>{% trans "Submitter" %}</dt>
-                <dd>{{ proposal.user.get_display_name|default:proposal.user.email }}</dd>
+                <dd>
+                    {% if hide_applicant_emails %}
+                        {{ proposal.user.fullname|default:"—" }}
+                    {% else %}
+                        {{ proposal.user.get_display_name|default:proposal.user.email }}
+                    {% endif %}
+                </dd>
                 <dt>{% trans "Email" %}</dt>
-                <dd>{{ proposal.email|default:"-" }}</dd>
+                <dd>
+                    {% if hide_applicant_emails %}
+                        <span class="text-muted">{% trans "Hidden" %}</span>
+                    {% else %}
+                        {{ proposal.email|default:"-" }}
+                    {% endif %}
+                </dd>
                 <dt>{% trans "State" %}</dt>
                 <dd>{{ proposal.get_state_display }}</dd>
                 <dt>{% trans "Type" %}</dt>

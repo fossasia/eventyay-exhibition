@@ -9,6 +9,20 @@ if TYPE_CHECKING:
     from .models import ExhibitorInfo
 
 
+def should_hide_applicant_emails(user, event, request=None) -> bool:
+    if not user.is_authenticated:
+        return False
+    if user.has_event_permission(
+        event.organizer,
+        event,
+        ("can_change_event_settings", "can_change_exhibition_proposals"),
+        request=request,
+    ):
+        return False
+    reviewer_teams = event.teams.filter(members__in=[user], is_exhibition_reviewer=True)
+    return bool(reviewer_teams) and all(team.hide_exhibition_applicant_emails for team in reviewer_teams)
+
+
 def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
     from .models import ExhibitorInfo
 
