@@ -5,6 +5,7 @@ from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
+from eventyay.common.utils.language import localize_event_text
 from eventyay.control.signals import event_dashboard_components
 from eventyay.presale.signals import (
     front_page_after_content,
@@ -122,6 +123,7 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
         call_enabled=True,
     ).first()
     if settings and (settings.call_is_open or not settings.call_hide_after_deadline):
+        call_label = localize_event_text(settings.call_headline) or _("Call for Exhibitors")
         links.append(
             format_html(
                 '<a href="{}" class="header-tab {}"><i class="fa fa-handshake-o"></i> {}</a>',
@@ -133,7 +135,7 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
                     },
                 ),
                 "active" if "/exhibition/call/" in request.path_info else "",
-                _("Call for Exhibitors"),
+                call_label,
             )
         )
 
