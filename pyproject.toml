@@ -25,7 +25,7 @@ test = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.13",
+    "ruff>=0.15.21",
 ]
 
 [project.entry-points."pretix.plugin"]
