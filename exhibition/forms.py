@@ -510,16 +510,6 @@ class ExhibitionQuestionFieldsMixin:
 
 
 class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
-    applying_for = forms.ChoiceField(
-        choices=(
-            ("exhibitor", _("Exhibitor")),
-            ("sponsor", _("Sponsor")),
-            ("both", _("Exhibitor and sponsor")),
-        ),
-        initial="exhibitor",
-        label=_("Application type"),
-        widget=forms.RadioSelect,
-    )
     slides_url = forms.URLField(
         required=False,
         label=_("Slides URL"),
@@ -542,7 +532,6 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         "header_image": "header_image_url",
     }
     setting_field_map = {
-        "applying_for": ("applying_for",),
         "name": ("name",),
         "description": ("description",),
         "email": ("email",),
@@ -606,7 +595,6 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             proposal_field_settings = self.exhibition_settings.normalized_proposal_field_settings
             self.active_proposal_fields = {key: value["active"] for key, value in proposal_field_settings.items()}
             self.required_proposal_fields = {key: value["required"] for key, value in proposal_field_settings.items()}
-        self.fields["applying_for"].initial = self.get_applying_for_initial(instance)
         for field_name in ("logo", "header_image"):
             if field_name in self.fields:
                 self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
@@ -631,16 +619,6 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if self.read_only:
             for field in self.fields.values():
                 field.disabled = True
-
-    @staticmethod
-    def get_applying_for_initial(instance):
-        if not instance:
-            return "exhibitor"
-        if instance.is_exhibitor and instance.is_sponsor:
-            return "both"
-        if instance.is_sponsor:
-            return "sponsor"
-        return "exhibitor"
 
     def apply_proposal_field_settings(self):
         file_field_keys = set(self.file_url_fields)
@@ -689,9 +667,12 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        applying_for = cleaned_data.get("applying_for")
-        cleaned_data["is_exhibitor"] = applying_for in {"exhibitor", "both"}
-        cleaned_data["is_sponsor"] = applying_for in {"sponsor", "both"}
+        if self.instance.pk:
+            cleaned_data["is_exhibitor"] = self.instance.is_exhibitor
+            cleaned_data["is_sponsor"] = self.instance.is_sponsor
+        else:
+            cleaned_data["is_exhibitor"] = True
+            cleaned_data["is_sponsor"] = False
 
         if "video_url" in self.fields and (video_url := cleaned_data.get("video_url")):
             cleaned_data["video_url"] = normalize_url_scheme(video_url)

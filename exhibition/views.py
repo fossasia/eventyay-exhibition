@@ -886,7 +886,6 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             "notes",
         )
         counts = {
-            "applying_for": proposals.filter(Q(is_exhibitor=True) | Q(is_sponsor=True)).count(),
             "name": proposals.count(),
             "social_links": proposals.filter(social_links__isnull=False).distinct().count(),
             "extra_links": proposals.filter(extra_links__isnull=False).distinct().count(),

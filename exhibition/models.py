@@ -93,14 +93,6 @@ def proposal_slides_path(instance, filename):
 
 PROPOSAL_DEFAULT_FIELDS = (
     {
-        "key": "applying_for",
-        "label": _("Application type"),
-        "active": True,
-        "required": True,
-        "active_locked": True,
-        "required_locked": True,
-    },
-    {
         "key": "name",
         "label": _("Organization Name"),
         "active": True,
