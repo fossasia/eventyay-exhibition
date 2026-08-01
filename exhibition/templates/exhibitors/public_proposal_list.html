@@ -28,7 +28,7 @@
                         <td>{{ proposal.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
                         <td class="text-right">
                             <a class="btn btn-sm btn-info" href="{% url 'plugins:exhibition:proposal.user_edit' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
-                                {% if proposal.editable and settings.call_is_open %}
+                                {% if proposal.submitter_can_edit %}
                                     <i class="fa fa-edit"></i> {% trans "Edit" %}
                                 {% else %}
                                     <i class="fa fa-eye"></i> {% trans "View" %}
