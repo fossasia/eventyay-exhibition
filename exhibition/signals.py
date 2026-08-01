@@ -7,6 +7,7 @@ from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.signals import register_mail_placeholders
+from eventyay.common.signals import user_menu_items
 from eventyay.common.utils.language import localize_event_text
 from eventyay.control.signals import event_dashboard_components
 from eventyay.presale.signals import (
@@ -16,7 +17,7 @@ from eventyay.presale.signals import (
 )
 
 from .mail import proposal_public_url
-from .models import ExhibitorInfo, ExhibitorSettings, SponsorGroup
+from .models import ExhibitionProposal, ExhibitorInfo, ExhibitorSettings, SponsorGroup
 from .utils import add_external_image_csp_sources, public_exhibitors_queryset
 
 
@@ -214,3 +215,26 @@ def exhibition_mail_placeholders(sender, **kwargs):
             "a1b2c3d4",
         ),
     ]
+
+
+@receiver(user_menu_items, dispatch_uid="exhibition_user_menu_item")
+def exhibition_user_menu_item(sender, request=None, icon_class="", **kwargs):
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return ""
+
+    if not ExhibitionProposal.objects.filter(event=sender, user=user).exists():
+        return ""
+
+    return format_html(
+        '<a href="{}" class="dropdown-item" role="menuitem" tabindex="-1"><i class="fa fa-handshake-o {}"></i> {}</a>',
+        reverse(
+            "plugins:exhibition:proposal.user_list",
+            kwargs={
+                "organizer": sender.organizer.slug,
+                "event": sender.slug,
+            },
+        ),
+        icon_class,
+        _("Exhibition requests"),
+    )
