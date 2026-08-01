@@ -176,3 +176,58 @@ def create_exhibitor_from_proposal(proposal):
     proposal.submitted = proposal.submitted or timezone.now()
     proposal.save(update_fields=["approved_exhibitor", "state", "submitted", "updated"])
     return exhibitor
+
+
+PROPOSAL_SYNCED_PROFILE_FIELDS = (
+    "name",
+    "description",
+    "url",
+    "email",
+    "contact_url",
+    "video_url",
+    "slides",
+    "slides_url",
+    "logo",
+    "logo_url",
+    "header_image",
+    "header_image_url",
+)
+
+
+def sync_exhibitor_from_proposal(proposal):
+    """Push submitter-owned profile fields of an accepted proposal onto its partner profile."""
+    from .models import ExhibitorExtraLink, ExhibitorSocialLink
+
+    exhibitor = proposal.approved_exhibitor
+    if not exhibitor:
+        return None
+
+    for field in PROPOSAL_SYNCED_PROFILE_FIELDS:
+        setattr(exhibitor, field, getattr(proposal, field))
+    if exhibitor.is_exhibitor:
+        exhibitor.booth_name = proposal.booth_name
+    exhibitor.save()
+
+    exhibitor.social_links.all().delete()
+    ExhibitorSocialLink.objects.bulk_create(
+        [
+            ExhibitorSocialLink(
+                exhibitor=exhibitor,
+                network=link.network,
+                url=link.url,
+            )
+            for link in proposal.social_links.all()
+        ]
+    )
+    exhibitor.extra_links.all().delete()
+    ExhibitorExtraLink.objects.bulk_create(
+        [
+            ExhibitorExtraLink(
+                exhibitor=exhibitor,
+                label=link.label,
+                url=link.url,
+            )
+            for link in proposal.extra_links.all()
+        ]
+    )
+    return exhibitor
