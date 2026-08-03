@@ -67,11 +67,21 @@ class ExhibitorInfoForm(I18nModelForm):
     )
     allow_voucher_access = forms.BooleanField(
         required=False,
-        label=_("Allowed to access voucher data"),
+        label=_("Include personal attendee data on scanned leads"),
+        help_text=_(
+            "When off, badge scans still create a lead (so re-scanning the same attendee is "
+            "still detected), but no attendee name, email, company, address, or question "
+            "answers are attached to it \u2014 only your own notes and tags."
+        ),
     )
     allow_lead_access = forms.BooleanField(
         required=False,
-        label=_("Allowed to access scanned lead data"),
+        label=_("Can view and export scanned leads"),
+        help_text=_(
+            "Grants this exhibitor access to the attendee details already collected through "
+            "badge scanning. This is different from \u201cAllow lead scanning\u201d below, which only "
+            "controls whether the exhibitor can scan badges to create new leads in the first place."
+        ),
     )
     lead_scanning_scope_by_device = forms.TypedChoiceField(
         label=_("Lead scanning behavior"),
@@ -155,6 +165,13 @@ class ExhibitorInfoForm(I18nModelForm):
             "is_sponsor": _("Mark this partner as an event sponsor"),
             "booth_name": _("Preferred booth name"),
             "lead_scanning_enabled": _("Allow lead scanning"),
+        }
+        help_texts = {
+            "lead_scanning_enabled": _(
+                "Lets this exhibitor's devices scan attendee badges to create new leads. "
+                "Does not by itself grant access to view the leads collected \u2014 see "
+                "\u201cCan view and export scanned leads\u201d above."
+            ),
         }
 
     PROFILE_SETTING_FIELD_MAP = {

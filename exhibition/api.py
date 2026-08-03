@@ -52,6 +52,28 @@ class SponsorGroupLevelField(serializers.IntegerField):
 
 
 class ExhibitorAuthView(views.APIView):
+    """Authenticate an exhibitor key.
+
+    This is the single entry point any client (this plugin's own frontend,
+    the check-in app, or an external voucher-issuing service) uses to
+    resolve an exhibitor key. Besides identifying the exhibitor, the
+    response also exposes the three access-control flags stored on
+    ``ExhibitorInfo`` so that whichever system is enforcing access to a
+    given resource can make that decision:
+
+    - ``lead_scanning_enabled``: this exhibitor's devices may scan badges
+      and create new Lead records at all (enforced by ``LeadCreateView``).
+    - ``allow_lead_access``: this exhibitor may read/export/annotate the
+      leads that were already scanned for them (enforced in this plugin
+      by ``LeadRetrieveView``, ``LeadUpdateView`` and ``TagListView``).
+    - ``allow_voucher_access``: whether personal attendee data (name,
+      email, company, address, question answers) is attached to a scan
+      at all. When off, scanning still records a lead (so duplicate-scan
+      detection keeps working), but only an empty note/tags shell is
+      stored, with no personal data. Enforced by
+      ``LeadCreateView.get_allowed_attendee_data``.
+    """
+
     def post(self, request, *args, **kwargs):
         key = request.data.get("key")
 
@@ -68,6 +90,9 @@ class ExhibitorAuthView(views.APIView):
                     "exhibitor_name": _localize_i18n_value(exhibitor.name, locale),
                     "booth_id": exhibitor.booth_id,
                     "booth_name": _localize_i18n_value(exhibitor.booth_name, locale),
+                    "lead_scanning_enabled": exhibitor.lead_scanning_enabled,
+                    "allow_lead_access": exhibitor.allow_lead_access,
+                    "allow_voucher_access": exhibitor.allow_voucher_access,
                 },
                 status=status.HTTP_200_OK,
             )
@@ -301,6 +326,18 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
 class LeadCreateView(views.APIView):
     def get_allowed_attendee_data(self, order_position, settings, exhibitor):
         attendee_data = {"note": "", "tags": []}
+
+        # allow_voucher_access gates whether *personal* attendee data is
+        # attached to a scan at all. When it's off, the exhibitor still
+        # gets a lead record (so duplicate-scan detection keeps working),
+        # but no name/email/company/address/answers are attached to it.
+        # `exhibitor` is only ever None from unit tests exercising this
+        # method in isolation; real calls always pass the authenticated
+        # exhibitor, so that case is treated as ungated for backward
+        # compatibility with those tests.
+        if exhibitor is not None and not exhibitor.allow_voucher_access:
+            return attendee_data
+
         if settings.is_field_allowed("attendee_name"):
             attendee_data["name"] = order_position.attendee_name
         if settings.is_field_allowed("attendee_email"):
@@ -358,6 +395,13 @@ class LeadCreateView(views.APIView):
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        if not exhibitor.lead_scanning_enabled:
+            return Response(
+                {"success": False, "error": "Lead scanning is not enabled for this exhibitor"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         settings = ExhibitorSettings.objects.get_or_create(event=exhibitor.event)[0]
 
         # Get attendee details
@@ -406,6 +450,23 @@ class LeadCreateView(views.APIView):
         )
 
 
+def _require_lead_access(exhibitor):
+    """Return a 403 Response if this exhibitor may not access already-scanned
+    lead data, or None if access is allowed.
+
+    ``lead_scanning_enabled`` only controls whether new leads can be
+    *created* (see ``LeadCreateView``). ``allow_lead_access`` is the
+    separate flag that controls whether the exhibitor can *read, export or
+    annotate* leads that were already collected, which is what this guards.
+    """
+    if not exhibitor.allow_lead_access:
+        return Response(
+            {"success": False, "error": "This exhibitor is not allowed to access lead data"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
 class LeadRetrieveView(views.APIView):
     def get(self, request, *args, **kwargs):
         # Authenticate the exhibitor using the key
@@ -417,6 +478,10 @@ class LeadRetrieveView(views.APIView):
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        denied = _require_lead_access(exhibitor)
+        if denied is not None:
+            return denied
 
         # Fetch all leads associated with the exhibitor
         leads = Lead.objects.filter(exhibitor=exhibitor).values(
@@ -439,13 +504,18 @@ class TagListView(views.APIView):
         key = request.headers.get("Exhibitor")
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
-            tags = ExhibitorTag.objects.filter(exhibitor=exhibitor)
-            return Response({"success": True, "tags": [tag.name for tag in tags]})
         except ExhibitorInfo.DoesNotExist:
             return Response(
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        denied = _require_lead_access(exhibitor)
+        if denied is not None:
+            return denied
+
+        tags = ExhibitorTag.objects.filter(exhibitor=exhibitor)
+        return Response({"success": True, "tags": [tag.name for tag in tags]})
 
 
 class LeadUpdateView(views.APIView):
@@ -461,6 +531,10 @@ class LeadUpdateView(views.APIView):
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        denied = _require_lead_access(exhibitor)
+        if denied is not None:
+            return denied
 
         try:
             lead = Lead.objects.get(pseudonymization_id=lead_id, exhibitor=exhibitor)

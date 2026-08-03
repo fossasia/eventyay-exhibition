@@ -168,6 +168,23 @@ The plugin exposes API endpoints for:
 These endpoints are intended for integration with exhibitor-facing tools such
 as lead scanning applications.
 
+Each ``ExhibitorInfo`` carries three independent access flags, all returned
+by the exhibitor-authentication endpoint so that any client can inspect
+them, and enforced server-side where noted:
+
+- ``lead_scanning_enabled``: the exhibitor's devices may scan badges and
+  create new leads at all. Enforced by the lead-creation endpoint, which
+  returns 403 when this is off.
+- ``allow_lead_access``: the exhibitor may read, export, or annotate leads
+  that were already scanned for them. This is separate from
+  ``lead_scanning_enabled`` and is enforced by this plugin's lead
+  retrieval, lead update, and lead-tag endpoints.
+- ``allow_voucher_access``: whether personal attendee data (name, email,
+  company, address, question answers) is attached to a scan at all. When
+  off, scanning still records a lead so duplicate-scan detection keeps
+  working, but only an empty note/tags shell is stored — no personal
+  data. Enforced by the lead-creation endpoint.
+
 Contributing
 ------------
 

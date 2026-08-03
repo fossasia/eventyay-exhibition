@@ -420,3 +420,56 @@ def test_lead_data_only_includes_allowed_fields(event):
     assert "email" not in data
     assert "job_title" not in data
     assert "address" not in data
+
+
+@pytest.mark.django_db
+def test_lead_data_strips_personal_fields_without_voucher_access(event):
+    settings = make_exhibitor_settings(event)
+    settings.allowed_fields = ["attendee_name", "attendee_email", "system_company"]
+    settings.save()
+
+    order_position = SimpleNamespace(
+        attendee_name="Alice",
+        attendee_email="alice@example.com",
+        company="Acme",
+        job_title="Engineer",
+        street="Main St",
+        zipcode="12345",
+        city="Springfield",
+        country="US",
+        answers=SimpleNamespace(all=lambda: []),
+        order=SimpleNamespace(event=event),
+    )
+
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", allow_voucher_access=False)
+        data = LeadCreateView().get_allowed_attendee_data(order_position, settings, exhibitor)
+
+    assert data == {"note": "", "tags": []}
+
+
+@pytest.mark.django_db
+def test_lead_data_includes_personal_fields_with_voucher_access(event):
+    settings = make_exhibitor_settings(event)
+    settings.allowed_fields = ["attendee_name", "attendee_email"]
+    settings.save()
+
+    order_position = SimpleNamespace(
+        attendee_name="Alice",
+        attendee_email="alice@example.com",
+        company="Acme",
+        job_title="Engineer",
+        street="Main St",
+        zipcode="12345",
+        city="Springfield",
+        country="US",
+        answers=SimpleNamespace(all=lambda: []),
+        order=SimpleNamespace(event=event),
+    )
+
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", allow_voucher_access=True)
+        data = LeadCreateView().get_allowed_attendee_data(order_position, settings, exhibitor)
+
+    assert data["name"] == "Alice"
+    assert data["email"] == "alice@example.com"
