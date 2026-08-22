@@ -127,28 +127,63 @@ PROPOSAL_DEFAULT_FIELDS = (
         "active_locked": True,
         "required_locked": True,
     },
-    {"key": "description", "label": _("Organization description"), "active": True},
+    {
+        "key": "description",
+        "label": _("Organization description"),
+        "active": True,
+        "required": True,
+    },
     {"key": "email", "label": _("Contact email"), "active": False},
-    {"key": "url", "label": _("Organization website"), "active": False},
+    {
+        "key": "url",
+        "label": _("Organization website"),
+        "active": True,
+        "required": True,
+    },
     {"key": "contact_url", "label": _("Contact page URL"), "active": False},
     {"key": "video_url", "label": _("Promotional video URL"), "active": False},
     {"key": "slides", "label": _("Promotional slides"), "active": False},
-    {"key": "logo", "label": _("Logo"), "active": False},
+    {
+        "key": "logo",
+        "label": _("Logo"),
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
+        "help_text": _(
+            "Accepted formats: PNG, JPG, SVG. "
+            "Recommended size: 400 × 400 px. Maximum file size: 2 MB. "
+            "This field is required for the exhibitor profile to display on the public event page "
+            "and cannot be removed."
+        ),
+    },
     {
         "key": "header_image",
-        "label": _("Header image"),
-        "active": False,
+        "label": _("Exhibition banner"),
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
+        "help_text": _(
+            "Accepted formats: PNG, JPG, SVG. "
+            "Recommended size: 1200 × 400 px. Maximum file size: 5 MB. "
+            "This field is required for the exhibitor profile to display on the public event page "
+            "and cannot be removed."
+        ),
     },
     {"key": "booth_name", "label": _("Preferred booth name"), "active": False},
     {
         "key": "notes",
-        "label": _("Message to the organizers"),
-        "active": False,
+        "label": _("Notes"),
+        "active": True,
+        "required": False,
     },
     {
         "key": "social_links",
         "label": _("Social media"),
-        "active": False,
+        "active": True,
+        "required": True,
+        "supports_required": False,
     },
     {
         "key": "extra_links",
@@ -249,10 +284,12 @@ class ExhibitorSettings(LoggedModel):
             normalized[key]["position"] = stored_field.get("position", index)
             custom_label = (stored_field.get("label") or "").strip() or None
             custom_help_text = (stored_field.get("help_text") or "").strip() or None
+            # Fall back to the field-level default help text when no custom one is saved.
+            default_help_text = str(field.get("help_text") or "")
             normalized[key]["custom_label"] = custom_label
             normalized[key]["custom_help_text"] = custom_help_text
             normalized[key]["label"] = custom_label or field["label"]
-            normalized[key]["help_text"] = custom_help_text or ""
+            normalized[key]["help_text"] = custom_help_text or default_help_text
             normalized[key]["default_label"] = field["label"]
             if field.get("active_locked"):
                 normalized[key]["active"] = True
