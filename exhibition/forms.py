@@ -1,6 +1,7 @@
 import dateutil.parser
 from django import forms
 from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
@@ -9,7 +10,7 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_countries.fields import CountryField
-from eventyay.base.forms import I18nModelForm, SettingsForm
+from eventyay.base.forms import I18nFormSet, I18nModelForm, SettingsForm
 from eventyay.base.forms.widgets import (
     DatePickerWidget,
     SplitDateTimePickerWidget,
@@ -1382,14 +1383,39 @@ class ExhibitionDefaultFieldForm(forms.Form):
         self.fields["label"].widget.attrs.setdefault("placeholder", self.field_setting["default_label"])
 
 
-class ExhibitionQuestionForm(I18nModelForm):
-    options_text = forms.CharField(
-        required=False,
-        label=_("Options"),
-        help_text=_("For choice fields, enter one option per line."),
-        widget=forms.Textarea(attrs={"rows": 6}),
-    )
+class ExhibitionQuestionOptionForm(I18nModelForm):
+    class Meta:
+        model = ExhibitionQuestionOption
+        localized_fields = "__all__"
+        fields = ["answer"]
 
+
+class BaseExhibitionQuestionOptionFormSet(I18nFormSet):
+    def __init__(self, *args, requires_option=False, **kwargs):
+        self.requires_option = requires_option
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if any(self.errors) or not self.requires_option:
+            return
+
+        if not any(form.cleaned_data.get("answer") and not form.cleaned_data.get("DELETE") for form in self.forms):
+            raise ValidationError(_("Please provide at least one option for this question type."))
+
+
+ExhibitionQuestionOptionFormSet = inlineformset_factory(
+    ExhibitionQuestion,
+    ExhibitionQuestionOption,
+    form=ExhibitionQuestionOptionForm,
+    formset=BaseExhibitionQuestionOptionFormSet,
+    can_order=True,
+    can_delete=True,
+    extra=0,
+)
+
+
+class ExhibitionQuestionForm(I18nModelForm):
     class Meta:
         model = ExhibitionQuestion
         localized_fields = "__all__"
@@ -1414,23 +1440,10 @@ class ExhibitionQuestionForm(I18nModelForm):
         self.event = kwargs.get("event")
         super().__init__(*args, **kwargs)
         self.fields["variant"].widget.attrs["data-question-variant"] = "1"
-        if self.instance and self.instance.pk:
-            self.fields["options_text"].initial = "\n".join(str(option) for option in self.instance.options.all())
 
     @property
     def choice_variant_values(self):
         return " ".join(sorted(str(variant) for variant in self.choice_variants))
-
-    def clean(self):
-        cleaned_data = super().clean()
-        variant = cleaned_data.get("variant")
-        options = [option.strip() for option in (cleaned_data.get("options_text") or "").splitlines() if option.strip()]
-        if variant in self.choice_variants and not options:
-            self.add_error(
-                "options_text",
-                _("Please provide at least one option for this question type."),
-            )
-        return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -1443,28 +1456,7 @@ class ExhibitionQuestionForm(I18nModelForm):
             instance.position = max((max_position or -1) + 1, len(PROPOSAL_DEFAULT_FIELD_KEYS))
         if commit:
             instance.save()
-            self.save_options(instance)
         return instance
-
-    def save_options(self, question):
-        if question.variant not in self.choice_variants:
-            question.options.all().delete()
-            return
-        options = [
-            option.strip() for option in (self.cleaned_data.get("options_text") or "").splitlines() if option.strip()
-        ]
-        question.options.all().delete()
-        locale = self.event.locale if self.event else "en"
-        ExhibitionQuestionOption.objects.bulk_create(
-            [
-                ExhibitionQuestionOption(
-                    question=question,
-                    answer={locale: option},
-                    position=index,
-                )
-                for index, option in enumerate(options)
-            ]
-        )
 
 
 class ExhibitorSocialLinkForm(forms.ModelForm):

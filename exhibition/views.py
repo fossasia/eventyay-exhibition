@@ -45,6 +45,7 @@ from .forms import (
     ExhibitionProposalReviewNotesForm,
     ExhibitionProposalSocialLinkFormSet,
     ExhibitionQuestionForm,
+    ExhibitionQuestionOptionFormSet,
     ExhibitorDeviceProvisionForm,
     ExhibitorExtraLinkFormSet,
     ExhibitorInfoForm,
@@ -69,6 +70,7 @@ from .models import (
     PROPOSAL_DEFAULT_FIELD_KEYS,
     PROPOSAL_DEFAULT_FIELDS,
     PROPOSAL_REVIEW_ACTIONS,
+    QUESTION_OPTION_VARIANTS,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
     ExhibitionProposal,
@@ -1586,7 +1588,49 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             ExhibitionQuestion.objects.bulk_update(reordered_questions, ["position"])
 
 
-class ExhibitionQuestionCreateView(EventPermissionRequiredMixin, CreateView):
+class ExhibitionQuestionOptionFormSetMixin:
+    option_formset_prefix = "options"
+
+    @cached_property
+    def option_formset(self):
+        queryset = self.object.options.all() if getattr(self, "object", None) else None
+        return ExhibitionQuestionOptionFormSet(
+            self.request.POST if self.request.method == "POST" else None,
+            queryset=queryset,
+            event=self.request.event,
+            prefix=self.option_formset_prefix,
+            requires_option=self.request.POST.get("variant") in QUESTION_OPTION_VARIANTS
+            if self.request.method == "POST"
+            else getattr(self.object, "variant", None) in QUESTION_OPTION_VARIANTS,
+        )
+
+    def save_option_formset(self):
+        if self.object.variant not in QUESTION_OPTION_VARIANTS:
+            self.object.options.all().delete()
+            return
+
+        for option_form in self.option_formset.deleted_forms:
+            option_form.instance.delete()
+
+        ordered_forms = self.option_formset.ordered_forms + [
+            option_form
+            for option_form in self.option_formset.extra_forms
+            if option_form not in self.option_formset.ordered_forms
+            and option_form not in self.option_formset.deleted_forms
+        ]
+        for position, option_form in enumerate(ordered_forms):
+            option = option_form.save(commit=False)
+            option.question = self.object
+            option.position = position
+            option.save()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["option_formset"] = self.option_formset
+        return context
+
+
+class ExhibitionQuestionCreateView(EventPermissionRequiredMixin, ExhibitionQuestionOptionFormSetMixin, CreateView):
     model = ExhibitionQuestion
     form_class = ExhibitionQuestionForm
     permission = "can_change_settings"
@@ -1598,12 +1642,16 @@ class ExhibitionQuestionCreateView(EventPermissionRequiredMixin, CreateView):
         return kwargs
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        self.object.log_action(
-            LOG_QUESTION_ADDED,
-            data={"question": self.object.localized_question},
-            user=self.request.user,
-        )
+        if not self.option_formset.is_valid():
+            return self.form_invalid(form)
+        with transaction.atomic():
+            response = super().form_valid(form)
+            self.save_option_formset()
+            self.object.log_action(
+                LOG_QUESTION_ADDED,
+                data={"question": self.object.localized_question},
+                user=self.request.user,
+            )
         return response
 
     def get_success_url(self):
@@ -1613,7 +1661,7 @@ class ExhibitionQuestionCreateView(EventPermissionRequiredMixin, CreateView):
         )
 
 
-class ExhibitionQuestionEditView(EventPermissionRequiredMixin, UpdateView):
+class ExhibitionQuestionEditView(EventPermissionRequiredMixin, ExhibitionQuestionOptionFormSetMixin, UpdateView):
     model = ExhibitionQuestion
     form_class = ExhibitionQuestionForm
     permission = "can_change_settings"
@@ -1628,12 +1676,16 @@ class ExhibitionQuestionEditView(EventPermissionRequiredMixin, UpdateView):
         return kwargs
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        self.object.log_action(
-            LOG_QUESTION_CHANGED,
-            data={"changed": form.changed_data},
-            user=self.request.user,
-        )
+        if not self.option_formset.is_valid():
+            return self.form_invalid(form)
+        with transaction.atomic():
+            response = super().form_valid(form)
+            self.save_option_formset()
+            self.object.log_action(
+                LOG_QUESTION_CHANGED,
+                data={"changed": form.changed_data},
+                user=self.request.user,
+            )
         return response
 
     def get_success_url(self):
