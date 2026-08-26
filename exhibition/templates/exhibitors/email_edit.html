@@ -1,8 +1,13 @@
 {% extends "exhibitors/base.html" %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
 
 {% block title %}{{ request.event.name }} - {% trans "Edit email" %}{% endblock %}
+
+{% block custom_header %}
+    <link rel="stylesheet" href="{% static 'exhibition/css/submit-buttons.css' %}">
+{% endblock %}
 
 {% block exhibitors_header %}
     <h1>{% trans "Preview / edit email" %}</h1>
