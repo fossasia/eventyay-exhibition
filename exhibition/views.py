@@ -76,6 +76,7 @@ from .models import (
     ExhibitionProposal,
     ExhibitionProposalState,
     ExhibitionQuestion,
+    ExhibitionQuestionOption,
     ExhibitorDevice,
     ExhibitorInfo,
     ExhibitorSettings,
@@ -1593,15 +1594,17 @@ class ExhibitionQuestionOptionFormSetMixin:
 
     @cached_property
     def option_formset(self):
-        queryset = self.object.options.all() if getattr(self, "object", None) else None
+        requires_option = (
+            self.request.POST.get("variant") in QUESTION_OPTION_VARIANTS
+            if self.request.method == "POST"
+            else self.object is not None and self.object.variant in QUESTION_OPTION_VARIANTS
+        )
         return ExhibitionQuestionOptionFormSet(
             self.request.POST if self.request.method == "POST" else None,
-            queryset=queryset,
+            queryset=self.object.options.all() if self.object else ExhibitionQuestionOption.objects.none(),
             event=self.request.event,
             prefix=self.option_formset_prefix,
-            requires_option=self.request.POST.get("variant") in QUESTION_OPTION_VARIANTS
-            if self.request.method == "POST"
-            else getattr(self.object, "variant", None) in QUESTION_OPTION_VARIANTS,
+            requires_option=requires_option,
         )
 
     def save_option_formset(self):

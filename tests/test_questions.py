@@ -35,6 +35,67 @@ def option_formset_view(event, question, data):
     return view
 
 
+def option_formset_get_view(event, question=None):
+    view = ExhibitionQuestionOptionFormSetMixin()
+    request = RequestFactory().get("/")
+    request.event = event
+    view.request = request
+    view.object = question
+    return view
+
+
+@pytest.mark.django_db
+def test_new_question_option_formset_does_not_include_existing_question_options(event):
+    existing_question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.SELECT,
+        question={"en": "Existing question"},
+    )
+    ExhibitionQuestionOption.objects.create(
+        question=existing_question,
+        answer={"en": "First existing option"},
+        position=0,
+    )
+    ExhibitionQuestionOption.objects.create(
+        question=existing_question,
+        answer={"en": "Second existing option"},
+        position=1,
+    )
+
+    view = option_formset_get_view(event)
+
+    assert view.option_formset.initial_form_count() == 0
+    assert view.option_formset.total_form_count() == 0
+
+
+@pytest.mark.django_db
+def test_edit_question_option_formset_includes_only_its_own_options(event):
+    question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.SELECT,
+        question={"en": "Question being edited"},
+    )
+    option = ExhibitionQuestionOption.objects.create(
+        question=question,
+        answer={"en": "Its own option"},
+        position=0,
+    )
+    other_question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.CHOICES,
+        question={"en": "Another question"},
+    )
+    ExhibitionQuestionOption.objects.create(
+        question=other_question,
+        answer={"en": "Other question option"},
+        position=0,
+    )
+
+    view = option_formset_get_view(event, question)
+
+    assert list(view.option_formset.queryset) == [option]
+
+
 @pytest.mark.django_db
 def test_choice_option_formset_requires_an_option(event):
     formset = ExhibitionQuestionOptionFormSet(
