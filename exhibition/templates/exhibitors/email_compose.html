@@ -9,7 +9,6 @@
 {% block custom_header %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-settings.css' %}">
-    <link rel="stylesheet" href="{% static 'exhibition/css/submit-buttons.css' %}">
     <script defer src="{% static 'exhibition/js/schedule-datetime.js' %}"></script>
 {% endblock %}
 
@@ -77,10 +76,10 @@
         </fieldset>
         <div class="form-group submit-group">
             <div class="col-md-9 col-md-offset-3">
-                <button type="submit" class="btn btn-default" name="_save" value="save">
+                <button type="submit" class="btn btn-default btn-lg" name="_save" value="save">
                     {% trans "Save to outbox" %}
                 </button>
-                <button type="submit" class="btn btn-primary" name="_send" value="send">
+                <button type="submit" class="btn btn-primary btn-save" name="_send" value="send">
                     <i class="fa fa-paper-plane"></i> {% trans "Send / Schedule" %}
                 </button>
             </div>
