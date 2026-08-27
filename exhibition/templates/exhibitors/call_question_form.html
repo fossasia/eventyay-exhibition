@@ -26,7 +26,7 @@
         {% bootstrap_field form.help_text layout="control" %}
         {% bootstrap_field form.required layout="control" %}
         {% bootstrap_field form.active layout="control" %}
-        <div id="answer-options" class="exhibition-answer-options" data-question-options data-choice-variants="{{ form.choice_variant_values }}">
+        <div id="exhibition-answer-options" class="exhibition-answer-options" data-question-options data-choice-variants="{{ form.choice_variant_values }}">
             <div class="form-group answer-options-group">
                 <label id="answer-options-heading" class="col-md-3 control-label">{% trans "Answer options" %}</label>
                 <div class="col-md-9 answer-options-content" role="group" aria-labelledby="answer-options-heading">
@@ -108,9 +108,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="form-group answer-options-after-gap">
-                <div class="col-md-offset-3 col-md-9"></div>
             </div>
         </div>
         <div class="form-group submit-group">

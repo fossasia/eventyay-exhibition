@@ -13,7 +13,7 @@
         function sync() {
             var isChoiceVariant = choiceVariants.indexOf(variantField.value) !== -1;
             optionsGroup.hidden = !isChoiceVariant;
-            optionsGroup.style.display = isChoiceVariant ? "block" : "none";
+            optionsGroup.classList.toggle("is-choice-variant", isChoiceVariant);
         }
 
         variantField.addEventListener("change", sync);

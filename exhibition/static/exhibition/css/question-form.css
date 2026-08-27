@@ -1,3 +1,15 @@
-#answer-options.exhibition-answer-options .answer-options-group > .control-label {
+#exhibition-answer-options.exhibition-answer-options {
+    display: none;
+}
+
+#exhibition-answer-options.exhibition-answer-options.is-choice-variant {
+    display: block;
+}
+
+#exhibition-answer-options.exhibition-answer-options .answer-options-group {
+    margin-bottom: 10px;
+}
+
+#exhibition-answer-options.exhibition-answer-options .answer-options-group > .control-label {
     padding-top: 7px;
 }
