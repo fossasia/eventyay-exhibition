@@ -13,3 +13,58 @@
 #exhibition-answer-options.exhibition-answer-options .answer-options-group > .control-label {
     padding-top: 7px;
 }
+
+#exhibition-answer-options .question-option-item {
+    margin-bottom: 12px;
+}
+
+#exhibition-answer-options .question-option-item:last-child {
+    margin-bottom: 0;
+}
+
+#exhibition-answer-options .question-option-label {
+    color: #777;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+#exhibition-answer-options .question-option-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+}
+
+#exhibition-answer-options .question-option-field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+#exhibition-answer-options .question-option-field .form-group {
+    margin-bottom: 0;
+    width: 100%;
+}
+
+#exhibition-answer-options .question-option-field .i18n-form-group {
+    width: 100%;
+}
+
+#exhibition-answer-options .question-option-field input,
+#exhibition-answer-options .question-option-field textarea {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+#exhibition-answer-options .question-option-actions {
+    flex: 0 0 auto;
+    padding: 0;
+    white-space: nowrap;
+}
+
+#exhibition-answer-options .question-option-actions .btn + .btn {
+    margin-left: 4px;
+}
+
+#exhibition-answer-options .question-option-add {
+    margin-top: 10px;
+}
