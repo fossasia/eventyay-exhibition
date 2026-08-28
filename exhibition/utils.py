@@ -5,9 +5,41 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 from eventyay.common.urls import get_url_origin, normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
+from i18nfield.strings import LazyI18nString
 
 if TYPE_CHECKING:
     from .models import ExhibitorInfo
+
+
+def localized_value_for(value, locale) -> str:
+    """Read one locale out of an internationalized value, falling back to any filled locale."""
+    if value is None:
+        return ""
+    data = getattr(value, "data", value)
+    if not isinstance(data, dict):
+        return str(data) if data else ""
+    if data.get(locale):
+        return data[locale]
+    for candidate in data.values():
+        if candidate:
+            return candidate
+    return ""
+
+
+def merge_localized_value(existing, locale, text):
+    """Write ``text`` into a single locale of an internationalized value, keeping the others."""
+    data = getattr(existing, "data", existing)
+    merged = {code: value for code, value in data.items() if value} if isinstance(data, dict) else {}
+    if not isinstance(data, dict) and data:
+        merged[locale] = str(data)
+    text = (text or "").strip()
+    if text:
+        merged[locale] = text
+    else:
+        merged.pop(locale, None)
+    if not merged:
+        return ""
+    return LazyI18nString(merged)
 
 
 def should_hide_applicant_emails(user, event, request=None) -> bool:
@@ -248,6 +280,9 @@ def generate_exhibitor_vouchers(exhibitor, *, product, count, max_usages, price_
     return ExhibitorVoucher.objects.bulk_create(links)
 
 
+PROPOSAL_LOCALIZED_PROFILE_FIELDS = ("name", "description")
+
+
 def provision_exhibitor_devices(exhibitor, count, *, user=None):
     """Create ``count`` lead-scanning devices for an exhibitor and link them."""
     from eventyay.base.models import Device
@@ -319,10 +354,26 @@ def sync_exhibitor_from_proposal(proposal, requestor=None):
     if not exhibitor:
         return None
 
+    locale = proposal.content_locale
     for field in PROPOSAL_SYNCED_PROFILE_FIELDS:
-        setattr(exhibitor, field, getattr(proposal, field))
+        if field in PROPOSAL_LOCALIZED_PROFILE_FIELDS:
+            setattr(
+                exhibitor,
+                field,
+                merge_localized_value(
+                    getattr(exhibitor, field),
+                    locale,
+                    localized_value_for(getattr(proposal, field), locale),
+                ),
+            )
+        else:
+            setattr(exhibitor, field, getattr(proposal, field))
     if exhibitor.is_exhibitor:
-        exhibitor.booth_name = proposal.booth_name
+        exhibitor.booth_name = merge_localized_value(
+            exhibitor.booth_name,
+            locale,
+            localized_value_for(proposal.booth_name, locale),
+        )
     exhibitor.save()
 
     exhibitor.social_links.all().delete()

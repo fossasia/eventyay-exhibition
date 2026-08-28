@@ -1,0 +1,165 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load exhibition_email %}
+
+{% block title %}{{ request.event.name }} - {% trans "Exhibition overview" %}{% endblock %}
+
+{% block exhibitors_header %}
+  <h1>
+    {% trans "Exhibition overview" %}
+    <small class="text-muted">{{ request.event.get_date_range_display }}</small>
+  </h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+  <div class="dashboard">
+    {% if show_partners %}
+      <div class="widget-container widget-small">
+        <a href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" class="widget">
+          <div class="numwidget">
+            <span class="num">{{ exhibitor_count }}</span>
+            <span class="text">{% trans "Exhibitors" %}</span>
+          </div>
+        </a>
+      </div>
+      <div class="widget-container widget-small">
+        <a href="{% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug %}" class="widget">
+          <div class="numwidget">
+            <span class="num">{{ sponsor_count }}</span>
+            <span class="text">{% trans "Sponsors" %}</span>
+          </div>
+        </a>
+      </div>
+    {% endif %}
+    {% if show_requests %}
+      <div class="widget-container widget-small">
+        <a href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}?state=submitted" class="widget">
+          <div class="numwidget">
+            <span class="num">{{ pending_request_count }}</span>
+            <span class="text">{% trans "Requests awaiting review" %}</span>
+          </div>
+        </a>
+      </div>
+      <div class="widget-container widget-small">
+        {% pending_email_count request.event as pending_emails %}
+        <a href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}" class="widget">
+          <div class="numwidget">
+            <span class="num">{{ pending_emails }}</span>
+            <span class="text">{% trans "Emails in outbox" %}</span>
+          </div>
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="row">
+    {% if show_requests %}
+      <div class="col-md-8">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">
+              {% trans "Recent requests" %}
+              <a href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}"
+                 class="pull-right flip">
+                <small>{% trans "View all" %}</small>
+              </a>
+            </h3>
+          </div>
+          {% if recent_requests %}
+            <div class="table-responsive">
+              <table class="table table-condensed table-hover">
+                <thead>
+                  <tr>
+                    <th>{% trans "Name" %}</th>
+                    <th>{% trans "Type" %}</th>
+                    <th>{% trans "State" %}</th>
+                    <th>{% trans "Submitted" %}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for proposal in recent_requests %}
+                    <tr>
+                      <td>
+                        <a href="{% url 'plugins:exhibition:proposal.detail' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
+                          {{ proposal.name }}
+                        </a>
+                      </td>
+                      <td>
+                        {% if proposal.is_exhibitor and proposal.is_sponsor %}
+                          {% trans "Exhibitor and sponsor" %}
+                        {% elif proposal.is_sponsor %}
+                          {% trans "Sponsor" %}
+                        {% else %}
+                          {% trans "Exhibitor" %}
+                        {% endif %}
+                      </td>
+                      <td>{{ proposal.get_state_display }}</td>
+                      <td>{{ proposal.submitted|date:"SHORT_DATETIME_FORMAT"|default:"—" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="panel-body text-muted">
+              {% trans "No requests have been submitted yet." %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    {% if exhibition_settings %}
+      <div class="col-md-4">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">
+              {% trans "Call for exhibitors" %}
+              <a href="{% url 'plugins:exhibition:settings.call' organizer=request.event.organizer.slug event=request.event.slug %}"
+                 class="pull-right flip">
+                <small>{% trans "Edit" %}</small>
+              </a>
+            </h3>
+          </div>
+          <div class="panel-body">
+            {% if not exhibition_settings.call_enabled %}
+              <p>
+                <span class="label label-default">{% trans "Disabled" %}</span>
+                {% trans "The call is not published, so nobody can submit a request." %}
+              </p>
+            {% elif exhibition_settings.call_is_open %}
+              <p><span class="label label-success">{% trans "Open" %}</span></p>
+              {% if exhibition_settings.call_deadline %}
+                <p class="text-muted">
+                  {% blocktrans trimmed with deadline=exhibition_settings.call_deadline|date:"SHORT_DATETIME_FORMAT" %}
+                    Closes on {{ deadline }}.
+                  {% endblocktrans %}
+                </p>
+              {% else %}
+                <p class="text-muted">{% trans "No deadline set." %}</p>
+              {% endif %}
+            {% else %}
+              <p><span class="label label-warning">{% trans "Closed" %}</span></p>
+              <p class="text-muted">
+                {% blocktrans trimmed with deadline=exhibition_settings.call_deadline|date:"SHORT_DATETIME_FORMAT" %}
+                  The deadline passed on {{ deadline }}.
+                {% endblocktrans %}
+              </p>
+            {% endif %}
+            {% if exhibition_settings.call_private %}
+              <p class="text-muted">
+                <i class="fa fa-lock"></i> {% trans "Private — reachable only with the secret link." %}
+              </p>
+            {% endif %}
+            {% if exhibition_settings.call_enabled and not exhibition_settings.call_private %}
+              <a class="btn btn-default btn-sm"
+                 href="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "View call page" %}
+              </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

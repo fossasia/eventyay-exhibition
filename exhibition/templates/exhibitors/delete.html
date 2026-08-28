@@ -19,7 +19,7 @@
     <button type="submit" class="btn btn-danger btn-save">{% trans "Delete" %}</button>
     <a
       class="btn btn-default btn-cancel"
-      href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}"
+      href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}"
     >
       {% trans "Cancel" %}
     </a>

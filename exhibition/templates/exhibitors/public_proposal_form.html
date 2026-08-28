@@ -7,6 +7,7 @@
 {% block custom_header %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-add.css' %}">
+    <script defer src="{% static 'exhibition/js/content-locale-direction.js' %}"></script>
 {% endblock %}
 
 {% block call_content %}
@@ -25,6 +26,10 @@
     <form action="" method="post" class="form-horizontal" enctype="multipart/form-data" novalidate>
         {% csrf_token %}
         {% bootstrap_form_errors form %}
+
+        {% if form.content_locale %}
+            {% bootstrap_field form.content_locale layout="control" %}
+        {% endif %}
 
         {% for item in form.proposal_items %}
             {% if item.kind == 'social_links' and can_edit %}

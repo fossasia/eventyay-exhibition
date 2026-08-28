@@ -84,6 +84,10 @@
                 </dd>
                 <dt>{% trans "State" %}</dt>
                 <dd>{{ proposal.get_state_display }}</dd>
+                {% if request.event.is_multilingual %}
+                    <dt>{% trans "Language" %}</dt>
+                    <dd>{{ proposal.content_locale_display }}</dd>
+                {% endif %}
                 <dt>{% trans "Type" %}</dt>
                 <dd>
                     {% with partner=proposal.approved_exhibitor|default:proposal %}

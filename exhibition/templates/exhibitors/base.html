@@ -5,6 +5,12 @@
 {% block title %}{{ request.event.name }} - {% trans "Exhibitors & Sponsors" %}{% endblock %}
 
 {% block nav %}
+  <li>
+    <a href="{% url 'plugins:exhibition:dashboard' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'dashboard' %}class="active"{% endif %}>
+      <span class="fa fa-fw fa-dashboard"></span>
+      <span class="sidebar-text">{% trans "Overview" %}</span>
+    </a>
+  </li>
   {% if 'can_change_event_settings' in request.eventpermset %}
     <li>
       <a href="{% url 'plugins:exhibition:settings.exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" class="has-children">
@@ -59,7 +65,7 @@
   {% endif %}
   {% if 'can_change_event_settings' in request.eventpermset or 'can_view_orders' in request.eventpermset %}
     <li>
-      <a href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'exhibitors' or url_name == 'exhibitors.add' or url_name == 'info' or url_name == 'add' or url_name == 'edit' and request.GET.type != 'sponsor' or url_name == 'delete' and request.GET.type != 'sponsor' %}class="active"{% endif %}>
+      <a href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'exhibitors' or url_name == 'exhibitors.add' or url_name == 'add' or url_name == 'edit' and request.GET.type != 'sponsor' or url_name == 'delete' and request.GET.type != 'sponsor' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-map-pin"></span>
         <span class="sidebar-text">{% trans "Exhibitors" %}</span>
       </a>

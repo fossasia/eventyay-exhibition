@@ -75,7 +75,7 @@ def exhibition_dashboard_component(sender, request=None, **kwargs):
         description = _("Screen and evaluate exhibitor and sponsor requests for the event.")
         link_label = _("Request Review Dashboard")
     else:
-        url = reverse("plugins:exhibition:info", kwargs=kwargs_url)
+        url = reverse("plugins:exhibition:dashboard", kwargs=kwargs_url)
         description = _(
             "Manage exhibitors and sponsors, maintain booth details, and create partner profiles for the event."
         )

@@ -6,6 +6,7 @@ import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 from django.utils import timezone
+from django.utils.translation import get_language
 from django_scopes import scopes_disabled
 from eventyay.base.models.auth import User
 
@@ -109,6 +110,48 @@ def test_templates_form_saves_to_event_settings(mail_event):
     subject, body = mail_helpers.get_email_template(mail_event, mail_helpers.PROPOSAL_NEW)
     assert str(subject) == "Saved subject"
     assert str(body) == "Saved body"
+
+
+@pytest.mark.django_db
+def test_default_template_initial_blanks_locales_without_translation():
+    """A locale with no catalog entry stays empty instead of inheriting the English msgid."""
+    source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.PROPOSAL_NEW]
+
+    with patch("exhibition.mail.gettext", side_effect=lambda msgid: msgid):
+        subject, body = mail_helpers.default_template_initial(mail_helpers.PROPOSAL_NEW, ["en", "th"])
+
+    assert subject.data["en"] == source_subject
+    assert body.data["en"] == source_body
+    assert "th" not in subject.data
+    assert "th" not in body.data
+
+
+@pytest.mark.django_db
+def test_default_template_initial_uses_available_translation():
+    def fake_gettext(msgid):
+        return f"TH:{msgid}" if get_language() == "th" else msgid
+
+    with patch("exhibition.mail.gettext", side_effect=fake_gettext):
+        subject, body = mail_helpers.default_template_initial(mail_helpers.PROPOSAL_NEW, ["en", "th"])
+
+    source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.PROPOSAL_NEW]
+    assert subject.data["th"] == f"TH:{source_subject}"
+    assert body.data["th"] == f"TH:{source_body}"
+    assert subject.data["en"] == source_subject
+
+
+@pytest.mark.django_db
+def test_templates_form_does_not_prefill_untranslated_locale(mail_event):
+    mail_event.settings.locales = ["en", "th"]
+
+    with patch("exhibition.mail.gettext", side_effect=lambda msgid: msgid):
+        form = ExhibitionMailTemplatesForm(obj=mail_event)
+
+    for role in mail_helpers.LIFECYCLE_ROLES:
+        for key in (mail_helpers.subject_settings_key(role), mail_helpers.body_settings_key(role)):
+            initial = form.fields[key].initial
+            assert initial.data["en"]
+            assert "th" not in initial.data
 
 
 @pytest.mark.django_db

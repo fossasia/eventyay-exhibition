@@ -15,6 +15,7 @@ from .views import (
     CallTextPreviewView,
     CustomEmailTemplateCreateView,
     CustomEmailTemplateDeleteView,
+    DashboardView,
     EmailBulkActionView,
     EmailComposeView,
     EmailDeleteView,
@@ -139,8 +140,8 @@ urlpatterns = [
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>",
-        ExhibitorListView.as_view(partner_type="exhibitor"),
-        name="info",
+        DashboardView.as_view(),
+        name="dashboard",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors",

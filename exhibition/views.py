@@ -203,6 +203,62 @@ class FilteredListMixin(PaginationMixin):
         return context
 
 
+class DashboardView(EventPermissionRequiredMixin, TemplateView):
+    """Landing page for the plugin: headline counts plus the most recent requests."""
+
+    template_name = "exhibitors/dashboard.html"
+    permission = (
+        "can_change_event_settings",
+        "can_view_orders",
+        "can_change_exhibition_proposals",
+        "is_exhibition_reviewer",
+    )
+
+    RECENT_REQUEST_LIMIT = 5
+
+    def can_view_partners(self):
+        return self.request.user.has_event_permission(
+            self.request.event.organizer,
+            self.request.event,
+            ("can_change_event_settings", "can_view_orders"),
+            request=self.request,
+        )
+
+    def can_review_requests(self):
+        return self.request.user.has_event_permission(
+            self.request.event.organizer,
+            self.request.event,
+            ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer"),
+            request=self.request,
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        event = self.request.event
+        context["show_partners"] = self.can_view_partners()
+        context["show_requests"] = self.can_review_requests()
+
+        if context["show_partners"]:
+            partners = ExhibitorInfo.objects.filter(event=event)
+            context["exhibitor_count"] = partners.filter(is_exhibitor=True).count()
+            context["sponsor_count"] = partners.filter(is_sponsor=True).count()
+
+        if context["show_requests"]:
+            proposals = ExhibitionProposal.objects.filter(event=event)
+            context["pending_request_count"] = proposals.filter(state=ExhibitionProposalState.SUBMITTED).count()
+            context["recent_requests"] = list(
+                proposals.exclude(state=ExhibitionProposalState.DRAFT).order_by("-submitted", "-pk")[
+                    : self.RECENT_REQUEST_LIMIT
+                ]
+            )
+
+        if self.request.user.has_event_permission(
+            event.organizer, event, "can_change_event_settings", request=self.request
+        ):
+            context["exhibition_settings"] = ExhibitorSettings.objects.filter(event=event).first()
+        return context
+
+
 class SettingsView(EventPermissionRequiredMixin, ListView):
     model = ExhibitorInfo
     template_name = "exhibitors/settings.html"
@@ -1888,13 +1944,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
         return context
 
     def get_success_url(self) -> str:
-        return reverse(
-            "plugins:exhibition:info",
-            kwargs={
-                "organizer": self.request.event.organizer.slug,
-                "event": self.request.event.slug,
-            },
-        )
+        return partner_list_url(self.request.event, partner_type_of(self.object))
 
 
 class ExhibitorCopyKeyView(EventPermissionRequiredMixin, View):

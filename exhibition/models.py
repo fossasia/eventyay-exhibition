@@ -557,6 +557,11 @@ class ExhibitionProposal(LoggedModel):
     )
     name = I18nCharField(max_length=190, verbose_name=_("Name"))
     description = I18nTextField(verbose_name=_("Description"), null=True, blank=True)
+    content_locale = models.CharField(
+        max_length=32,
+        default=settings.LANGUAGE_CODE,
+        verbose_name=_("Language"),
+    )
     url = models.URLField(verbose_name=_("URL"), null=True, blank=True)
     email = models.EmailField(verbose_name=_("Email"), null=True, blank=True)
     contact_url = models.URLField(verbose_name=_("Contact URL"), null=True, blank=True)
@@ -765,6 +770,11 @@ class ExhibitionProposal(LoggedModel):
             return {}
         questions = ExhibitionQuestion.objects.filter(id__in=answer_ids)
         return {f"answer_{question.id}": question.localized_question for question in questions}
+
+    @property
+    def content_locale_display(self):
+        names = dict(getattr(self.event, "named_content_locales", None) or [])
+        return names.get(self.content_locale, self.content_locale)
 
     @property
     def localized_booth_name(self):

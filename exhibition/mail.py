@@ -11,7 +11,7 @@ from urllib.parse import urljoin
 from django.conf import settings as django_settings
 from django.urls import reverse
 from django.utils.html import escape
-from django.utils.translation import gettext_lazy as _lazy, gettext_noop
+from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, override
 from i18nfield.strings import LazyI18nString
 
 logger = logging.getLogger(__name__)
@@ -52,67 +52,79 @@ def body_settings_key(role):
     return f"{_SETTINGS_PREFIX}{role}_body"
 
 
-DEFAULT_TEMPLATES = {
+DEFAULT_TEMPLATE_SOURCES = {
     PROPOSAL_NEW: (
-        LazyI18nString.from_gettext(gettext_noop("We received your request for {event_name}")),
-        LazyI18nString.from_gettext(
-            gettext_noop(
-                "Hello,\n\n"
-                "thank you for submitting your request “{request_name}” to "
-                "{event_name}. We have received it and will get back to you once it has "
-                "been reviewed.\n\n"
-                "You can review or edit your request here:\n{request_url}\n\n"
-                "Best regards,\n"
-                "The {event_name} team"
-            )
+        gettext_noop("We received your request for {event_name}"),
+        gettext_noop(
+            "Hello,\n\n"
+            "thank you for submitting your request \u201c{request_name}\u201d to "
+            "{event_name}. We have received it and will get back to you once it has "
+            "been reviewed.\n\n"
+            "You can review or edit your request here:\n{request_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
         ),
     ),
     PROPOSAL_ACCEPTED: (
-        LazyI18nString.from_gettext(gettext_noop("Your request for {event_name} has been accepted")),
-        LazyI18nString.from_gettext(
-            gettext_noop(
-                "Hello,\n\n"
-                "we are happy to let you know that your request “{request_name}” "
-                "for {event_name} has been accepted. We will be in touch with the next "
-                "steps.\n\n"
-                "Best regards,\n"
-                "The {event_name} team"
-            )
+        gettext_noop("Your request for {event_name} has been accepted"),
+        gettext_noop(
+            "Hello,\n\n"
+            "we are happy to let you know that your request \u201c{request_name}\u201d "
+            "for {event_name} has been accepted. We will be in touch with the next "
+            "steps.\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
         ),
     ),
     PROPOSAL_REJECTED: (
-        LazyI18nString.from_gettext(gettext_noop("Update on your request for {event_name}")),
-        LazyI18nString.from_gettext(
-            gettext_noop(
-                "Hello,\n\n"
-                "thank you for your interest in {event_name}. Unfortunately we are unable "
-                "to accept your request “{request_name}” this time.\n\n"
-                "We hope to see you at a future event.\n\n"
-                "Best regards,\n"
-                "The {event_name} team"
-            )
+        gettext_noop("Update on your request for {event_name}"),
+        gettext_noop(
+            "Hello,\n\n"
+            "thank you for your interest in {event_name}. Unfortunately we are unable "
+            "to accept your request \u201c{request_name}\u201d this time.\n\n"
+            "We hope to see you at a future event.\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
         ),
     ),
     EXHIBITOR_ACCESS: (
-        LazyI18nString.from_gettext(gettext_noop("Lead Scanning Access for {event_name}")),
-        LazyI18nString.from_gettext(
-            gettext_noop(
-                "Hello {exhibitor_name},\n\n"
-                "Please use the information below to activate the **Lead Scanning app**:\n\n"
-                "**Step 1 — Open the Web App:** access.eventyay.com\n\n"
-                "**Step 2 — Enter the Exhibitor Key:** {exhibitor_access_code}\n\n"
-                "**Step 3 — Set up each device** by scanning its QR code, or by entering its "
-                "setup URL and token manually:\n\n"
-                "{device_tokens}\n\n"
-                "*Each token is unique to one device and can only be used once. "
-                "If you set up additional devices, each device will require its own token.*\n\n"
-                "Please share these details with the team members who will be scanning leads at the event.\n\n"
-                "Best regards,\n"
-                "The {event_name} Team"
-            )
+        gettext_noop("Lead Scanning Access for {event_name}"),
+        gettext_noop(
+            "Hello {exhibitor_name},\n\n"
+            "Please use the information below to activate the **Lead Scanning app**:\n\n"
+            "**Step 1 \u2014 Open the Web App:** access.eventyay.com\n\n"
+            "**Step 2 \u2014 Enter the Exhibitor Key:** {exhibitor_access_code}\n\n"
+            "**Step 3 \u2014 Set up each device** by scanning its QR code, or by entering its "
+            "setup URL and token manually:\n\n"
+            "{device_tokens}\n\n"
+            "*Each token is unique to one device and can only be used once. "
+            "If you set up additional devices, each device will require its own token.*\n\n"
+            "Please share these details with the team members who will be scanning leads at the event.\n\n"
+            "Best regards,\n"
+            "The {event_name} Team"
         ),
     ),
 }
+
+DEFAULT_TEMPLATES = {
+    role: (LazyI18nString.from_gettext(subject), LazyI18nString.from_gettext(body))
+    for role, (subject, body) in DEFAULT_TEMPLATE_SOURCES.items()
+}
+
+
+def default_template_initial(role, locales):
+    """Default subject and body per locale, left blank where no translation exists."""
+    source_language = django_settings.LANGUAGE_CODE.split("-")[0]
+    initials = []
+    for msgid in DEFAULT_TEMPLATE_SOURCES[role]:
+        values = {}
+        for code in locales:
+            with override(code):
+                translated = gettext(msgid)
+            if translated != msgid or code.split("-")[0] == source_language:
+                values[code] = translated
+        initials.append(LazyI18nString(values))
+    return tuple(initials)
 
 
 def get_email_template(event, role):
@@ -155,7 +167,6 @@ def role_placeholder_names(event, role):
 
 def build_preview_placeholders(event, context=PROPOSAL_PLACEHOLDER_CONTEXT):
     """Sample placeholder values for previews, wrapped like the tickets preview."""
-    from django.utils.translation import gettext
     from eventyay.base.email import get_available_placeholders
     from eventyay.base.templatetags.rich_text import is_placeholder_html_sample
 
