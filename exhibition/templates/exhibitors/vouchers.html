@@ -83,8 +83,8 @@
         </fieldset>
         <div class="form-group submit-group">
             <div class="col-md-9 col-md-offset-3">
-                <button type="submit" class="btn btn-primary">{% trans "Create vouchers" %}</button>
-                <a class="btn btn-default" href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}">
+                <button type="submit" class="btn btn-primary btn-save">{% trans "Create vouchers" %}</button>
+                <a class="btn btn-default btn-cancel" href="{% url 'plugins:exhibition:info' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Back" %}
                 </a>
             </div>

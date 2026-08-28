@@ -19,8 +19,8 @@
             {% trans "This clears the custom label and help text. Default fields are part of the form and cannot be deleted; turn the field off with the Active toggle to hide it." %}
         </p>
         <div class="form-group submit-group">
-            <button type="submit" class="btn btn-danger">{% trans "Reset" %}</button>
-            <a class="btn btn-default" href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <button type="submit" class="btn btn-danger btn-save">{% trans "Reset" %}</button>
+            <a class="btn btn-default btn-cancel" href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">
                 {% trans "Cancel" %}
             </a>
         </div>

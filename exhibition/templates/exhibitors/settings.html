@@ -190,8 +190,8 @@
                     {% bootstrap_field add_group_form.level layout="control" %}
                     <div class="form-group submit-group sponsor-group-editor-actions">
                         <div class="col-md-9 col-md-offset-3">
-                            <button type="submit" class="btn btn-primary">{% trans "Add" %}</button>
-                            <button type="button" class="btn btn-default" id="cancel-add-group-form">{% trans "Cancel" %}</button>
+                            <button type="submit" class="btn btn-primary btn-save">{% trans "Add" %}</button>
+                            <button type="button" class="btn btn-default btn-cancel" id="cancel-add-group-form">{% trans "Cancel" %}</button>
                         </div>
                     </div>
                 </form>
@@ -266,8 +266,8 @@
                                             {% bootstrap_field group.edit_form.level layout="control" %}
                                             <div class="form-group submit-group sponsor-group-editor-actions">
                                                 <div class="col-md-9 col-md-offset-3">
-                                                    <button type="submit" class="btn btn-primary">{% trans "Save" %}</button>
-                                                    <button type="button" class="btn btn-default" data-group-editor-close="group-editor-{{ group.pk }}">{% trans "Cancel" %}</button>
+                                                    <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+                                                    <button type="button" class="btn btn-default btn-cancel" data-group-editor-close="group-editor-{{ group.pk }}">{% trans "Cancel" %}</button>
                                                 </div>
                                             </div>
                                         </form>

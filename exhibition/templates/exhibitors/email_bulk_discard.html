@@ -23,10 +23,10 @@
             {% endblocktrans %}
         </p>
         <div class="form-group submit-group">
-            <a class="btn btn-default" href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-default btn-cancel" href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
                 {% trans "Cancel" %}
             </a>
-            <button type="submit" class="btn btn-danger">
+            <button type="submit" class="btn btn-danger btn-save">
                 <i class="fa fa-trash"></i> {% trans "Discard" %}
             </button>
         </div>

@@ -180,19 +180,19 @@
             {% bootstrap_field form.review_notes layout="control" %}
         </fieldset>
         <div class="form-group submit-group">
-            <button type="submit" class="btn btn-default" name="action" value="save">
+            <button type="submit" class="btn btn-default btn-save" name="action" value="save">
                 {% trans "Save" %}
             </button>
             {% if can_review %}
-                <button type="submit" class="btn btn-primary" name="action" value="approve">
+                <button type="submit" class="btn btn-primary btn-save" name="action" value="approve">
                     {% trans "Approve" %}
                 </button>
-                <button type="submit" class="btn btn-danger" name="action" value="reject">
+                <button type="submit" class="btn btn-danger btn-save" name="action" value="reject">
                     {% trans "Reject" %}
                 </button>
             {% endif %}
             {% if can_edit_exhibitor and proposal.state == "accepted" and proposal.approved_exhibitor_id %}
-                <a class="btn btn-primary" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=proposal.approved_exhibitor_id %}">
+                <a class="btn btn-primary btn-save" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=proposal.approved_exhibitor_id %}">
                     {% trans "Open profile" %}
                 </a>
             {% endif %}
