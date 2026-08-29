@@ -1384,6 +1384,21 @@ class ExhibitionDefaultFieldForm(forms.Form):
 
 
 class ExhibitionQuestionOptionForm(I18nModelForm):
+    def has_changed(self):
+        """Ignore the automatically submitted ordering value on blank extra rows."""
+        for name, field in self.fields.items():
+            if name in {"ORDER", "id"}:
+                continue
+
+            prefixed_name = self.add_prefix(name)
+            data_value = field.widget.value_from_datadict(self.data, self.files, prefixed_name)
+            initial_value = self.initial.get(name, field.initial)
+            if callable(initial_value):
+                initial_value = initial_value()
+            if field.has_changed(initial_value, data_value):
+                return True
+        return False
+
     class Meta:
         model = ExhibitionQuestionOption
         localized_fields = "__all__"

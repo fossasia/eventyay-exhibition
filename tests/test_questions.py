@@ -17,7 +17,7 @@ def option_formset_data(options, *, initial_forms):
         data.update(
             {
                 f"options-{index}-id": str(option.get("id", "")),
-                f"options-{index}-answer_0": option["answer"],
+                f"options-{index}-answer_0": option.get("answer", ""),
                 f"options-{index}-ORDER": str(option["order"]),
             }
         )
@@ -110,6 +110,19 @@ def test_choice_option_formset_requires_an_option(event):
 
 
 @pytest.mark.django_db
+def test_choice_option_formset_rejects_only_blank_options(event):
+    formset = ExhibitionQuestionOptionFormSet(
+        option_formset_data([{"answer": "", "order": 0}], initial_forms=0),
+        event=event,
+        prefix="options",
+        requires_option=True,
+    )
+
+    assert not formset.is_valid()
+    assert "Please provide at least one option" in formset.non_form_errors().as_text()
+
+
+@pytest.mark.django_db
 def test_choice_option_formset_saves_ordered_options(event):
     question = ExhibitionQuestion.objects.create(
         event=event,
@@ -139,6 +152,66 @@ def test_choice_option_formset_saves_ordered_options(event):
         ({"en": "First"}, 1),
         ({"en": "Third"}, 2),
     ]
+
+
+@pytest.mark.django_db
+def test_choice_option_formset_ignores_empty_extra_options(event):
+    question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.CHOICES,
+        question={"en": "Which option?"},
+    )
+    existing_option = ExhibitionQuestionOption.objects.create(
+        question=question,
+        answer={"en": "Existing option"},
+        position=0,
+    )
+    view = option_formset_view(
+        event,
+        question,
+        option_formset_data(
+            [
+                {"id": existing_option.pk, "answer": "Existing option", "order": 0},
+                {"answer": "", "order": 1},
+            ],
+            initial_forms=1,
+        ),
+    )
+
+    assert view.option_formset.is_valid()
+    view.save_option_formset()
+
+    assert list(question.options.values_list("answer", "position")) == [({"en": "Existing option"}, 0)]
+
+
+@pytest.mark.django_db
+def test_choice_option_formset_ignores_deleted_extra_options(event):
+    question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.CHOICES,
+        question={"en": "Which option?"},
+    )
+    existing_option = ExhibitionQuestionOption.objects.create(
+        question=question,
+        answer={"en": "Existing option"},
+        position=0,
+    )
+    view = option_formset_view(
+        event,
+        question,
+        option_formset_data(
+            [
+                {"id": existing_option.pk, "answer": "Existing option", "order": 0},
+                {"answer": "", "order": 1, "delete": True},
+            ],
+            initial_forms=1,
+        ),
+    )
+
+    assert view.option_formset.is_valid()
+    view.save_option_formset()
+
+    assert list(question.options.values_list("answer", "position")) == [({"en": "Existing option"}, 0)]
 
 
 @pytest.mark.django_db

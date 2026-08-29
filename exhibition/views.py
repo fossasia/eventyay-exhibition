@@ -1612,16 +1612,23 @@ class ExhibitionQuestionOptionFormSetMixin:
             self.object.options.all().delete()
             return
 
-        for option_form in self.option_formset.deleted_forms:
-            option_form.instance.delete()
+        deleted_forms = self.option_formset.deleted_forms
+        for option_form in deleted_forms:
+            if option_form.instance.pk is not None:
+                option_form.instance.delete()
 
         ordered_forms = self.option_formset.ordered_forms + [
             option_form
             for option_form in self.option_formset.extra_forms
             if option_form not in self.option_formset.ordered_forms
-            and option_form not in self.option_formset.deleted_forms
+            and option_form not in deleted_forms
         ]
-        for position, option_form in enumerate(ordered_forms):
+        option_forms = [
+            option_form
+            for option_form in ordered_forms
+            if option_form not in deleted_forms and option_form.cleaned_data.get("answer")
+        ]
+        for position, option_form in enumerate(option_forms):
             option = option_form.save(commit=False)
             option.question = self.object
             option.position = position
