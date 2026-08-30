@@ -447,6 +447,21 @@ def test_compose_form_requires_subject_and_body(mail_event):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("empty_body", ["", "<p></p>", "<p><br></p>", "<p>&nbsp;</p>"])
+def test_compose_form_rejects_empty_html_body(mail_event, empty_body):
+    form = ExhibitionComposeForm(
+        data={
+            "states": [ExhibitionProposalState.ACCEPTED],
+            **_compose_data(mail_event, subject="Hi", body=empty_body),
+        },
+        event=mail_event,
+    )
+    assert not form.is_valid()
+    assert "body" in form.errors
+
+
+
+@pytest.mark.django_db
 def test_compose_view_saves_to_outbox(mail_event):
     _proposal(mail_event, "Acme", ExhibitionProposalState.ACCEPTED, email="a@example.com")
     form = ExhibitionComposeForm(
