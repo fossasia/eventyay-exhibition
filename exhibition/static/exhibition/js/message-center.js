@@ -67,11 +67,49 @@
                 });
             }
         }
+        
+        var table = element.closest("table");
+        if (table) {
+            var form = element.closest("form");
+            var all = table.querySelector("[data-select-all]");
+            var toolbar = form ? form.querySelector(".email-bulk-toolbar") : null;
+            var countLabel = toolbar ? toolbar.querySelector("[data-selected-count]") : null;
+            
+            if (countLabel) {
+                var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
+                var checkedCount = boxes.filter(function(b) { return b.checked; }).length;
+                var total = toolbar.dataset.totalCount;
+                
+                if (all && all.checked && total) {
+                    countLabel.textContent = total + " selected";
+                } else if (checkedCount > 0) {
+                    countLabel.textContent = checkedCount + " selected";
+                } else {
+                    countLabel.textContent = "";
+                }
+            }
+        }
     }
 
     document.addEventListener("submit", onSubmit);
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
+    
+    // Intercept clicks on outbox buttons to submit the '_all' variant if select all is checked
+    document.addEventListener("click", function(event) {
+        var btn = event.target.closest('button[type="submit"][name="op"]');
+        if (!btn) return;
+        
+        var form = btn.closest("form");
+        if (!form) return;
+        
+        var all = form.querySelector("[data-select-all]");
+        if (all && all.checked) {
+            if (btn.value === 'send') btn.value = 'send_all';
+            if (btn.value === 'discard') btn.value = 'discard_all';
+        }
+    });
+
     window.addEventListener("popstate", function () {
         if (container()) {
             load(window.location.href, false);

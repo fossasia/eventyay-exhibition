@@ -45,7 +45,7 @@
             {% endif %}
         </div>
     {% else %}
-        <div data-partner-select-scope data-selected-label="{% trans "selected" %}">
+        <div data-partner-select-scope data-total-count="{{ page_obj.paginator.count }}" data-selected-label="{% trans "selected" %}">
         <p>
             {% if "can_change_event_settings" in request.eventpermset %}
                 <a href="{{ add_url }}" class="btn btn-default"><i class="fa fa-plus"></i>
