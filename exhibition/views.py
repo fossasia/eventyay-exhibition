@@ -776,6 +776,7 @@ class ProposalLinkFormsetMixin:
         return context
 
     def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
         return self.render_to_response(self.get_context_data(form=form))
 
     def save_link_formsets(self):
@@ -1091,6 +1092,7 @@ class ExhibitorLinkFormsetMixin:
         return context
 
     def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
         return self.render_to_response(self.get_context_data(form=form))
 
     def save_link_formsets(self):
@@ -1776,6 +1778,10 @@ class ExhibitionDefaultFieldEditView(DefaultFieldMixin, FormView):
         messages.success(self.request, _("Your changes have been saved."))
         return redirect(self.get_success_url())
 
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
 
 class ExhibitionDefaultFieldResetView(DefaultFieldMixin, TemplateView):
     template_name = "exhibitors/call_default_field_reset.html"
@@ -2211,6 +2217,9 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         )
         return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
 
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
 
 def group_email_entries(emails):
     """Collapse rows that share a compose batch into one entry per message."""
