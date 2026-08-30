@@ -2295,6 +2295,7 @@ class EmailListMixin(FilteredListMixin):
         context = super().get_context_data(**kwargs)
         context["entries"] = group_email_entries(self.expand_batches(context["emails"]))
         context["date_field"] = self.date_field
+        context["total_email_count"] = self.apply_filters(self.base_queryset()).count()
         return context
 
     def get_template_names(self):

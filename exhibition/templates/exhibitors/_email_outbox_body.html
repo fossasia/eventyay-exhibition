@@ -9,7 +9,7 @@
 <form method="post" action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}">
     {% csrf_token %}
     {% if entries %}
-        <div class="email-bulk-toolbar" data-total-count="{{ page_obj.paginator.count }}">
+        <div class="email-bulk-toolbar" data-total-count="{{ total_email_count }}">
             <button type="submit" class="btn btn-default btn-sm" name="op" value="send">
                 <i class="fa fa-mail-forward"></i> {% trans "Send selected" %}
             </button>

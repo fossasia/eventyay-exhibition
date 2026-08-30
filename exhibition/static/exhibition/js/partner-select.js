@@ -32,7 +32,7 @@
         function refreshSelection() {
             var boxes = checkboxes()
             var selected = selectedValues()
-            var isSelectAllPages = selectAll && selectAll.checked;
+            var isSelectAllPages = scope.dataset.selectAllPages === "true";
             if (countLabel) {
                 if (isSelectAllPages && scope.dataset.totalCount) {
                     countLabel.textContent = scope.dataset.totalCount + ' ' + selectedLabel
@@ -52,6 +52,7 @@
 
         if (selectAll) {
             selectAll.addEventListener('change', function () {
+                scope.dataset.selectAllPages = selectAll.checked ? "true" : "false"
                 checkboxes().forEach(function (box) {
                     box.checked = selectAll.checked
                 })
@@ -61,6 +62,7 @@
 
         scope.addEventListener('change', function (event) {
             if (event.target.hasAttribute('data-partner-checkbox')) {
+                scope.dataset.selectAllPages = "false"
                 refreshSelection()
             }
         })
@@ -69,7 +71,7 @@
             downloadLink.addEventListener('click', function (event) {
                 event.preventDefault()
                 var selected = selectedValues()
-                var isSelectAllPages = selectAll && selectAll.checked;
+                var isSelectAllPages = scope.dataset.selectAllPages === "true";
                 if (!selected.length && !isSelectAllPages) {
                     return
                 }

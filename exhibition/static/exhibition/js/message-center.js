@@ -53,12 +53,15 @@
     function onChange(event) {
         var element = event.target;
         if (element.matches("[data-select-all]")) {
-            var rows = element.closest("table").querySelectorAll("[data-select-row]");
+            var table = element.closest("table");
+            table.dataset.selectAllPages = element.checked ? "true" : "false";
+            var rows = table.querySelectorAll("[data-select-row]");
             rows.forEach(function (row) {
                 row.checked = element.checked;
             });
         } else if (element.matches("[data-select-row]")) {
             var table = element.closest("table");
+            table.dataset.selectAllPages = "false";
             var all = table.querySelector("[data-select-all]");
             if (all) {
                 var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
@@ -71,7 +74,6 @@
         var table = element.closest("table");
         if (table) {
             var form = element.closest("form");
-            var all = table.querySelector("[data-select-all]");
             var toolbar = form ? form.querySelector(".email-bulk-toolbar") : null;
             var countLabel = toolbar ? toolbar.querySelector("[data-selected-count]") : null;
             
@@ -79,8 +81,9 @@
                 var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
                 var checkedCount = boxes.filter(function(b) { return b.checked; }).length;
                 var total = toolbar.dataset.totalCount;
+                var isSelectAllPages = table.dataset.selectAllPages === "true";
                 
-                if (all && all.checked && total) {
+                if (isSelectAllPages && total) {
                     countLabel.textContent = total + " selected";
                 } else if (checkedCount > 0) {
                     countLabel.textContent = checkedCount + " selected";
@@ -95,18 +98,30 @@
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
     
-    // Intercept clicks on outbox buttons to submit the '_all' variant if select all is checked
+    // Intercept clicks on outbox buttons to submit the '_all' variant if select all pages is checked
     document.addEventListener("click", function(event) {
         var btn = event.target.closest('button[type="submit"][name="op"]');
         if (!btn) return;
         
         var form = btn.closest("form");
-        if (!form) return;
+        var table = form ? form.querySelector("table") : null;
+        if (!form || !table) return;
         
-        var all = form.querySelector("[data-select-all]");
-        if (all && all.checked) {
-            if (btn.value === 'send') btn.value = 'send_all';
-            if (btn.value === 'discard') btn.value = 'discard_all';
+        var isSelectAllPages = table.dataset.selectAllPages === "true";
+        if (isSelectAllPages && (btn.value === 'send' || btn.value === 'discard')) {
+            var hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.name = "op";
+            hidden.value = btn.value + "_all";
+            
+            var originalName = btn.name;
+            btn.removeAttribute("name");
+            form.appendChild(hidden);
+            
+            setTimeout(function() {
+                btn.name = originalName;
+                hidden.remove();
+            }, 0);
         }
     });
 
