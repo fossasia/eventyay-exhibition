@@ -83,7 +83,7 @@
             <div class="form-group submit-group">
                 <div class="col-md-9 col-md-offset-3">
                     <button type="submit" class="btn btn-primary btn-save">{% trans "Add devices" %}</button>
-                    <a class="btn btn-default btn-cancel" href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    <a class="btn btn-default" href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}">
                         {% trans "Back" %}
                     </a>
                 </div>
