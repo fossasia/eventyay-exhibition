@@ -1,3 +1,5 @@
+from html import unescape
+
 import dateutil.parser
 from django import forms
 from django.conf import settings as django_settings
@@ -1929,10 +1931,10 @@ def _is_html_empty(html: str) -> bool:
     """Check whether an HTML snippet contains no substantive text or media."""
     if not html:
         return True
-    text = strip_tags(html).replace("\xa0", " ").replace("&nbsp;", " ").strip()
+    text = unescape(strip_tags(html)).replace("\xa0", " ").strip()
     if text:
         return False
-    if "<img" in html:
+    if "<img" in html.lower():
         return False
     return True
 
