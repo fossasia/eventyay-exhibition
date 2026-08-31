@@ -1703,8 +1703,7 @@ class ExhibitionQuestionOptionFormSetMixin:
         ordered_forms = self.option_formset.ordered_forms + [
             option_form
             for option_form in self.option_formset.extra_forms
-            if option_form not in self.option_formset.ordered_forms
-            and option_form not in deleted_forms
+            if option_form not in self.option_formset.ordered_forms and option_form not in deleted_forms
         ]
         option_forms = [
             option_form
