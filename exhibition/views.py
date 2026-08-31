@@ -2360,11 +2360,18 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
             context["recipients"] = [self.object.to_email]
         return context
 
+    def get_object(self, queryset=None):
+        if getattr(self, "_locked_object", None) is not None:
+            return self._locked_object
+        return super().get_object(queryset)
+
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        self.object = self.get_queryset().select_for_update().get(pk=self.kwargs.get(self.pk_url_kwarg))
-        if self.object.sent_at is not None:
+        self._locked_object = self.get_queryset().select_for_update().get(pk=self.kwargs.get(self.pk_url_kwarg))
+        if self._locked_object.sent_at is not None:
             raise PermissionDenied("Cannot edit an email that has already been sent.")
+        if self._locked_object.batch:
+            list(self.batch_queryset().select_for_update())
         return super().post(request, *args, **kwargs)
 
     def reschedule(self, rows, scheduled_at):
