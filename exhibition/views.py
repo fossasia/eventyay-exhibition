@@ -2367,6 +2367,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
+        # Lock the email row and its batch siblings to ensure atomic updates and prevent race conditions
         self._locked_object = self.get_queryset().select_for_update().get(pk=self.kwargs.get(self.pk_url_kwarg))
         if self._locked_object.sent_at is not None:
             raise PermissionDenied("Cannot edit an email that has already been sent.")
