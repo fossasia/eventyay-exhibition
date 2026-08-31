@@ -1,6 +1,7 @@
 import io
 import json
 
+# pyrefly: ignore [missing-import]
 from defusedcsv import csv
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -416,6 +417,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 messages.success(self.request, _("Sponsor group added."))
                 return redirect(self.get_settings_url("sponsors"))
 
+            messages.error(self.request, _("We could not save your changes. See below for details."))
+            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     add_group_form=form,
@@ -437,6 +440,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 messages.success(self.request, _("Sponsor group updated."))
                 return redirect(self.get_settings_url("sponsors"))
 
+            messages.error(self.request, _("We could not save your changes. See below for details."))
+            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     edit_group_forms={group.pk: form},
@@ -1664,6 +1669,10 @@ class ExhibitionQuestionCreateView(EventPermissionRequiredMixin, CreateView):
         )
         return response
 
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
     def get_success_url(self):
         return reverse(
             "plugins:exhibition:call.questions",
@@ -2221,6 +2230,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         messages.error(self.request, _("We could not save your changes. See below for details."))
         return super().form_invalid(form)
 
+
 def group_email_entries(emails):
     """Collapse rows that share a compose batch into one entry per message."""
     entries = []
@@ -2675,6 +2685,10 @@ class CustomEmailTemplateCreateView(EventPermissionRequiredMixin, CreateView):
         form.instance.event = self.request.event
         messages.success(self.request, _("Custom template has been created."))
         return super().form_valid(form)
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
 
     def get_success_url(self):
         return reverse("plugins:exhibition:email.templates", kwargs=event_kwargs(self.request.event))
