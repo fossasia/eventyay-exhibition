@@ -1819,6 +1819,18 @@ def social_link_prefixes() -> dict[str, str]:
     return {key: spec.prefix for key, spec in SOCIAL_LINK_SPECS.items()}
 
 
+def _is_html_empty(html: str) -> bool:
+    """Check whether an HTML snippet contains no substantive text or media."""
+    if not html:
+        return True
+    text = unescape(strip_tags(html)).replace("\xa0", " ").strip()
+    if text:
+        return False
+    if "<img" in html.lower():
+        return False
+    return True
+
+
 class ExhibitionEmailQueueForm(forms.ModelForm):
     """Edit a queued email's recipient / subject / body / schedule before sending."""
 
@@ -1840,6 +1852,12 @@ class ExhibitionEmailQueueForm(forms.ModelForm):
                 "Leave empty to keep this in the outbox until sent manually. Time is interpreted in the event timezone."
             ),
         }
+
+    def clean_body(self):
+        body = self.cleaned_data.get("body")
+        if not body or _is_html_empty(body):
+            raise forms.ValidationError(_("This field is required."))
+        return body
 
     def clean_scheduled_at(self):
         scheduled_at = self.cleaned_data.get("scheduled_at")
@@ -1925,18 +1943,6 @@ class ExhibitionComposeForm(forms.Form):
         if scheduled_at and scheduled_at <= timezone.now():
             raise forms.ValidationError(_("The scheduled time must be in the future."))
         return scheduled_at
-
-
-def _is_html_empty(html: str) -> bool:
-    """Check whether an HTML snippet contains no substantive text or media."""
-    if not html:
-        return True
-    text = unescape(strip_tags(html)).replace("\xa0", " ").strip()
-    if text:
-        return False
-    if "<img" in html.lower():
-        return False
-    return True
 
 
 class ExhibitionMailTemplatesForm(SettingsForm):

@@ -11,7 +11,11 @@ from django_scopes import scopes_disabled
 from eventyay.base.models.auth import User
 
 from exhibition import mail as mail_helpers
-from exhibition.forms import ExhibitionComposeForm, ExhibitionMailTemplatesForm
+from exhibition.forms import (
+    ExhibitionComposeForm,
+    ExhibitionEmailQueueForm,
+    ExhibitionMailTemplatesForm,
+)
 from exhibition.models import (
     ExhibitionEmailQueue,
     ExhibitionProposal,
@@ -484,6 +488,52 @@ def test_compose_form_accepts_valid_body(mail_event, valid_body):
         data={
             "states": [ExhibitionProposalState.ACCEPTED],
             **_compose_data(mail_event, subject="Hi", body=valid_body),
+        },
+        event=mail_event,
+    )
+    assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "empty_body",
+    [
+        "",
+        "<p></p>",
+        "<p><br></p>",
+        "<p>&nbsp;</p>",
+        "<p>&#160;</p>",
+        "<p>&#xA0;</p>",
+    ],
+)
+def test_email_queue_edit_form_rejects_empty_html_body(mail_event, empty_body):
+    form = ExhibitionEmailQueueForm(
+        data={
+            "to_email": "test@example.com",
+            "subject": "Update",
+            "body": empty_body,
+        },
+        event=mail_event,
+    )
+    assert not form.is_valid()
+    assert "body" in form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "valid_body",
+    [
+        '<img src="https://example.com/logo.png">',
+        '<IMG SRC="https://example.com/logo.png">',
+        "<p>Hello world</p>",
+    ],
+)
+def test_email_queue_edit_form_accepts_valid_body(mail_event, valid_body):
+    form = ExhibitionEmailQueueForm(
+        data={
+            "to_email": "test@example.com",
+            "subject": "Update",
+            "body": valid_body,
         },
         event=mail_event,
     )
