@@ -52,16 +52,15 @@
 
     function onChange(event) {
         var element = event.target;
+        var table = element.closest("table");
+        if (!table) return;
+
         if (element.matches("[data-select-all]")) {
-            var table = element.closest("table");
-            table.dataset.selectAllPages = element.checked ? "true" : "false";
             var rows = table.querySelectorAll("[data-select-row]");
             rows.forEach(function (row) {
                 row.checked = element.checked;
             });
         } else if (element.matches("[data-select-row]")) {
-            var table = element.closest("table");
-            table.dataset.selectAllPages = "false";
             var all = table.querySelector("[data-select-all]");
             if (all) {
                 var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
@@ -71,25 +70,19 @@
             }
         }
         
-        var table = element.closest("table");
-        if (table) {
-            var form = element.closest("form");
-            var toolbar = form ? form.querySelector(".email-bulk-toolbar") : null;
-            var countLabel = toolbar ? toolbar.querySelector("[data-selected-count]") : null;
+        var form = element.closest("form");
+        var toolbar = form ? form.querySelector(".email-bulk-toolbar") : null;
+        var countLabel = toolbar ? toolbar.querySelector("[data-selected-count]") : null;
+        
+        if (countLabel) {
+            var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
+            var checkedCount = boxes.filter(function(b) { return b.checked; }).length;
+            var selectedLabel = toolbar.dataset.selectedLabel || "selected";
             
-            if (countLabel) {
-                var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
-                var checkedCount = boxes.filter(function(b) { return b.checked; }).length;
-                var total = toolbar.dataset.totalCount;
-                var isSelectAllPages = table.dataset.selectAllPages === "true";
-                
-                if (isSelectAllPages && total) {
-                    countLabel.textContent = total + " selected";
-                } else if (checkedCount > 0) {
-                    countLabel.textContent = checkedCount + " selected";
-                } else {
-                    countLabel.textContent = "";
-                }
+            if (checkedCount > 0) {
+                countLabel.textContent = checkedCount + " " + selectedLabel;
+            } else {
+                countLabel.textContent = "";
             }
         }
     }
@@ -97,33 +90,6 @@
     document.addEventListener("submit", onSubmit);
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
-    
-    // Intercept clicks on outbox buttons to submit the '_all' variant if select all pages is checked
-    document.addEventListener("click", function(event) {
-        var btn = event.target.closest('button[type="submit"][name="op"]');
-        if (!btn) return;
-        
-        var form = btn.closest("form");
-        var table = form ? form.querySelector("table") : null;
-        if (!form || !table) return;
-        
-        var isSelectAllPages = table.dataset.selectAllPages === "true";
-        if (isSelectAllPages && (btn.value === 'send' || btn.value === 'discard')) {
-            var hidden = document.createElement("input");
-            hidden.type = "hidden";
-            hidden.name = "op";
-            hidden.value = btn.value + "_all";
-            
-            var originalName = btn.name;
-            btn.removeAttribute("name");
-            form.appendChild(hidden);
-            
-            setTimeout(function() {
-                btn.name = originalName;
-                hidden.remove();
-            }, 0);
-        }
-    });
 
     window.addEventListener("popstate", function () {
         if (container()) {
