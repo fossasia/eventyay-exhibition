@@ -2339,7 +2339,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
     context_object_name = "email"
 
     def get_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+        return ExhibitionEmailQueue.objects.filter(event=self.request.event)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -2348,16 +2348,24 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
 
     def batch_queryset(self):
         return ExhibitionEmailQueue.objects.filter(
-            event=self.request.event, batch=self.object.batch, sent_at__isnull=True
+            event=self.request.event, batch=self.object.batch, sent_at__isnull=self.object.sent_at is None
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["can_edit"] = self.object.sent_at is None
         if self.object.batch:
             context["recipients"] = list(self.batch_queryset().values_list("to_email", flat=True))
         else:
             context["recipients"] = [self.object.to_email]
         return context
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_queryset().select_for_update().get(pk=self.kwargs.get(self.pk_url_kwarg))
+        if self.object.sent_at is not None:
+            raise PermissionDenied("Cannot edit an email that has already been sent.")
+        return super().post(request, *args, **kwargs)
 
     def reschedule(self, rows, scheduled_at):
         from .tasks import send_scheduled_email

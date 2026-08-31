@@ -9,36 +9,37 @@
 <div class="table-responsive">
     <table class="table table-hover">
         <thead>
-        <tr>
-            <th>{% include "exhibitors/_sort_header.html" with ajax=True field="to_email" label=label_recipient %}</th>
-            <th>{% include "exhibitors/_sort_header.html" with ajax=True field="subject" label=label_subject %}</th>
-            <th>{% include "exhibitors/_sort_header.html" with ajax=True field="sent_at" label=label_sent %}</th>
-        </tr>
+            <tr>
+                <th>{% include "exhibitors/_sort_header.html" with ajax=True field="to_email" label=label_recipient %}
+                </th>
+                <th>{% include "exhibitors/_sort_header.html" with ajax=True field="subject" label=label_subject %}</th>
+                <th>{% include "exhibitors/_sort_header.html" with ajax=True field="sent_at" label=label_sent %}</th>
+            </tr>
         </thead>
         <tbody>
-        {% for entry in entries %}
+            {% for entry in entries %}
             <tr>
                 <td>
-                    <span class="email-recipients" title="{{ entry.recipients|join:', ' }}"
-                          data-toggle="tooltip">{{ entry.recipients|join:", " }}</span>
+                    <span class="email-recipients" title="{{ entry.recipients|join:', ' }}" data-toggle="tooltip">{{
+                        entry.recipients|join:", " }}</span>
                     {% if entry.is_batch %}
-                        <span class="label label-default">{{ entry.recipients|length }}</span>
+                    <span class="label label-default">{{ entry.recipients|length }}</span>
                     {% endif %}
                 </td>
                 <td>{{ entry.subject }}</td>
                 <td class="email-created">{{ entry.sent_at }}</td>
             </tr>
-        {% empty %}
+            {% empty %}
             <tr>
                 <td colspan="3">
                     {% if filter_form.filtered %}
-                        {% trans "No emails match your search." %}
+                    {% trans "No emails match your search." %}
                     {% else %}
-                        {% trans "No emails have been sent yet." %}
+                    {% trans "No emails have been sent yet." %}
                     {% endif %}
                 </td>
             </tr>
-        {% endfor %}
+            {% endfor %}
         </tbody>
     </table>
 </div>
