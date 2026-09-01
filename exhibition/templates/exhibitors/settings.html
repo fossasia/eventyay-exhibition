@@ -175,16 +175,6 @@
                     </div>
                 </fieldset>
 
-                <fieldset>
-                    <legend>{% trans "Exhibitor login" %}</legend>
-                    <p>
-                        {% trans "The access-code email sent to exhibitors is now edited together with the plugin's other email templates." %}
-                        <a href="{% url 'plugins:exhibition:email.templates' organizer=request.event.organizer.slug event=request.event.slug %}">
-                            {% trans "Edit email templates" %}
-                        </a>
-                    </p>
-                </fieldset>
-
                 <div class="form-group submit-group">
                     <div class="col-md-9 col-md-offset-3">
                         <button type="submit" class="btn btn-primary btn-save">
