@@ -1787,28 +1787,20 @@ class ExhibitionComposeForm(forms.Form):
 class ExhibitionMailTemplatesForm(SettingsForm):
     """Editable lifecycle email templates, stored in ``event.settings``."""
 
-    _ROLE_LABELS = {
-        mail_helpers.PROPOSAL_NEW: _("Request received (confirmation)"),
-        mail_helpers.PROPOSAL_ACCEPTED: _("Request accepted"),
-        mail_helpers.PROPOSAL_REJECTED: _("Request rejected"),
-        mail_helpers.EXHIBITOR_ACCESS: _("Exhibitor lead scanning key"),
-        mail_helpers.VOUCHERS: _("Vouchers"),
-    }
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for role in mail_helpers.LIFECYCLE_ROLES:
             default_subject, default_body = mail_helpers.default_template_initial(role, self.locales)
-            label = self._ROLE_LABELS[role]
+            # The panel heading already names the template, so the fields are not prefixed with it.
             self.fields[mail_helpers.subject_settings_key(role)] = I18nFormField(
-                label=_("%(role)s — subject") % {"role": label},
+                label=_("Subject"),
                 required=False,
                 widget=I18nTextInput,
                 initial=default_subject,
                 locales=self.locales,
             )
             self.fields[mail_helpers.body_settings_key(role)] = I18nEmailBodyFormField(
-                label=_("%(role)s — body") % {"role": label},
+                label=_("Body"),
                 required=False,
                 placeholders=mail_helpers.role_placeholder_names(self.obj, role),
                 initial=default_body,
