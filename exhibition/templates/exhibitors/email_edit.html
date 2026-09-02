@@ -29,8 +29,33 @@
 
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
-        <fieldset {% if not can_edit %}disabled{% endif %}>
-            {% bootstrap_form_errors form %}
+        {% bootstrap_form_errors form %}
+        {% if not can_edit %}
+            <div class="form-group">
+                <label class="col-md-3 control-label">{% trans "Recipients" %} ({{ recipients|length }})</label>
+                <div class="col-md-9">
+                    <p class="form-control-static">{{ recipients|join:", " }}</p>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="col-md-3 control-label">{% trans "Subject" %}</label>
+                <div class="col-md-9">
+                    <p class="form-control-static">{{ email.subject }}</p>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="col-md-3 control-label">{% trans "Message" %}</label>
+                <div class="col-md-9">
+                    <p class="form-control-static" style="white-space: pre-wrap;">{{ email.body }}</p>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="col-md-3 control-label">{% trans "Sent at" %}</label>
+                <div class="col-md-9">
+                    <p class="form-control-static">{{ email.sent_at }}</p>
+                </div>
+            </div>
+        {% else %}
             {% if email.batch %}
                 <div class="form-group">
                     <label class="col-md-3 control-label">{% trans "Recipients" %} ({{ recipients|length }})</label>
@@ -45,8 +70,6 @@
             {% bootstrap_field form.subject layout="control" %}
             {% bootstrap_field form.body layout="control" %}
             {% bootstrap_field form.scheduled_at layout="control" %}
-        </fieldset>
-        {% if can_edit %}
             <div class="form-group submit-group">
                 <div class="col-md-9 col-md-offset-3">
                     <button type="submit" class="btn btn-default" name="_save" value="save">
