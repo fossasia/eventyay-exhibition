@@ -1,7 +1,6 @@
 import io
 import json
 
-# pyrefly: ignore [missing-import]
 from defusedcsv import csv
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
