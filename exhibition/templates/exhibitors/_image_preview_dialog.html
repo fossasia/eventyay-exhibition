@@ -1,0 +1,16 @@
+{% load i18n %}
+<dialog id="exhibition-image-dialog" class="exhibition-image-dialog" role="dialog" tabindex="-1"
+        aria-labelledby="exhibition-image-dialog-label">
+    <div class="modal-card">
+        <div class="modal-card-content">
+            <figure class="text-center text-muted">
+                <img alt="" data-image-dialog-image>
+                <figcaption id="exhibition-image-dialog-label" data-image-dialog-caption></figcaption>
+            </figure>
+            <button type="button" class="exhibition-image-dialog-close" data-image-dialog-close
+                    aria-label="{% trans 'Close preview' %}" title="{% trans 'Close preview' %}">
+                <i class="fa fa-times" aria-hidden="true"></i>
+            </button>
+        </div>
+    </div>
+</dialog>

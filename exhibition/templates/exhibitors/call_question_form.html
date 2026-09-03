@@ -1,10 +1,13 @@
 {% extends "exhibitors/base.html" %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load formset_tags %}
+{% load escapejson %}
 {% load static %}
 
 {% block custom_header %}
     {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/question-form.css' %}">
     <script defer src="{% static 'exhibition/js/question-form.js' %}"></script>
 {% endblock %}
 
@@ -23,8 +26,89 @@
         {% bootstrap_field form.help_text layout="control" %}
         {% bootstrap_field form.required layout="control" %}
         {% bootstrap_field form.active layout="control" %}
-        <div data-question-options data-choice-variants="{{ form.choice_variant_values }}">
-            {% bootstrap_field form.options_text layout="control" %}
+        <div id="exhibition-answer-options" class="exhibition-answer-options" data-question-options data-choice-variants="{{ form.choice_variant_values }}">
+            <div class="form-group answer-options-group">
+                <label id="answer-options-heading" class="col-md-3 control-label">{% trans "Answer options" %}</label>
+                <div class="col-md-9 answer-options-content" role="group" aria-labelledby="answer-options-heading">
+                    <noscript>
+                        <p class="help-block">{% trans "Only applicable if you choose a choice field type above." %}</p>
+                    </noscript>
+                    <div class="formset" data-formset data-formset-prefix="{{ option_formset.prefix }}">
+                        {{ option_formset.management_form }}
+                        {% bootstrap_formset_errors option_formset %}
+                        <div data-formset-body>
+                            {% for option_form in option_formset %}
+                                <div data-formset-form class="question-option-item">
+                                    <div class="sr-only">
+                                        {{ option_form.id }}
+                                        {% bootstrap_field option_form.DELETE form_group_class="" layout="inline" %}
+                                        {% bootstrap_field option_form.ORDER form_group_class="" layout="inline" %}
+                                    </div>
+                                    <div class="question-option-label">
+                                        {% blocktrans trimmed with id=option_form.instance.pk %}Answer option {{ id }}{% endblocktrans %}
+                                    </div>
+                                    <div class="question-option-row">
+                                        <div class="question-option-field">
+                                            {% bootstrap_form_errors option_form %}
+                                            {% bootstrap_field option_form.answer layout="inline" form_group_class="" show_label=False %}
+                                        </div>
+                                        <div class="question-option-actions text-right flip">
+                                            <button type="button" class="btn btn-default" data-formset-move-up-button aria-label="{% trans 'Move option up' %}">
+                                                <i class="fa fa-arrow-up" aria-hidden="true"></i>
+                                                <span class="sr-only">{% trans "Move option up" %}</span>
+                                            </button>
+                                            <button type="button" class="btn btn-default" data-formset-move-down-button aria-label="{% trans 'Move option down' %}">
+                                                <i class="fa fa-arrow-down" aria-hidden="true"></i>
+                                                <span class="sr-only">{% trans "Move option down" %}</span>
+                                            </button>
+                                            <button type="button" class="btn btn-delete btn-danger" data-formset-delete-button aria-label="{% trans 'Delete option' %}">
+                                                <i class="fa fa-trash" aria-hidden="true"></i>
+                                                <span class="sr-only">{% trans "Delete option" %}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        <script type="form-template" data-formset-empty-form>
+                            {% escapescript %}
+                                <div data-formset-form class="question-option-item">
+                                    <div class="sr-only">
+                                        {{ option_formset.empty_form.id }}
+                                        {% bootstrap_field option_formset.empty_form.DELETE form_group_class="" layout="inline" %}
+                                        {% bootstrap_field option_formset.empty_form.ORDER form_group_class="" layout="inline" %}
+                                    </div>
+                                    <div class="question-option-label">{% trans "New answer option" %}</div>
+                                    <div class="question-option-row">
+                                        <div class="question-option-field">
+                                            {% bootstrap_field option_formset.empty_form.answer layout="inline" form_group_class="" show_label=False %}
+                                        </div>
+                                        <div class="question-option-actions text-right flip">
+                                            <button type="button" class="btn btn-default" data-formset-move-up-button aria-label="{% trans 'Move option up' %}">
+                                                <i class="fa fa-arrow-up" aria-hidden="true"></i>
+                                                <span class="sr-only">{% trans "Move option up" %}</span>
+                                            </button>
+                                            <button type="button" class="btn btn-default" data-formset-move-down-button aria-label="{% trans 'Move option down' %}">
+                                                <i class="fa fa-arrow-down" aria-hidden="true"></i>
+                                                <span class="sr-only">{% trans "Move option down" %}</span>
+                                            </button>
+                                            <button type="button" class="btn btn-delete btn-danger" data-formset-delete-button aria-label="{% trans 'Delete option' %}">
+                                                <i class="fa fa-trash" aria-hidden="true"></i>
+                                                <span class="sr-only">{% trans "Delete option" %}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endescapescript %}
+                        </script>
+                        <div class="question-option-add">
+                            <button type="button" class="btn btn-default" data-formset-add>
+                                <i class="fa fa-plus" aria-hidden="true"></i> {% trans "Add a new option" %}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="form-group submit-group">
             <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>

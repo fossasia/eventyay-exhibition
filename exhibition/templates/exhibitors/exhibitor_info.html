@@ -46,6 +46,11 @@
         </div>
     {% else %}
         <div data-partner-select-scope data-total-count="{{ page_obj.paginator.count }}" data-selected-label="{% trans "selected" %}">
+        {% if send_vouchers_url %}
+            <form id="partner-send-vouchers" action="{{ send_vouchers_url }}{% if query_string %}?{{ query_string }}{% endif %}" method="post">
+                {% csrf_token %}
+            </form>
+        {% endif %}
         <p>
             {% if "can_change_event_settings" in request.eventpermset %}
                 <a href="{{ add_url }}" class="btn btn-default"><i class="fa fa-plus"></i>
@@ -55,6 +60,11 @@
                     <i class="fa fa-download"></i>
                     {% if partner_type == 'sponsor' %}{% trans "Download sponsor keys" %}{% elif partner_type == 'exhibitor' %}{% trans "Download exhibitor keys" %}{% else %}{% trans "Download access keys" %}{% endif %}
                 </a>
+                {% if send_vouchers_url %}
+                    <button type="submit" form="partner-send-vouchers" class="btn btn-default" title="{% trans "Queue a voucher email for everyone in this list" %}">
+                        <i class="fa fa-envelope"></i> {% trans "Send vouchers to all" %}
+                    </button>
+                {% endif %}
                 <span class="text-muted" data-partner-selected-count></span>
             {% endif %}
         </p>
@@ -82,6 +92,7 @@
                         {% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
                         <th>{% trans "Group" %}</th>
+                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Vouchers" %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>
@@ -111,6 +122,7 @@
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
                         {% if not partner_type %}<th>{% trans "Group" %}</th>{% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="booth" label=label_booth %}</th>
+                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Vouchers" %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>

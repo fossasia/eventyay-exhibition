@@ -11,7 +11,9 @@
         var choiceVariants = (optionsGroup.dataset.choiceVariants || "").split(" ");
 
         function sync() {
-            optionsGroup.hidden = choiceVariants.indexOf(variantField.value) === -1;
+            var isChoiceVariant = choiceVariants.indexOf(variantField.value) !== -1;
+            optionsGroup.hidden = !isChoiceVariant;
+            optionsGroup.classList.toggle("is-choice-variant", isChoiceVariant);
         }
 
         variantField.addEventListener("change", sync);

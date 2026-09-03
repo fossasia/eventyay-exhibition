@@ -30,3 +30,48 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
+document.addEventListener("DOMContentLoaded", () => {
+    let openInfoBox = null;
+
+    const closeOpenInfoBox = () => {
+        if (openInfoBox) {
+            openInfoBox.classList.add("d-none");
+            openInfoBox = null;
+        }
+    };
+
+    const toggleInfoBox = (toggle) => {
+        const infoBox = toggle.nextElementSibling;
+        if (!infoBox || !infoBox.classList.contains("inline-info-box")) return;
+        if (openInfoBox && openInfoBox !== infoBox) {
+            openInfoBox.classList.add("d-none");
+        }
+        infoBox.classList.toggle("d-none");
+        openInfoBox = infoBox.classList.contains("d-none") ? null : infoBox;
+    };
+
+    document.addEventListener("click", (event) => {
+        const toggle = event.target.closest('.info-toggle[data-toggle="info-box"]');
+        if (toggle) {
+            toggleInfoBox(toggle);
+            event.stopPropagation();
+            return;
+        }
+        if (!event.target.closest(".inline-info-box")) {
+            closeOpenInfoBox();
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        const toggle = event.target.closest('.info-toggle[data-toggle="info-box"]');
+        if (toggle && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            toggleInfoBox(toggle);
+            return;
+        }
+        if (event.key === "Escape") {
+            closeOpenInfoBox();
+        }
+    });
+});

@@ -11,7 +11,8 @@ from urllib.parse import urljoin
 from django.conf import settings as django_settings
 from django.urls import reverse
 from django.utils.html import escape
-from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, override
+from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, ngettext, override
+from eventyay.base.models import PriceModeChoices
 from i18nfield.strings import LazyI18nString
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,9 @@ PROPOSAL_NEW = "proposal_new"
 PROPOSAL_ACCEPTED = "proposal_accepted"
 PROPOSAL_REJECTED = "proposal_rejected"
 EXHIBITOR_ACCESS = "exhibitor_access"
+VOUCHERS = "vouchers"
 
-LIFECYCLE_ROLES = (PROPOSAL_NEW, PROPOSAL_ACCEPTED, PROPOSAL_REJECTED, EXHIBITOR_ACCESS)
+LIFECYCLE_ROLES = (PROPOSAL_NEW, PROPOSAL_ACCEPTED, PROPOSAL_REJECTED, EXHIBITOR_ACCESS, VOUCHERS)
 
 PLACEHOLDER_DOCS = (
     ("{event_name}", _lazy("The event's name")),
@@ -104,6 +106,19 @@ DEFAULT_TEMPLATE_SOURCES = {
             "The {event_name} Team"
         ),
     ),
+    VOUCHERS: (
+        gettext_noop("Your vouchers for {event_name} — {exhibitor_name}"),
+        gettext_noop(
+            "Dear {exhibitor_name},\n\n"
+            "Thank you for participating in {event_name}. Please share the voucher codes below with "
+            "your audience — anyone who uses one gets credited to you as a lead.\n\n"
+            "{voucher_list}\n\n"
+            "They can redeem a code on the event ticket shop at checkout.\n\n"
+            "If you have any questions, please don't hesitate to reach out.\n\n"
+            "Best regards,\n"
+            "The {event_name} Team"
+        ),
+    ),
 }
 
 DEFAULT_TEMPLATES = {
@@ -150,6 +165,7 @@ ROLE_PLACEHOLDER_CONTEXT = {
     PROPOSAL_ACCEPTED: PROPOSAL_PLACEHOLDER_CONTEXT,
     PROPOSAL_REJECTED: PROPOSAL_PLACEHOLDER_CONTEXT,
     EXHIBITOR_ACCESS: EXHIBITOR_PLACEHOLDER_CONTEXT,
+    VOUCHERS: EXHIBITOR_PLACEHOLDER_CONTEXT,
 }
 
 
@@ -263,6 +279,90 @@ def sample_device_tokens(event=None):
     return _render_device_block(str(_lazy("Acme Corp #1")), device_setup_url(), "SAMPLETOKEN123456")
 
 
+def _voucher_applies_to_text(voucher):
+    product_name = str(voucher.product) if voucher.product else str(_lazy("Any eligible product"))
+    effect = ""
+    if voucher.value is not None:
+        if voucher.price_mode == PriceModeChoices.PERCENT:
+            effect = f" — {voucher.value}% {_lazy('discount')}"
+        elif voucher.price_mode == PriceModeChoices.SUBTRACT:
+            effect = f" — {voucher.value} {_lazy('off')}"
+        elif voucher.price_mode == PriceModeChoices.SET:
+            effect = f" — {_lazy('price set to')} {voucher.value}"
+    if voucher.max_usages > 1:
+        effect = f"{effect} ({voucher.max_usages} {_lazy('uses')})"
+    return f"{product_name}{effect}"
+
+
+def _voucher_block_html(code, applies_to_text, redeem_url=None):
+    block = (
+        f"<p>{escape(str(_lazy('Voucher code')))}: <code>{escape(code)}</code><br>"
+        f"{escape(str(_lazy('Applies to')))}: {escape(applies_to_text)}"
+    )
+    if redeem_url:
+        block += f'<br>{escape(str(_lazy("Redeem")))}: <a href="{escape(redeem_url)}">{escape(redeem_url)}</a>'
+    return f"{block}</p>"
+
+
+VOUCHER_LIST_INLINE_LIMIT = 5
+
+
+def _voucher_overflow_html(remaining):
+    text = ngettext(
+        "…and %(count)d more voucher code in the attached CSV file.",
+        "…and %(count)d more voucher codes in the attached CSV file.",
+        remaining,
+    ) % {"count": remaining}
+    return f"<p>{escape(text)}</p>"
+
+
+def format_voucher_list(vouchers, event=None, *, limit=None):
+    """One block per voucher: its code, what it applies to, and its redemption link.
+
+    With ``limit``, only the first ``limit`` are listed and the rest are summarised; callers pass
+    it only when the complete list travels with the mail as a CSV attachment.
+    """
+    from .utils import voucher_redeem_url
+
+    vouchers = list(vouchers)
+    shown = vouchers[:limit] if limit else vouchers
+    blocks = "".join(
+        _voucher_block_html(
+            voucher.code,
+            _voucher_applies_to_text(voucher),
+            voucher_redeem_url(event or voucher.event, voucher),
+        )
+        for voucher in shown
+    )
+    remaining = len(vouchers) - len(shown)
+    return f"{blocks}{_voucher_overflow_html(remaining)}" if remaining else blocks
+
+
+def render_voucher_list(exhibitor):
+    """All vouchers currently linked to this exhibitor, as a fallback when not overridden by the sender."""
+    return format_voucher_list(exhibitor_vouchers(exhibitor), event=exhibitor.event)
+
+
+def _sample_redeem_url(event, code):
+    if event is None:
+        return f"{django_settings.SITE_URL.rstrip('/')}/redeem?voucher={code}"
+    from eventyay.multidomain.urlreverse import build_absolute_uri
+
+    return f"{build_absolute_uri(event, 'presale:event.redeem')}?voucher={code}"
+
+
+def sample_voucher_list(event=None):
+    return _voucher_block_html(
+        "ACME-3XKQ-7T2P",
+        "Standard Public Ticket",
+        _sample_redeem_url(event, "ACME-3XKQ-7T2P"),
+    ) + _voucher_block_html(
+        "ACME-9WFD-4M8N",
+        "Standard Public Ticket — 20% discount",
+        _sample_redeem_url(event, "ACME-9WFD-4M8N"),
+    )
+
+
 def queue_proposal_email(event, proposal, role, *, send_now=False, requestor=None):
     """Queue a lifecycle email; ``send_now`` sends it instead of leaving it in the outbox."""
     from .models import ExhibitionEmailQueue
@@ -279,6 +379,7 @@ def queue_proposal_email(event, proposal, role, *, send_now=False, requestor=Non
     queued = ExhibitionEmailQueue.objects.create(
         event=event,
         proposal=proposal,
+        role=role,
         to_email=to_email,
         subject=_render(subject_tpl, context, locale),
         body=_render(body_tpl, context, locale),
@@ -353,8 +454,98 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
     return ExhibitionEmailQueue.objects.create(
         event=event,
         exhibitor=exhibitor,
+        role=EXHIBITOR_ACCESS,
         to_email=to_email,
         subject=_render(subject_tpl, context, locale),
         body=_render(body_tpl, context, locale),
         locale=locale or "",
     )
+
+
+def exhibitor_vouchers(exhibitor):
+    """Every voucher currently linked to this exhibitor, in issue order."""
+    from .models import ExhibitorVoucher
+
+    links = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher", "voucher__product")
+    return [link.voucher for link in links]
+
+
+def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor=None):
+    """Queue the voucher email for one exhibitor; ``None`` if there is no recipient address."""
+    from .models import ExhibitionEmailQueue, ExhibitorSettings
+    from .utils import store_voucher_csv
+
+    to_email = (exhibitor.email or "").strip()
+    if not to_email:
+        return None
+
+    subject_tpl, body_tpl = get_email_template(event, VOUCHERS)
+    locale = recipient_locale(event)
+    context = build_exhibitor_context(event, exhibitor)
+
+    settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
+    attachment = store_voucher_csv(event, vouchers) if settings.voucher_attach_csv else None
+    context["voucher_list"] = format_voucher_list(
+        vouchers, event=event, limit=VOUCHER_LIST_INLINE_LIMIT if attachment else None
+    )
+
+    queued = ExhibitionEmailQueue.objects.create(
+        event=event,
+        exhibitor=exhibitor,
+        role=VOUCHERS,
+        to_email=to_email,
+        subject=_render(subject_tpl, context, locale),
+        body=_render(body_tpl, context, locale),
+        locale=locale or "",
+        attachment=attachment,
+    )
+    if send_now:
+        queued.send(requestor=requestor)
+    return queued
+
+
+VOUCHER_SKIP_NO_EMAIL = "no_email"
+VOUCHER_SKIP_NO_VOUCHERS = "no_vouchers"
+
+
+def issue_default_vouchers(exhibitor, *, event_settings=None):
+    """Create a batch from this exhibitor's resolved defaults; empty when the default count is 0."""
+    from .utils import generate_exhibitor_vouchers, resolve_voucher_defaults
+
+    defaults = resolve_voucher_defaults(exhibitor, event_settings=event_settings)
+    if not defaults["count"]:
+        return []
+    return generate_exhibitor_vouchers(
+        exhibitor,
+        product=defaults["product"],
+        count=defaults["count"],
+        price_mode=defaults["price_mode"],
+        value=defaults["value"],
+    )
+
+
+def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=False):
+    """Queue one voucher email per exhibitor, reporting who was skipped and why.
+
+    With ``issue_missing``, an exhibitor holding no vouchers gets a batch created from their
+    defaults first, so a bulk send does not skip everyone who was never issued vouchers by hand.
+    """
+    from .utils import event_voucher_settings
+
+    queued = []
+    skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: []}
+    event_settings = event_voucher_settings(event) if issue_missing else None
+    for exhibitor in exhibitors:
+        if not (exhibitor.email or "").strip():
+            skipped[VOUCHER_SKIP_NO_EMAIL].append(exhibitor)
+            continue
+        vouchers = exhibitor_vouchers(exhibitor)
+        if not vouchers and issue_missing and issue_default_vouchers(exhibitor, event_settings=event_settings):
+            vouchers = exhibitor_vouchers(exhibitor)
+        if not vouchers:
+            skipped[VOUCHER_SKIP_NO_VOUCHERS].append(exhibitor)
+            continue
+        email = queue_voucher_email(event, exhibitor, vouchers, requestor=requestor)
+        if email is not None:
+            queued.append(email)
+    return queued, skipped

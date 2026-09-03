@@ -1,0 +1,92 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Send vouchers" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Send vouchers" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="?{{ query_string }}" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="confirmed" value="1">
+
+        {% if sendable %}
+            <p>
+                {% if partner_type == "sponsor" %}
+                    {% blocktrans trimmed count counter=sendable|length %}
+                        A voucher email will be placed in the outbox for {{ counter }} sponsor.
+                    {% plural %}
+                        A voucher email will be placed in the outbox for {{ counter }} sponsors.
+                    {% endblocktrans %}
+                {% else %}
+                    {% blocktrans trimmed count counter=sendable|length %}
+                        A voucher email will be placed in the outbox for {{ counter }} exhibitor.
+                    {% plural %}
+                        A voucher email will be placed in the outbox for {{ counter }} exhibitors.
+                    {% endblocktrans %}
+                {% endif %}
+            </p>
+            <ul>
+                {% for exhibitor in sendable %}
+                    <li>
+                        {{ exhibitor.name }} <span class="text-muted">{{ exhibitor.email }}</span>
+                        {% if exhibitor.voucher_new %}
+                            <span class="text-muted">
+                                {% blocktrans trimmed count counter=exhibitor.voucher_new %}
+                                    &mdash; {{ counter }} voucher will be created
+                                {% plural %}
+                                    &mdash; {{ counter }} vouchers will be created
+                                {% endblocktrans %}
+                            </span>
+                        {% else %}
+                            <span class="text-muted">
+                                {% blocktrans trimmed count counter=exhibitor.voucher_total %}
+                                    &mdash; {{ counter }} existing voucher
+                                {% plural %}
+                                    &mdash; {{ counter }} existing vouchers
+                                {% endblocktrans %}
+                            </span>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="alert alert-warning" role="alert">
+                {% if partner_type == "sponsor" %}
+                    {% trans "None of the sponsors in this list can be emailed yet." %}
+                {% else %}
+                    {% trans "None of the exhibitors in this list can be emailed yet." %}
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if no_email %}
+            <h4>{% trans "Skipped: no email address" %}</h4>
+            <ul>
+                {% for exhibitor in no_email %}
+                    <li>{{ exhibitor.name }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if no_vouchers %}
+            <h4>{% trans "Skipped: default number of vouchers is 0" %}</h4>
+            <ul>
+                {% for exhibitor in no_vouchers %}
+                    <li>{{ exhibitor.name }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <div class="form-group submit-group">
+            <a class="btn btn-default" href="{{ list_url }}">{% trans "Cancel" %}</a>
+            {% if sendable %}
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa fa-envelope"></i> {% trans "Queue emails" %}
+                </button>
+            {% endif %}
+        </div>
+    </form>
+{% endblock %}

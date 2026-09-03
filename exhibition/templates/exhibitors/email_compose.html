@@ -46,9 +46,9 @@
         <fieldset>
             <legend>{% trans "Message" %}</legend>
             {% bootstrap_field form.subject layout="control" %}
-            <div class="form-group" data-email-preview-wrapper
+            <div class="form-group{% if form.body.errors %} has-error{% endif %}" data-email-preview-wrapper
                  data-email-preview-url="{% url 'plugins:exhibition:email.templates.preview' organizer=request.event.organizer.slug event=request.event.slug %}?role=compose">
-                <label class="col-md-3 control-label">{{ form.body.label }}</label>
+                <label class="col-md-3 control-label"><span class="label-text">{{ form.body.label }}<span aria-hidden="true" class="required-indicator text-danger"> *</span><span class="sr-only">, {% trans "required" context "form" %}</span></span></label>
                 <div class="col-md-9">
                     <ul class="nav nav-tabs" role="tablist">
                         <li role="presentation" class="active">

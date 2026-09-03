@@ -9,7 +9,6 @@ from rest_framework import serializers, status, views, viewsets
 from rest_framework.response import Response
 
 from .models import (
-    ExhibitorExtraLink,
     ExhibitorInfo,
     ExhibitorSettings,
     ExhibitorSocialLink,
@@ -134,7 +133,6 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     sponsor_group_name = SponsorGroupNameField(required=False, allow_blank=True, allow_null=True)
     sponsor_group_level = SponsorGroupLevelField(required=False, allow_null=True, min_value=1)
     social_links = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
-    extra_links = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
 
     class Meta:
         model = ExhibitorInfo
@@ -144,9 +142,6 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             "description",
             "url",
             "email",
-            "contact_url",
-            "video_url",
-            "slides_url",
             "logo_url",
             "header_image_url",
             "key",
@@ -162,7 +157,6 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             "allow_lead_access",
             "lead_scanning_scope_by_device",
             "social_links",
-            "extra_links",
         )
         read_only_fields = ("id", "key", "sponsor_group")
 
@@ -170,9 +164,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         data = super().to_representation(instance)
         data["logo_url"] = instance.visible_logo_url
         data["header_image_url"] = instance.visible_header_image_url
-        data["slides_url"] = instance.visible_slides_url
         data["social_links"] = [{"network": link.network, "url": link.url} for link in instance.social_links.all()]
-        data["extra_links"] = [{"label": link.label, "url": link.url} for link in instance.extra_links.all()]
         return data
 
     def validate_social_links(self, value):
@@ -187,32 +179,16 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             normalized.append({"network": network, "url": normalize_url_scheme(url)})
         return normalized
 
-    def validate_extra_links(self, value):
-        normalized = []
-        for item in value:
-            label = str(item.get("label", "") or "").strip()
-            url = str(item.get("url", "") or "").strip()
-            if not label or not url:
-                raise serializers.ValidationError("Each extra link requires label and url.")
-            normalized.append({"label": label, "url": normalize_url_scheme(url)})
-        return normalized
-
     def validate(self, data):
         data = super().validate(data)
 
         for field in (
             "url",
-            "contact_url",
-            "video_url",
             "logo_url",
             "header_image_url",
-            "slides_url",
         ):
             if data.get(field):
                 data[field] = normalize_url_scheme(data[field])
-
-        if data.get("slides_url") and not data["slides_url"].lower().split("?", 1)[0].endswith(".pdf"):
-            raise serializers.ValidationError({"slides_url": "Slides URL must point to a PDF file."})
 
         return data
 
@@ -274,23 +250,16 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
         elif not instance.booth_id:
             instance.booth_id = generate_booth_id(event=self.context["event"])
 
-    def _replace_links(self, instance, social_links=UNSET, extra_links=UNSET):
+    def _replace_links(self, instance, social_links=UNSET):
         if social_links is not UNSET:
             instance.social_links.all().delete()
             ExhibitorSocialLink.objects.bulk_create(
                 [ExhibitorSocialLink(exhibitor=instance, **item) for item in social_links]
             )
 
-        if extra_links is not UNSET:
-            instance.extra_links.all().delete()
-            ExhibitorExtraLink.objects.bulk_create(
-                [ExhibitorExtraLink(exhibitor=instance, **item) for item in extra_links]
-            )
-
     @transaction.atomic
     def create(self, validated_data):
         social_links = validated_data.pop("social_links", [])
-        extra_links = validated_data.pop("extra_links", [])
         sponsor_group_name = validated_data.pop("sponsor_group_name", UNSET)
         sponsor_group_level = validated_data.pop("sponsor_group_level", UNSET)
         instance = ExhibitorInfo(event=self.context["event"], **validated_data)
@@ -300,13 +269,12 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             sponsor_group_level=sponsor_group_level,
         )
         instance.save()
-        self._replace_links(instance, social_links=social_links, extra_links=extra_links)
+        self._replace_links(instance, social_links=social_links)
         return instance
 
     @transaction.atomic
     def update(self, instance, validated_data):
         social_links = validated_data.pop("social_links", UNSET)
-        extra_links = validated_data.pop("extra_links", UNSET)
         sponsor_group_name = validated_data.pop("sponsor_group_name", UNSET)
         sponsor_group_level = validated_data.pop("sponsor_group_level", UNSET)
 
@@ -319,7 +287,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             sponsor_group_level=sponsor_group_level,
         )
         instance.save()
-        self._replace_links(instance, social_links=social_links, extra_links=extra_links)
+        self._replace_links(instance, social_links=social_links)
         return instance
 
 
@@ -334,7 +302,7 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
         return (
             ExhibitorInfo.objects.filter(event=self.request.event)
             .select_related("sponsor_group")
-            .prefetch_related("social_links", "extra_links")
+            .prefetch_related("social_links")
         )
 
     def get_serializer_context(self):

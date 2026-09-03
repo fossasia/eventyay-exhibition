@@ -1,0 +1,2816 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-30 10:29+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: exhibition/apps.py:14 exhibition/apps.py:17 exhibition/signals.py:157
+#: exhibition/templates/exhibitors/public_list.html:6
+#: exhibition/templates/exhibitors/public_list.html:14
+#: exhibition/templates/exhibitors/public_list.html:16
+msgid "Exhibition"
+msgstr ""
+
+#: exhibition/apps.py:19
+msgid "This plugin enables to add and control exhibitors in eventyay"
+msgstr ""
+
+#: exhibition/filters.py:9
+msgid "Any"
+msgstr ""
+
+#: exhibition/filters.py:10
+msgid "Enabled"
+msgstr ""
+
+#: exhibition/filters.py:11 exhibition/templates/exhibitors/dashboard.html:127
+msgid "Disabled"
+msgstr ""
+
+#: exhibition/filters.py:15
+msgid "All types"
+msgstr ""
+
+#: exhibition/filters.py:16
+msgid "Exhibitor only"
+msgstr ""
+
+#: exhibition/filters.py:17
+msgid "Sponsor only"
+msgstr ""
+
+#: exhibition/filters.py:18 exhibition/templates/exhibitors/dashboard.html:89
+#: exhibition/templates/exhibitors/proposal_detail.html:95
+#: exhibition/templates/exhibitors/proposal_list.html:95
+msgid "Exhibitor and sponsor"
+msgstr ""
+
+#: exhibition/filters.py:80 exhibition/filters.py:81
+msgid "Search requests…"
+msgstr ""
+
+#: exhibition/filters.py:81
+msgid "Search requests"
+msgstr ""
+
+#: exhibition/filters.py:85 exhibition/templates/exhibitors/dashboard.html:75
+#: exhibition/templates/exhibitors/proposal_detail.html:85
+#: exhibition/templates/exhibitors/proposal_list.html:21
+#: exhibition/templates/exhibitors/public_proposal_list.html:12
+msgid "State"
+msgstr ""
+
+#: exhibition/filters.py:86
+msgid "All states"
+msgstr ""
+
+#: exhibition/filters.py:90 exhibition/templates/exhibitors/dashboard.html:74
+#: exhibition/templates/exhibitors/proposal_detail.html:91
+#: exhibition/templates/exhibitors/proposal_list.html:62
+msgid "Type"
+msgstr ""
+
+#: exhibition/filters.py:99 exhibition/filters.py:102
+msgid "Search by name…"
+msgstr ""
+
+#: exhibition/filters.py:103
+msgid "Search requests by name"
+msgstr ""
+
+#: exhibition/filters.py:132 exhibition/filters.py:133
+msgid "Search organizations…"
+msgstr ""
+
+#: exhibition/filters.py:133
+msgid "Search organizations"
+msgstr ""
+
+#: exhibition/filters.py:137
+msgid "Visibility"
+msgstr ""
+
+#: exhibition/filters.py:139
+msgid "All organizations"
+msgstr ""
+
+#: exhibition/filters.py:140 exhibition/forms.py:1512
+#: exhibition/templates/exhibitors/call_questions.html:30
+msgid "Active"
+msgstr ""
+
+#: exhibition/filters.py:141
+msgid "Inactive"
+msgstr ""
+
+#: exhibition/filters.py:146 exhibition/filters.py:207 exhibition/forms.py:207
+#: exhibition/forms.py:1410 exhibition/forms.py:1841
+msgid "Sponsor group"
+msgstr ""
+
+#: exhibition/filters.py:149 exhibition/filters.py:210
+msgid "All groups"
+msgstr ""
+
+#: exhibition/filters.py:152 exhibition/templates/exhibitors/add.html:222
+msgid "Lead scanning"
+msgstr ""
+
+#: exhibition/filters.py:157
+msgid "Lead access"
+msgstr ""
+
+#: exhibition/filters.py:162
+msgid "Voucher access"
+msgstr ""
+
+#: exhibition/filters.py:202 exhibition/filters.py:203
+msgid "Search exhibitors…"
+msgstr ""
+
+#: exhibition/filters.py:203
+msgid "Search exhibitors"
+msgstr ""
+
+#: exhibition/filters.py:240 exhibition/filters.py:241
+msgid "Search emails…"
+msgstr ""
+
+#: exhibition/filters.py:241
+msgid "Search emails"
+msgstr ""
+
+#: exhibition/forms.py:67
+#, python-format
+msgid "Times are in the event timezone: %(tz)s."
+msgstr ""
+
+#: exhibition/forms.py:128 exhibition/forms.py:139 exhibition/forms.py:933
+#: exhibition/forms.py:944
+msgid "— No selection —"
+msgstr ""
+
+#: exhibition/forms.py:211
+msgid "Can view voucher redemptions"
+msgstr ""
+
+#: exhibition/forms.py:213 exhibition/forms.py:397
+msgid ""
+"Lets this exhibitor or sponsor retrieve the attendees who redeemed vouchers "
+"issued to them. Separate from lead scanning, which covers attendees scanned "
+"at the booth."
+msgstr ""
+
+#: exhibition/forms.py:219
+msgid "Can view and export collected leads"
+msgstr ""
+
+#: exhibition/forms.py:221
+msgid ""
+"Lets this exhibitor retrieve the full list of leads they have already "
+"scanned. Turn this off to let them keep scanning without seeing the "
+"collected attendee data."
+msgstr ""
+
+#: exhibition/forms.py:226
+msgid "Lead scanning behavior"
+msgstr ""
+
+#: exhibition/forms.py:231
+msgid ""
+"Every attendee is one lead, even when scanned from multiple devices. Notes "
+"and ratings are shared between devices."
+msgstr ""
+
+#: exhibition/forms.py:238
+msgid ""
+"Every attendee is a new lead when scanned from a new device. Notes and "
+"ratings are specific to the device."
+msgstr ""
+
+#: exhibition/forms.py:251
+msgid "Comment"
+msgstr ""
+
+#: exhibition/forms.py:253
+msgid ""
+"The text entered in this field will not be visible to the user and is "
+"available for your convenience."
+msgstr ""
+
+#: exhibition/forms.py:258 exhibition/forms.py:1427 exhibition/views.py:505
+msgid "Booth ID"
+msgstr ""
+
+#: exhibition/forms.py:291 exhibition/forms.py:1027 exhibition/forms.py:1076
+#: exhibition/models.py:130
+msgid "Organization name"
+msgstr ""
+
+#: exhibition/forms.py:292 exhibition/forms.py:1030 exhibition/forms.py:1077
+#: exhibition/models.py:136
+msgid "Organization description"
+msgstr ""
+
+#: exhibition/forms.py:293 exhibition/forms.py:1078
+msgid "E-mail"
+msgstr ""
+
+#: exhibition/forms.py:294 exhibition/forms.py:1079 exhibition/models.py:139
+msgid "Contact page URL"
+msgstr ""
+
+#: exhibition/forms.py:295 exhibition/forms.py:1080 exhibition/models.py:140
+msgid "Promotional video URL"
+msgstr ""
+
+#: exhibition/forms.py:296 exhibition/forms.py:1081 exhibition/models.py:141
+msgid "Promotional slides"
+msgstr ""
+
+#: exhibition/forms.py:297 exhibition/forms.py:1082 exhibition/models.py:142
+#: exhibition/models.py:520
+#: exhibition/templates/exhibitors/proposal_detail.html:111
+msgid "Logo"
+msgstr ""
+
+#: exhibition/forms.py:298 exhibition/forms.py:1083 exhibition/models.py:145
+#: exhibition/templates/exhibitors/proposal_detail.html:113
+msgid "Header image"
+msgstr ""
+
+#: exhibition/forms.py:299 exhibition/forms.py:1084 exhibition/models.py:138
+msgid "Organization website"
+msgstr ""
+
+#: exhibition/forms.py:300
+msgid "Mark this partner as an exhibitor"
+msgstr ""
+
+#: exhibition/forms.py:301
+msgid "Mark this partner as an event sponsor"
+msgstr ""
+
+#: exhibition/forms.py:302 exhibition/forms.py:1036 exhibition/forms.py:1085
+#: exhibition/models.py:148 exhibition/models.py:522
+msgid "Preferred booth name"
+msgstr ""
+
+#: exhibition/forms.py:303
+msgid "Can scan attendee badges"
+msgstr ""
+
+#: exhibition/forms.py:307
+msgid ""
+"Lets this exhibitor sign in to the lead scanning app and scan attendees at "
+"their booth. Turn this off to block scanning entirely."
+msgstr ""
+
+#: exhibition/forms.py:348 exhibition/forms.py:1441
+msgid "No sponsor group"
+msgstr ""
+
+#: exhibition/forms.py:385
+msgid ""
+"Lets this exhibitor retrieve the attendees who redeemed vouchers issued to "
+"them. Separate from lead scanning, which covers attendees scanned at the "
+"booth."
+msgstr ""
+
+#: exhibition/forms.py:389
+msgid ""
+"Lets this sponsor retrieve the attendees who redeemed vouchers issued to "
+"them. Separate from lead scanning, which covers attendees scanned at the "
+"booth."
+msgstr ""
+
+#: exhibition/forms.py:393
+msgid ""
+"Lets this exhibitor and sponsor retrieve the attendees who redeemed vouchers "
+"issued to them. Separate from lead scanning, which covers attendees scanned "
+"at the booth."
+msgstr ""
+
+#: exhibition/forms.py:466 exhibition/forms.py:553 exhibition/forms.py:1361
+#: exhibition/forms.py:1375
+msgid "This field is required."
+msgstr ""
+
+#: exhibition/forms.py:511 exhibition/forms.py:516
+msgid "Slides upload must be a PDF file."
+msgstr ""
+
+#: exhibition/forms.py:540
+msgid "A partner must be marked as an exhibitor, a sponsor, or both."
+msgstr ""
+
+#: exhibition/forms.py:615
+msgid "Devices to add"
+msgstr ""
+
+#: exhibition/forms.py:617
+msgid ""
+"How many new devices to provision now, in addition to any already listed "
+"above. Each device gets its own single-use setup token and QR code."
+msgstr ""
+
+#: exhibition/forms.py:627
+msgid "Select a product…"
+msgstr ""
+
+#: exhibition/forms.py:628
+msgid "Ticket product"
+msgstr ""
+
+#: exhibition/forms.py:629
+msgid "The product a redeemed voucher applies to."
+msgstr ""
+
+#: exhibition/forms.py:635
+msgid "Number of vouchers"
+msgstr ""
+
+#: exhibition/forms.py:640
+msgid "Maximum usages per voucher"
+msgstr ""
+
+#: exhibition/forms.py:645 exhibition/templates/exhibitors/vouchers.html:33
+#: exhibition/views.py:1995
+msgid "Price effect"
+msgstr ""
+
+#: exhibition/forms.py:651 exhibition/views.py:1996
+msgid "Value"
+msgstr ""
+
+#: exhibition/forms.py:652
+msgid "Amount or percentage, depending on the selected price effect."
+msgstr ""
+
+#: exhibition/forms.py:657 exhibition/templates/exhibitors/vouchers.html:35
+#: exhibition/views.py:1997
+msgid "Valid until"
+msgstr ""
+
+#: exhibition/forms.py:673
+msgid "Enter a value for the selected price effect."
+msgstr ""
+
+#: exhibition/forms.py:678 exhibition/models.py:295
+#: exhibition/templates/exhibitors/settings.html:205
+msgid "Level"
+msgstr ""
+
+#: exhibition/forms.py:685 exhibition/models.py:294
+msgid "Group name"
+msgstr ""
+
+#: exhibition/forms.py:718
+msgid "Enable call"
+msgstr ""
+
+#: exhibition/forms.py:719
+msgid "Hide call page after the deadline"
+msgstr ""
+
+#: exhibition/forms.py:720
+msgid "Make this call private (accessible only via a secret link)"
+msgstr ""
+
+#: exhibition/forms.py:724
+msgid ""
+"Turn the call on. Keep it enabled for private calls too, otherwise the "
+"secret link stops working."
+msgstr ""
+
+#: exhibition/forms.py:727
+msgid ""
+"The call page is not linked anywhere public and can only be opened with the "
+"secret link shown below."
+msgstr ""
+
+#: exhibition/forms.py:868
+msgid "Your answer"
+msgstr ""
+
+#: exhibition/forms.py:1024 exhibition/models.py:563
+#: exhibition/templates/exhibitors/proposal_detail.html:88
+msgid "Language"
+msgstr ""
+
+#: exhibition/forms.py:1025
+msgid "The language you are filling in this form with."
+msgstr ""
+
+#: exhibition/forms.py:1086 exhibition/models.py:151 exhibition/models.py:523
+#: exhibition/models.py:602
+msgid "Message to the organizers"
+msgstr ""
+
+#: exhibition/forms.py:1149
+msgid ""
+"The organization name is locked after acceptance. Contact the organizers to "
+"change it."
+msgstr ""
+
+#: exhibition/forms.py:1425
+msgid "Approve as exhibitor"
+msgstr ""
+
+#: exhibition/forms.py:1426
+msgid "Approve as sponsor"
+msgstr ""
+
+#: exhibition/forms.py:1428 exhibition/models.py:352 exhibition/models.py:596
+#: exhibition/models.py:966 exhibition/views.py:505
+msgid "Booth name"
+msgstr ""
+
+#: exhibition/forms.py:1429 exhibition/forms.py:1459 exhibition/models.py:607
+msgid "Internal review notes"
+msgstr ""
+
+#: exhibition/forms.py:1470
+msgid "Field label"
+msgstr ""
+
+#: exhibition/forms.py:1475 exhibition/forms.py:1510
+msgid "Help text"
+msgstr ""
+
+#: exhibition/forms.py:1476
+msgid "Shown below the field on the exhibitor form."
+msgstr ""
+
+#: exhibition/forms.py:1483
+#, python-format
+msgid "Leave empty to use the default: %(label)s"
+msgstr ""
+
+#: exhibition/forms.py:1492
+msgid "Options"
+msgstr ""
+
+#: exhibition/forms.py:1493
+msgid "For choice fields, enter one option per line."
+msgstr ""
+
+#: exhibition/forms.py:1508
+msgid "Field type"
+msgstr ""
+
+#: exhibition/forms.py:1509 exhibition/models.py:878
+msgid "Custom question"
+msgstr ""
+
+#: exhibition/forms.py:1511
+#: exhibition/templates/exhibitors/call_questions.html:31
+#: exhibition/templates/exhibitors/call_questions.html:63
+msgid "Required"
+msgstr ""
+
+#: exhibition/forms.py:1535
+msgid "Please provide at least one option for this question type."
+msgstr ""
+
+#: exhibition/forms.py:1576 exhibition/forms.py:1665
+msgid "Choose social platform"
+msgstr ""
+
+#: exhibition/forms.py:1578 exhibition/forms.py:1667
+msgid "Social platform"
+msgstr ""
+
+#: exhibition/forms.py:1582 exhibition/forms.py:1671
+msgid "Profile or path"
+msgstr ""
+
+#: exhibition/forms.py:1596 exhibition/forms.py:1685
+msgid "Profile, handle, or full URL"
+msgstr ""
+
+#: exhibition/forms.py:1616 exhibition/forms.py:1705
+msgid "Please enter a profile, handle, or URL or remove this row."
+msgstr ""
+
+#: exhibition/forms.py:1622 exhibition/forms.py:1711
+msgid "Please choose a social platform."
+msgstr ""
+
+#: exhibition/forms.py:1626 exhibition/forms.py:1715
+msgid "Please enter a profile, handle, or URL."
+msgstr ""
+
+#: exhibition/forms.py:1648 exhibition/forms.py:1737
+msgid "Link label"
+msgstr ""
+
+#: exhibition/forms.py:1654 exhibition/forms.py:1743
+msgid "https://example.com"
+msgstr ""
+
+#: exhibition/forms.py:1807
+msgid ""
+"Leave empty to keep this in the outbox until sent manually. Time is "
+"interpreted in the event timezone."
+msgstr ""
+
+#: exhibition/forms.py:1814 exhibition/forms.py:1877
+msgid "The scheduled time must be in the future."
+msgstr ""
+
+#: exhibition/forms.py:1822
+msgid "Exhibitors and sponsors"
+msgstr ""
+
+#: exhibition/forms.py:1823
+msgid "Exhibitors only"
+msgstr ""
+
+#: exhibition/forms.py:1824
+msgid "Sponsors only"
+msgstr ""
+
+#: exhibition/forms.py:1828
+msgid "Application state"
+msgstr ""
+
+#: exhibition/forms.py:1836
+msgid "Partner type"
+msgstr ""
+
+#: exhibition/forms.py:1844
+msgid "Any sponsor group"
+msgstr ""
+
+#: exhibition/forms.py:1846 exhibition/models.py:1035 exhibition/models.py:1089
+#: exhibition/templates/exhibitors/_email_outbox_body.html:6
+#: exhibition/templates/exhibitors/_email_sent_body.html:6
+msgid "Subject"
+msgstr ""
+
+#: exhibition/forms.py:1848
+msgid "Send at"
+msgstr ""
+
+#: exhibition/forms.py:1851
+msgid "Leave empty to send immediately or save to the outbox."
+msgstr ""
+
+#: exhibition/forms.py:1859 exhibition/models.py:1036 exhibition/models.py:1090
+msgid "Body"
+msgstr ""
+
+#: exhibition/forms.py:1885 exhibition/views.py:2576
+msgid "Request received (confirmation)"
+msgstr ""
+
+#: exhibition/forms.py:1886 exhibition/views.py:2577
+msgid "Request accepted"
+msgstr ""
+
+#: exhibition/forms.py:1887 exhibition/views.py:2578
+msgid "Request rejected"
+msgstr ""
+
+#: exhibition/forms.py:1888 exhibition/views.py:2579
+msgid "Exhibitor lead scanning key"
+msgstr ""
+
+#: exhibition/forms.py:1897
+#, python-format
+msgid "%(role)s — subject"
+msgstr ""
+
+#: exhibition/forms.py:1904
+#, python-format
+msgid "%(role)s — body"
+msgstr ""
+
+#: exhibition/mail.py:57
+#, python-brace-format
+msgid "We received your request for {event_name}"
+msgstr ""
+
+#: exhibition/mail.py:59
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"thank you for submitting your request “{request_name}” to {event_name}. We "
+"have received it and will get back to you once it has been reviewed.\n"
+"\n"
+"You can review or edit your request here:\n"
+"{request_url}\n"
+"\n"
+"Best regards,\n"
+"The {event_name} team"
+msgstr ""
+
+#: exhibition/mail.py:69
+#, python-brace-format
+msgid "Your request for {event_name} has been accepted"
+msgstr ""
+
+#: exhibition/mail.py:71
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"we are happy to let you know that your request “{request_name}” for "
+"{event_name} has been accepted. We will be in touch with the next steps.\n"
+"\n"
+"Best regards,\n"
+"The {event_name} team"
+msgstr ""
+
+#: exhibition/mail.py:80
+#, python-brace-format
+msgid "Update on your request for {event_name}"
+msgstr ""
+
+#: exhibition/mail.py:82
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"thank you for your interest in {event_name}. Unfortunately we are unable to "
+"accept your request “{request_name}” this time.\n"
+"\n"
+"We hope to see you at a future event.\n"
+"\n"
+"Best regards,\n"
+"The {event_name} team"
+msgstr ""
+
+#: exhibition/mail.py:91
+#, python-brace-format
+msgid "Lead Scanning Access for {event_name}"
+msgstr ""
+
+#: exhibition/mail.py:93
+#, python-brace-format
+msgid ""
+"Hello {exhibitor_name},\n"
+"\n"
+"Please use the information below to activate the **Lead Scanning app**:\n"
+"\n"
+"**Step 1 — Open the Web App:** access.eventyay.com\n"
+"\n"
+"**Step 2 — Enter the Exhibitor Key:** {exhibitor_access_code}\n"
+"\n"
+"**Step 3 — Set up each device** by scanning its QR code, or by entering its "
+"setup URL and token manually:\n"
+"\n"
+"{device_tokens}\n"
+"\n"
+"*Each token is unique to one device and can only be used once. If you set up "
+"additional devices, each device will require its own token.*\n"
+"\n"
+"Please share these details with the team members who will be scanning leads "
+"at the event.\n"
+"\n"
+"Best regards,\n"
+"The {event_name} Team"
+msgstr ""
+
+#: exhibition/mail.py:174
+msgid "This value will be replaced based on dynamic parameters."
+msgstr ""
+
+#: exhibition/models.py:137 exhibition/models.py:515
+msgid "Contact email"
+msgstr ""
+
+#: exhibition/models.py:156
+#: exhibition/templates/exhibitors/proposal_detail.html:132
+msgid "Social media"
+msgstr ""
+
+#: exhibition/models.py:161
+#: exhibition/templates/exhibitors/proposal_detail.html:140
+msgid "Extra links"
+msgstr ""
+
+#: exhibition/models.py:216
+msgid "Call headline"
+msgstr ""
+
+#: exhibition/models.py:220
+msgid "Call text"
+msgstr ""
+
+#: exhibition/models.py:225
+msgid "Submission deadline"
+msgstr ""
+
+#: exhibition/models.py:298
+msgid "Show this sponsor group on the front page."
+msgstr ""
+
+#: exhibition/models.py:314 exhibition/models.py:558
+#: exhibition/templates/exhibitors/dashboard.html:73
+#: exhibition/templates/exhibitors/exhibitor_info.html:69
+#: exhibition/templates/exhibitors/proposal_list.html:19
+#: exhibition/templates/exhibitors/public_proposal_list.html:11
+#: exhibition/views.py:505
+msgid "Name"
+msgstr ""
+
+#: exhibition/models.py:315 exhibition/models.py:559
+#: exhibition/templates/exhibitors/proposal_detail.html:117
+msgid "Description"
+msgstr ""
+
+#: exhibition/models.py:316 exhibition/models.py:419 exhibition/models.py:435
+#: exhibition/models.py:565 exhibition/models.py:815 exhibition/models.py:831
+#: exhibition/models.py:844
+#: exhibition/templates/exhibitors/proposal_detail.html:103
+msgid "URL"
+msgstr ""
+
+#: exhibition/models.py:317 exhibition/models.py:566
+#: exhibition/templates/exhibitors/proposal_detail.html:77
+#: exhibition/views.py:505
+msgid "Email"
+msgstr ""
+
+#: exhibition/models.py:318 exhibition/models.py:567
+#: exhibition/templates/exhibitors/proposal_detail.html:105
+msgid "Contact URL"
+msgstr ""
+
+#: exhibition/models.py:319 exhibition/models.py:568
+#: exhibition/templates/exhibitors/proposal_detail.html:107
+msgid "Video URL"
+msgstr ""
+
+#: exhibition/models.py:322 exhibition/models.py:571
+#: exhibition/templates/exhibitors/proposal_detail.html:109
+msgid "Slides"
+msgstr ""
+
+#: exhibition/models.py:326 exhibition/models.py:575
+msgid "Slides URL"
+msgstr ""
+
+#: exhibition/models.py:328 exhibition/models.py:577
+msgid "Logo URL"
+msgstr ""
+
+#: exhibition/models.py:330 exhibition/models.py:579
+msgid "Header image URL"
+msgstr ""
+
+#: exhibition/models.py:434 exhibition/models.py:830
+msgid "Label"
+msgstr ""
+
+#: exhibition/models.py:445
+msgid "draft"
+msgstr ""
+
+#: exhibition/models.py:446
+msgid "submitted"
+msgstr ""
+
+#: exhibition/models.py:447
+msgid "accepted"
+msgstr ""
+
+#: exhibition/models.py:448
+msgid "rejected"
+msgstr ""
+
+#: exhibition/models.py:449
+msgid "withdrawn"
+msgstr ""
+
+#: exhibition/models.py:514
+msgid "Organization Description"
+msgstr ""
+
+#: exhibition/models.py:516
+msgid "Organization Website"
+msgstr ""
+
+#: exhibition/models.py:517
+msgid "Contact Page URL"
+msgstr ""
+
+#: exhibition/models.py:518
+msgid "Promotional Video URL"
+msgstr ""
+
+#: exhibition/models.py:519
+msgid "Promotional Slides"
+msgstr ""
+
+#: exhibition/models.py:521
+msgid "Header Image"
+msgstr ""
+
+#: exhibition/models.py:524 exhibition/templates/exhibitors/add.html:29
+#: exhibition/templates/exhibitors/public_proposal_form.html:38
+msgid "Social Media"
+msgstr ""
+
+#: exhibition/models.py:525 exhibition/templates/exhibitors/add.html:92
+#: exhibition/templates/exhibitors/public_proposal_form.html:91
+msgid "Extra Links"
+msgstr ""
+
+#: exhibition/models.py:841
+msgid "Number"
+msgstr ""
+
+#: exhibition/models.py:842
+msgid "Text (one line)"
+msgstr ""
+
+#: exhibition/models.py:843
+msgid "Multiline text"
+msgstr ""
+
+#: exhibition/models.py:845
+msgid "Email address"
+msgstr ""
+
+#: exhibition/models.py:846
+msgid "Confirm Checkbox"
+msgstr ""
+
+#: exhibition/models.py:847
+msgid "Radio button (Choose one option)"
+msgstr ""
+
+#: exhibition/models.py:848
+msgid "Dropdown (Choose one option)"
+msgstr ""
+
+#: exhibition/models.py:849
+msgid "Checkbox (Choose one or several options)"
+msgstr ""
+
+#: exhibition/models.py:850
+msgid "File upload"
+msgstr ""
+
+#: exhibition/models.py:851
+msgid "Date"
+msgstr ""
+
+#: exhibition/models.py:852
+msgid "Time"
+msgstr ""
+
+#: exhibition/models.py:853
+msgid "Date and time"
+msgstr ""
+
+#: exhibition/models.py:854
+msgid "Country code (ISO 3166-1 alpha-2)"
+msgstr ""
+
+#: exhibition/models.py:855
+msgid "Phone number"
+msgstr ""
+
+#: exhibition/models.py:883
+msgid "help text"
+msgstr ""
+
+#: exhibition/models.py:885 exhibition/templates/exhibitors/add.html:29
+#: exhibition/templates/exhibitors/add.html:92
+#: exhibition/templates/exhibitors/public_proposal_form.html:38
+#: exhibition/templates/exhibitors/public_proposal_form.html:91
+msgid "required"
+msgstr ""
+
+#: exhibition/models.py:886
+msgid "active"
+msgstr ""
+
+#: exhibition/models.py:906
+msgid "Response"
+msgstr ""
+
+#: exhibition/models.py:938
+msgid "Yes"
+msgstr ""
+
+#: exhibition/models.py:940
+msgid "No"
+msgstr ""
+
+#: exhibition/models.py:1034
+#: exhibition/templates/exhibitors/_email_outbox_body.html:5
+#: exhibition/templates/exhibitors/_email_sent_body.html:5
+msgid "Recipient"
+msgstr ""
+
+#: exhibition/models.py:1045
+msgid "Queued email"
+msgstr ""
+
+#: exhibition/models.py:1046
+msgid "Queued emails"
+msgstr ""
+
+#: exhibition/models.py:1088
+msgid "Template name"
+msgstr ""
+
+#: exhibition/models.py:1095
+msgid "Custom email template"
+msgstr ""
+
+#: exhibition/models.py:1096
+msgid "Custom email templates"
+msgstr ""
+
+#: exhibition/signals.py:75
+msgid "Screen and evaluate exhibitor and sponsor requests for the event."
+msgstr ""
+
+#: exhibition/signals.py:76
+msgid "Request Review Dashboard"
+msgstr ""
+
+#: exhibition/signals.py:80
+msgid ""
+"Manage exhibitors and sponsors, maintain booth details, and create partner "
+"profiles for the event."
+msgstr ""
+
+#: exhibition/signals.py:82
+msgid "Exhibitors & Sponsors Dashboard"
+msgstr ""
+
+#: exhibition/signals.py:88 exhibition/templates/exhibitors/base.html:5
+#: exhibition/templates/exhibitors/base.html:125
+#: exhibition/templates/exhibitors/exhibitor_info.html:4
+#: exhibition/templates/exhibitors/exhibitor_info.html:15
+msgid "Exhibitors & Sponsors"
+msgstr ""
+
+#: exhibition/signals.py:90
+msgid "Go to"
+msgstr ""
+
+#: exhibition/signals.py:166 exhibition/templates/exhibitors/call_base.html:4
+#: exhibition/templates/exhibitors/call_base.html:7
+#: exhibition/templates/exhibitors/public_call.html:7
+#: exhibition/templates/exhibitors/settings.html:8
+#: exhibition/templates/exhibitors/settings.html:25
+msgid "Call for Exhibitors"
+msgstr ""
+
+#: exhibition/signals.py:207 exhibition/signals.py:231
+msgid "Acme Corp"
+msgstr ""
+
+#: exhibition/signals.py:225
+msgid "Jane Doe"
+msgstr ""
+
+#: exhibition/signals.py:293 exhibition/templates/exhibitors/base.html:62
+#: exhibition/templates/exhibitors/proposal_list.html:5
+#: exhibition/templates/exhibitors/proposal_list.html:15
+msgid "Exhibition requests"
+msgstr ""
+
+#: exhibition/signals.py:298
+msgid "Exhibition request approved."
+msgstr ""
+
+#: exhibition/signals.py:299
+msgid "Exhibition request rejected."
+msgstr ""
+
+#: exhibition/signals.py:300
+msgid "Exhibition request withdrawn."
+msgstr ""
+
+#: exhibition/signals.py:301
+msgid "Exhibition request reopened for review."
+msgstr ""
+
+#: exhibition/signals.py:302
+msgid "Exhibition request changed."
+msgstr ""
+
+#: exhibition/signals.py:303
+msgid "Organization profile created from an approved request."
+msgstr ""
+
+#: exhibition/signals.py:304
+msgid "Organization profile reactivated after re-approval."
+msgstr ""
+
+#: exhibition/signals.py:305
+msgid "Organization profile updated from the submitter's changes."
+msgstr ""
+
+#: exhibition/signals.py:306
+msgid "Organization profile created."
+msgstr ""
+
+#: exhibition/signals.py:307
+msgid "Organization profile changed."
+msgstr ""
+
+#: exhibition/signals.py:308
+msgid "Organization profile deleted."
+msgstr ""
+
+#: exhibition/signals.py:309
+msgid "Exhibition settings changed."
+msgstr ""
+
+#: exhibition/signals.py:310
+msgid "Call for exhibitors settings changed."
+msgstr ""
+
+#: exhibition/signals.py:311
+msgid "Private call link regenerated."
+msgstr ""
+
+#: exhibition/signals.py:312
+msgid "Sponsor group created."
+msgstr ""
+
+#: exhibition/signals.py:313
+msgid "Sponsor group changed."
+msgstr ""
+
+#: exhibition/signals.py:314 exhibition/views.py:457
+msgid "Sponsor group deleted."
+msgstr ""
+
+#: exhibition/signals.py:315
+msgid "Exhibitor form question created."
+msgstr ""
+
+#: exhibition/signals.py:316
+msgid "Exhibitor form question changed."
+msgstr ""
+
+#: exhibition/signals.py:317
+msgid "Exhibitor form question deleted."
+msgstr ""
+
+#: exhibition/signals.py:318
+msgid "Email sent."
+msgstr ""
+
+#: exhibition/signals.py:337
+#, python-brace-format
+msgid "Updated: {fields}."
+msgstr ""
+
+#: exhibition/signals.py:360
+#, python-brace-format
+msgid "State changed from {old} to {new}."
+msgstr ""
+
+#: exhibition/signals.py:382
+#, python-brace-format
+msgid "Exhibition request {val}"
+msgstr ""
+
+#: exhibition/signals.py:391
+#, python-brace-format
+msgid "Organization profile {val}"
+msgstr ""
+
+#: exhibition/signals.py:400
+#, python-brace-format
+msgid "Exhibitor form question {val}"
+msgstr ""
+
+#: exhibition/signals.py:409
+#, python-brace-format
+msgid "Sponsor group {val}"
+msgstr ""
+
+#: exhibition/social_links.py:36
+msgid "Facebook"
+msgstr ""
+
+#: exhibition/social_links.py:43
+msgid "Flickr"
+msgstr ""
+
+#: exhibition/social_links.py:50
+msgid "GitHub"
+msgstr ""
+
+#: exhibition/social_links.py:57
+msgid "GitLab"
+msgstr ""
+
+#: exhibition/social_links.py:64
+msgid "Gitter"
+msgstr ""
+
+#: exhibition/social_links.py:71
+msgid "Google Groups"
+msgstr ""
+
+#: exhibition/social_links.py:78
+msgid "Instagram"
+msgstr ""
+
+#: exhibition/social_links.py:85
+msgid "LinkedIn"
+msgstr ""
+
+#: exhibition/social_links.py:92
+msgid "Mastodon"
+msgstr ""
+
+#: exhibition/social_links.py:99
+msgid "Patreon"
+msgstr ""
+
+#: exhibition/social_links.py:106
+msgid "Telegram"
+msgstr ""
+
+#: exhibition/social_links.py:113
+msgid "Vimeo"
+msgstr ""
+
+#: exhibition/social_links.py:120
+msgid "VK"
+msgstr ""
+
+#: exhibition/social_links.py:127
+msgid "Weibo"
+msgstr ""
+
+#: exhibition/social_links.py:134
+msgid "X"
+msgstr ""
+
+#: exhibition/social_links.py:141
+msgid "Xing"
+msgstr ""
+
+#: exhibition/social_links.py:148
+msgid "YouTube"
+msgstr ""
+
+#: exhibition/social_links.py:155
+msgid "YouTube Privacy"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:7
+msgid "Created"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:14
+msgid "Send selected"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:17
+msgid "Discard selected"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:20
+msgid "Send all"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:23
+msgid "Discard all"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:35
+msgid "Scheduled"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:36
+#: exhibition/templates/exhibitors/proposal_list.html:65
+msgid "Actions"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:67
+msgid "Send this email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:73
+msgid "Edit this email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:79
+msgid "Discard this email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:91
+#: exhibition/templates/exhibitors/_email_sent_body.html:34
+msgid "No emails match your search."
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_outbox_body.html:93
+msgid "The outbox is empty."
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_sent_body.html:7
+#: exhibition/templates/exhibitors/base.html:105
+msgid "Sent"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_email_sent_body.html:36
+msgid "No emails have been sent yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/_filter_form.html:12
+#: exhibition/templates/exhibitors/public_list.html:29
+msgid "Search"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_filter_form.html:18
+#: exhibition/templates/exhibitors/_filter_form.html:20
+msgid "Clear filters"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_filter_form.html:29
+msgid "Filters"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_filter_form.html:50
+msgid "Apply filters"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:5
+#, python-format
+msgid "Select %(name)s"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:33
+msgid "Untitled"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:40
+msgid "Copied!"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:40
+msgid "Copy failed"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:40
+msgid "Key"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:41
+#: exhibition/templates/exhibitors/add.html:231
+#: exhibition/templates/exhibitors/vouchers.html:5
+msgid "Vouchers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:42
+#: exhibition/templates/exhibitors/devices.html:5
+msgid "Lead-scanning devices"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_partner_row.html:45
+msgid "Move"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_sort_header.html:7
+msgid "Sort ascending"
+msgstr ""
+
+#: exhibition/templates/exhibitors/_sort_header.html:10
+msgid "Sort descending"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:24
+msgid "Profile"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:29
+#: exhibition/templates/exhibitors/add.html:92
+#: exhibition/templates/exhibitors/call_questions.html:62
+#: exhibition/templates/exhibitors/settings.html:50
+msgid "Optional"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:80
+#: exhibition/templates/exhibitors/public_proposal_form.html:79
+msgid "Add social media link"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:137
+#: exhibition/templates/exhibitors/public_proposal_form.html:120
+msgid "Add extra link"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:157
+#: exhibition/templates/exhibitors/add.html:160
+#: exhibition/templates/exhibitors/public_proposal_form.html:140
+#: exhibition/templates/exhibitors/public_proposal_form.html:143
+msgid "Logo preview"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:162
+#: exhibition/templates/exhibitors/add.html:180
+#: exhibition/templates/exhibitors/public_proposal_form.html:145
+#: exhibition/templates/exhibitors/public_proposal_form.html:163
+msgid "We could not load this image preview."
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:175
+#: exhibition/templates/exhibitors/add.html:178
+#: exhibition/templates/exhibitors/public_proposal_form.html:158
+#: exhibition/templates/exhibitors/public_proposal_form.html:161
+msgid "Header image preview"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:196
+msgid "Organizer only"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:237
+msgid "Internal notes"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:244
+#: exhibition/templates/exhibitors/email_edit.html:38
+#: exhibition/templates/exhibitors/public_proposal_form.html:182
+#: exhibition/templates/exhibitors/public_proposal_form.html:186
+msgid "Save changes"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:246
+#: exhibition/templates/exhibitors/call_default_field_form.html:21
+#: exhibition/templates/exhibitors/call_question_form.html:30
+#: exhibition/templates/exhibitors/call_questions.html:96
+#: exhibition/templates/exhibitors/email_custom_template_form.html:51
+#: exhibition/templates/exhibitors/email_templates.html:123
+#: exhibition/templates/exhibitors/proposal_detail.html:188
+#: exhibition/templates/exhibitors/settings.html:85
+#: exhibition/templates/exhibitors/settings.html:170
+#: exhibition/templates/exhibitors/settings.html:269
+msgid "Save"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:255
+#: exhibition/templates/exhibitors/call_default_field_form.html:23
+#: exhibition/templates/exhibitors/call_default_field_reset.html:24
+#: exhibition/templates/exhibitors/call_question_delete.html:21
+#: exhibition/templates/exhibitors/call_question_form.html:32
+#: exhibition/templates/exhibitors/delete.html:24
+#: exhibition/templates/exhibitors/email_bulk_discard.html:27
+#: exhibition/templates/exhibitors/email_custom_template_delete.html:21
+#: exhibition/templates/exhibitors/email_custom_template_form.html:53
+#: exhibition/templates/exhibitors/email_delete.html:28
+#: exhibition/templates/exhibitors/proposal_list.html:174
+#: exhibition/templates/exhibitors/public_proposal_form.html:176
+#: exhibition/templates/exhibitors/public_proposal_reinstate.html:16
+#: exhibition/templates/exhibitors/public_proposal_withdraw.html:21
+#: exhibition/templates/exhibitors/settings.html:194
+#: exhibition/templates/exhibitors/settings.html:270
+msgid "Cancel"
+msgstr ""
+
+#: exhibition/templates/exhibitors/add.html:262
+#: exhibition/templates/exhibitors/proposal_detail.html:208
+msgid "History"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:11
+msgid "Overview"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:18
+#: exhibition/templates/exhibitors/call_questions.html:33
+msgid "Settings"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:26
+#: exhibition/templates/exhibitors/base.html:70
+#: exhibition/templates/exhibitors/dashboard.html:21
+#: exhibition/templates/exhibitors/exhibitor_info.html:4
+#: exhibition/templates/exhibitors/exhibitor_info.html:15
+msgid "Exhibitors"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:31
+#: exhibition/templates/exhibitors/base.html:76
+#: exhibition/templates/exhibitors/dashboard.html:29
+#: exhibition/templates/exhibitors/exhibitor_info.html:4
+#: exhibition/templates/exhibitors/exhibitor_info.html:15
+msgid "Sponsors"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:39
+#: exhibition/templates/exhibitors/dashboard.html:117
+msgid "Call for exhibitors"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:47
+msgid "Content"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:52
+#: exhibition/templates/exhibitors/call_questions.html:5
+#: exhibition/templates/exhibitors/call_questions.html:16
+msgid "Exhibitor form"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:85
+msgid "Message center"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:94
+msgid "Compose"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:99
+msgid "Outbox"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:111
+msgid "Templates"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:130
+msgid "Home"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:134
+msgid "Tickets"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:138
+msgid "Talks"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:143
+msgid "Access videos related to this event"
+msgstr ""
+
+#: exhibition/templates/exhibitors/base.html:144
+msgid "Videos"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_default_field_form.html:5
+#: exhibition/templates/exhibitors/call_default_field_form.html:8
+#: exhibition/templates/exhibitors/call_question_form.html:11
+#: exhibition/templates/exhibitors/call_question_form.html:14
+msgid "Form field"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_default_field_reset.html:4
+#: exhibition/templates/exhibitors/call_default_field_reset.html:7
+msgid "Reset form field"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_default_field_reset.html:14
+#, python-format
+msgid ""
+"Are you sure you want to reset \"%(label)s\" back to the default "
+"\"%(default_label)s\"?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_default_field_reset.html:19
+msgid ""
+"This clears the custom label and help text. Default fields are part of the "
+"form and cannot be deleted; turn the field off with the Active toggle to "
+"hide it."
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_default_field_reset.html:22
+#: exhibition/templates/exhibitors/public_list.html:32
+msgid "Reset"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_question_delete.html:4
+#: exhibition/templates/exhibitors/call_question_delete.html:7
+msgid "Delete form field"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_question_delete.html:14
+#, python-format
+msgid "Are you sure you want to delete the question \"%(question)s\"?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_question_delete.html:19
+#: exhibition/templates/exhibitors/call_questions.html:74
+#: exhibition/templates/exhibitors/delete.html:19
+#: exhibition/templates/exhibitors/email_custom_template_delete.html:19
+msgid "Delete"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:23
+msgid "Form fields"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:24
+msgid ""
+"Choose which fields are shown on the exhibitor form and drag any row to "
+"reorder it."
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:29
+#: exhibition/templates/exhibitors/proposal_detail.html:38
+msgid "Field"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:32
+msgid "Answers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:42
+msgid "Custom"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:48
+#, python-format
+msgid "Toggle active state for %(field)s"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:61
+#, python-format
+msgid "Required status for %(field)s"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:73
+#: exhibition/templates/exhibitors/call_questions.html:76
+#: exhibition/templates/exhibitors/dashboard.html:120
+#: exhibition/templates/exhibitors/email_compose.html:55
+#: exhibition/templates/exhibitors/email_custom_template_form.html:30
+#: exhibition/templates/exhibitors/email_templates.html:50
+#: exhibition/templates/exhibitors/email_templates.html:97
+#: exhibition/templates/exhibitors/public_proposal_list.html:32
+#: exhibition/templates/exhibitors/settings.html:55
+msgid "Edit"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:77
+msgid "Reset to default"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:79
+msgid "Move field"
+msgstr ""
+
+#: exhibition/templates/exhibitors/call_questions.html:90
+msgid "New custom field"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:5
+#: exhibition/templates/exhibitors/dashboard.html:9
+msgid "Exhibition overview"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:39
+msgid "Requests awaiting review"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:48
+msgid "Emails in outbox"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:61
+msgid "Recent requests"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:64
+msgid "View all"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:76
+msgid "Submitted"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:91
+#: exhibition/templates/exhibitors/proposal_detail.html:97
+#: exhibition/templates/exhibitors/proposal_list.html:97
+msgid "Sponsor"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:93
+#: exhibition/templates/exhibitors/proposal_detail.html:99
+#: exhibition/templates/exhibitors/proposal_list.html:99
+msgid "Exhibitor"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:105
+msgid "No requests have been submitted yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:128
+msgid "The call is not published, so nobody can submit a request."
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:131
+msgid "Open"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:134
+#, python-format
+msgid "Closes on %(deadline)s."
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:139
+msgid "No deadline set."
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:142
+msgid "Closed"
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:144
+#, python-format
+msgid "The deadline passed on %(deadline)s."
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:151
+msgid "Private — reachable only with the secret link."
+msgstr ""
+
+#: exhibition/templates/exhibitors/dashboard.html:157
+#: exhibition/templates/exhibitors/settings.html:90
+#: exhibition/templates/exhibitors/settings.html:94
+msgid "View call page"
+msgstr ""
+
+#: exhibition/templates/exhibitors/delete.html:11
+#, python-format
+msgid ""
+"Are you sure you want to delete “%(name)s”? This action cannot be undone."
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:8
+#, python-format
+msgid "Lead-scanning devices for %(name)s"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:13
+#, python-brace-format
+msgid ""
+"Provision check-in app devices for this partner. Each device gets its own "
+"single-use setup token, which the access-credentials email can deliver "
+"through the {device_tokens} placeholder."
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:21
+msgid ""
+"Provisioning devices requires organizer-level permissions. Ask an organizer "
+"admin to create the devices for this partner."
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:29
+msgid "Provisioned devices"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:35
+msgid "Device"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:36
+msgid "Setup token"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:37
+msgid "Status"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:47
+msgid "Connected"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:49
+msgid "Awaiting setup"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:60
+msgid ""
+"Generate new setup tokens? Any device that is already scanning will be "
+"disconnected and must be set up again."
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:65
+msgid "Generate new setup tokens"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:70
+msgid "No devices have been provisioned for this partner yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:80
+#: exhibition/templates/exhibitors/devices.html:85
+msgid "Add devices"
+msgstr ""
+
+#: exhibition/templates/exhibitors/devices.html:87
+#: exhibition/templates/exhibitors/vouchers.html:88
+msgid "Back"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_bulk_discard.html:4
+#: exhibition/templates/exhibitors/email_bulk_discard.html:7
+msgid "Discard emails"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_bulk_discard.html:19
+#, python-format
+msgid ""
+"Are you sure you want to discard %(counter)s queued email? This cannot be "
+"undone."
+msgid_plural ""
+"Are you sure you want to discard %(counter)s queued emails? This cannot be "
+"undone."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/templates/exhibitors/email_bulk_discard.html:30
+#: exhibition/templates/exhibitors/email_delete.html:31
+msgid "Discard"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:7
+#: exhibition/templates/exhibitors/email_compose.html:16
+msgid "Compose email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:21
+msgid ""
+"Send an update to a group of applicants. One email is queued per recipient, "
+"with placeholders resolved individually."
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:26
+msgid "Load from template"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:28
+msgid "Select a saved template…"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:33
+msgid "Load"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:41
+#: exhibition/templates/exhibitors/email_edit.html:23
+msgid "Recipients"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:47
+msgid "Message"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:58
+#: exhibition/templates/exhibitors/email_custom_template_form.html:33
+#: exhibition/templates/exhibitors/email_templates.html:53
+#: exhibition/templates/exhibitors/email_templates.html:100
+#: exhibition/templates/exhibitors/settings.html:58
+msgid "Preview"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:80
+msgid "Save to outbox"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_compose.html:83
+msgid "Send / Schedule"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_custom_template_delete.html:4
+#: exhibition/templates/exhibitors/email_custom_template_delete.html:7
+msgid "Delete custom template"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_custom_template_delete.html:14
+#, python-format
+msgid "Are you sure you want to delete the custom template \"%(name)s\"?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_custom_template_form.html:7
+#: exhibition/templates/exhibitors/email_custom_template_form.html:15
+msgid "Custom template"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_delete.html:4
+#: exhibition/templates/exhibitors/email_delete.html:7
+msgid "Discard email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_delete.html:15
+#, python-format
+msgid ""
+"Are you sure you want to discard the email “%(subject)s” to %(counter)s "
+"recipient? This cannot be undone."
+msgid_plural ""
+"Are you sure you want to discard the email “%(subject)s” to %(counter)s "
+"recipients? This cannot be undone."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/templates/exhibitors/email_delete.html:21
+#, python-format
+msgid ""
+"Are you sure you want to discard the email “%(subject)s” to %(to)s? This "
+"cannot be undone."
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_edit.html:5
+msgid "Edit email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_edit.html:8
+msgid "Preview / edit email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_edit.html:14
+msgid "Back to outbox"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_edit.html:41
+msgid "Save & send"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_outbox.html:12
+#: exhibition/templates/exhibitors/email_outbox.html:15
+msgid "Email outbox"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_outbox.html:20
+msgid ""
+"Emails waiting to be sent. Review, edit, or discard them before sending."
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_sent.html:12
+#: exhibition/templates/exhibitors/email_sent.html:15
+msgid "Sent emails"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_templates.html:7
+#: exhibition/templates/exhibitors/email_templates.html:16
+msgid "Email templates"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_templates.html:22
+msgid "New template"
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_templates.html:27
+msgid ""
+"These templates are used for the confirmation email sent when an applicant "
+"submits a request, and for the accept/reject emails you send from the outbox."
+msgstr ""
+
+#: exhibition/templates/exhibitors/email_templates.html:81
+msgid "Discard this template"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:31
+msgid "No organizations match your filters."
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:33
+msgid "You don't have any sponsors yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:35
+msgid "You don't have any exhibitors yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:37
+msgid "You don't have any exhibitors or sponsors yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:43
+#: exhibition/templates/exhibitors/exhibitor_info.html:52
+#: exhibition/views.py:1837
+msgid "Add a Sponsor"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:43
+#: exhibition/templates/exhibitors/exhibitor_info.html:52
+#: exhibition/views.py:1838
+msgid "Add an Exhibitor"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:43
+#: exhibition/templates/exhibitors/exhibitor_info.html:52
+#: exhibition/views.py:1839
+msgid "Add an Exhibitor or Sponsor"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:48
+#: exhibition/templates/exhibitors/proposal_list.html:169
+msgid "selected"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:54
+msgid "Download access keys as CSV"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:56
+msgid "Download sponsor keys"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:56
+msgid "Download exhibitor keys"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:56
+msgid "Download access keys"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:65
+msgid ""
+"Drag-and-drop ordering is available only on the unfiltered, single-page list."
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:70
+msgid "Booth"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:78
+#: exhibition/templates/exhibitors/exhibitor_info.html:106
+msgid "Select all partners"
+msgstr ""
+
+#: exhibition/templates/exhibitors/exhibitor_info.html:84
+#: exhibition/templates/exhibitors/exhibitor_info.html:112
+msgid "Group"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:12
+#: exhibition/templates/exhibitors/proposal_detail.html:15
+msgid "Review exhibition request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:21
+msgid "Back to exhibition requests"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:29
+#, python-format
+msgid "Changes made by the applicant after acceptance (%(when)s)"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:39
+msgid "Before acceptance"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:40
+msgid "After edit"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:55
+msgid "The applicant edited the profile, but the tracked fields are unchanged."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:57
+msgid ""
+"This profile was edited before change tracking was available, so the "
+"original values are not recorded."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:69
+#: exhibition/templates/exhibitors/proposal_list.html:20
+msgid "Submitter"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:80
+msgid "Hidden"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:121
+msgid "Message to organizers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:129
+msgid "Links"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:152
+msgid "Download"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:154
+msgid "Custom answers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:176
+msgid "Review"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:192
+#: exhibition/templates/exhibitors/proposal_list.html:117
+#: exhibition/templates/exhibitors/proposal_list.html:164
+msgid "Approve"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:195
+#: exhibition/templates/exhibitors/proposal_list.html:122
+#: exhibition/templates/exhibitors/proposal_list.html:165
+msgid "Reject"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_detail.html:200
+msgid "Open profile"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:22
+msgid "Updated"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:33
+msgid "Select at least one request."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:34
+msgid "None of the selected requests can be approved."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:35
+msgid "None of the selected requests can be rejected."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:36
+#, python-brace-format
+msgid "{count} selected requests cannot be approved and will be skipped."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:37
+#, python-brace-format
+msgid "{count} selected requests cannot be rejected and will be skipped."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:41
+msgid "Approve selected"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:44
+msgid "Reject selected"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:55
+msgid "Select all matching requests"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:75
+msgid "Select request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:106
+msgid "Edited after acceptance, see detail view for changes."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:127
+#: exhibition/templates/exhibitors/proposal_list.html:166
+#: exhibition/templates/exhibitors/public_proposal_list.html:39
+msgid "Withdraw"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:132
+#: exhibition/templates/exhibitors/proposal_list.html:167
+msgid "Reopen for review"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:137
+#: exhibition/templates/exhibitors/public_proposal_list.html:34
+msgid "View"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:149
+msgid "No exhibition requests match your filters."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:151
+msgid "No exhibition requests have been submitted yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:159
+msgid "Approve the selected requests and create their partner profiles?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:160
+msgid "Reject the selected requests?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:161
+msgid "Reject this request?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:162
+msgid "Withdraw this request?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:163
+msgid "Reopen this request for review?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:168
+msgid "The action could not be completed. Please try again."
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:170
+msgid ""
+"Approve every request matching the current filters, including those on other "
+"pages?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:171
+msgid ""
+"Reject every request matching the current filters, including those on other "
+"pages?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:172
+msgid "Please confirm"
+msgstr ""
+
+#: exhibition/templates/exhibitors/proposal_list.html:173
+msgid "Confirm"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_call.html:14
+msgid "Submit a request to become an exhibitor for this event."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_call.html:20
+#, python-format
+msgid "You can submit requests until %(deadline)s (%(timezone)s)."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_call.html:24
+#, python-format
+msgid "This call closed on %(deadline)s (%(timezone)s)."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_call.html:34
+msgid "View your requests"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_call.html:40
+#: exhibition/templates/exhibitors/public_proposal_form.html:18
+#: exhibition/templates/exhibitors/public_proposal_list.html:65
+msgid "Submit a request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_call.html:42
+msgid "Requests are closed"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:21
+#: exhibition/templates/exhibitors/public_detail.html:94
+msgid "Previous"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:24
+#: exhibition/templates/exhibitors/public_detail.html:98
+msgid "Next"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:47
+msgid "Get In Touch"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:87
+#: exhibition/templates/exhibitors/public_detail.html:103
+msgid "Open slides PDF"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:88
+#, python-brace-format
+msgid "Slide {current} of {total}"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:112
+msgid "Send email"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_detail.html:126
+msgid "Visit website"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_list.html:54
+msgid "No exhibitors match your search."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_list.html:56
+msgid "No exhibitors are currently available."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_form.html:16
+msgid "Edit request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_form.html:23
+#: exhibition/views.py:883
+msgid "This request can no longer be edited."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_form.html:186
+msgid "Submit request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_form.html:189
+msgid "or save as draft for now"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_form.html:199
+msgid "Back to your requests"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_list.html:5
+msgid "Your exhibition requests"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_list.html:13
+msgid "Last modified"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_list.html:23
+msgid "Withdrawn"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_list.html:44
+msgid "Reinstate"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_list.html:56
+msgid "Create a new request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_list.html:61
+msgid "You have not submitted an exhibition request yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_reinstate.html:5
+#: exhibition/templates/exhibitors/public_proposal_reinstate.html:21
+msgid "Reinstate request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_reinstate.html:7
+#, python-format
+msgid ""
+"Do you want to reinstate your withdrawn request “%(name)s”? It will be "
+"pending review again."
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_withdraw.html:5
+#: exhibition/templates/exhibitors/public_proposal_withdraw.html:26
+msgid "Withdraw request"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_withdraw.html:7
+#, python-format
+msgid "Are you sure you want to withdraw your request “%(name)s”?"
+msgstr ""
+
+#: exhibition/templates/exhibitors/public_proposal_withdraw.html:13
+msgid ""
+"This request has already been approved. Withdrawing it will hide the "
+"exhibitor or sponsor profile created from it from public listings."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:10
+#: exhibition/templates/exhibitors/settings.html:27
+msgid "Sponsor Settings"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:12
+#: exhibition/templates/exhibitors/settings.html:29
+msgid "Exhibitor Settings"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:42
+msgid "Publish your call"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:43
+msgid "Publish a login-required application form for exhibitors."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:72
+msgid ""
+"This panel renders unsaved draft text using the same styling as the live "
+"public call page."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:104
+msgid "Secret call link"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:107
+msgid ""
+"This call is private: it is not linked anywhere public. Share the link below "
+"with the organizations you want to invite. Anyone who has it can open the "
+"call and apply."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:113
+msgid "Copied"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:113
+msgid "Copy to clipboard"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:114
+msgid "Copy"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:119
+msgid ""
+"Regenerate the secret link? The current link will stop working immediately."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:125
+msgid "Regenerate link"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:127
+msgid "Regenerating immediately invalidates the current link."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:138
+msgid "Data access"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:139
+msgid ""
+"In this section, you can control which attendee data is shared with "
+"exhibitors when an exhibitor voucher is used or when the exhibitor uses the "
+"lead scanning app."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:142
+msgid "Exhibitor vouchers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:158
+msgid "Exhibitor login"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:160
+msgid ""
+"The access-code email sent to exhibitors is now edited together with the "
+"plugin's other email templates."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:162
+msgid "Edit email templates"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:177
+msgid "Group List"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:180
+msgid "Add a Group"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:193
+msgid "Add"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:204
+msgid "Group Name"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:206
+msgid "Partners"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:207
+msgid "Front Page"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:220
+#: exhibition/templates/exhibitors/settings.html:226
+msgid "Show this sponsor group in the Supported By section on the front page."
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:251
+msgid "Reorder sponsor group"
+msgstr ""
+
+#: exhibition/templates/exhibitors/settings.html:281
+msgid "You do not have any sponsor groups yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:8
+#, python-format
+msgid "Vouchers for %(name)s"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:13
+msgid ""
+"Issue ticket vouchers for this partner to hand out. Whoever redeems one on "
+"the ticket shop becomes a lead this partner can retrieve, as long as voucher "
+"data access is enabled for them."
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:20
+msgid "Issued vouchers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:24
+msgid "Download codes (CSV)"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:31
+msgid "Code"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:32 exhibition/views.py:1994
+msgid "Product"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:34 exhibition/views.py:1998
+msgid "Redeemed"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:56
+msgid "Already redeemed"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:67
+msgid "No vouchers have been issued for this partner yet."
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:76
+msgid "Issue new vouchers"
+msgstr ""
+
+#: exhibition/templates/exhibitors/vouchers.html:86
+msgid "Create vouchers"
+msgstr ""
+
+#: exhibition/templates/sponsors/presale_supported_by.html:4
+msgid "Supported By"
+msgstr ""
+
+#: exhibition/views.py:324
+msgid "Company name"
+msgstr ""
+
+#: exhibition/views.py:325
+msgid "Job title"
+msgstr ""
+
+#: exhibition/views.py:326
+msgid "Address"
+msgstr ""
+
+#: exhibition/views.py:333
+msgid "Attendee Name"
+msgstr ""
+
+#: exhibition/views.py:338
+msgid "Attendee Email"
+msgstr ""
+
+#: exhibition/views.py:377
+msgid "Settings have been saved."
+msgstr ""
+
+#: exhibition/views.py:393
+msgid "Call settings have been saved."
+msgstr ""
+
+#: exhibition/views.py:401
+msgid ""
+"A new secret call link has been generated. The old link no longer works."
+msgstr ""
+
+#: exhibition/views.py:416
+msgid "Sponsor group added."
+msgstr ""
+
+#: exhibition/views.py:437
+msgid "Sponsor group updated."
+msgstr ""
+
+#: exhibition/views.py:452
+msgid "This sponsor group cannot be deleted while it is assigned to partners."
+msgstr ""
+
+#: exhibition/views.py:460
+msgid "Unknown action."
+msgstr ""
+
+#: exhibition/views.py:505
+msgid "Access key"
+msgstr ""
+
+#: exhibition/views.py:745 exhibition/views.py:1060
+msgid "Add at least one social media link."
+msgstr ""
+
+#: exhibition/views.py:754 exhibition/views.py:1069
+msgid "Add at least one extra link."
+msgstr ""
+
+#: exhibition/views.py:809
+msgid "The call for exhibitors is closed."
+msgstr ""
+
+#: exhibition/views.py:837
+msgid "Your request has been saved."
+msgstr ""
+
+#: exhibition/views.py:920 exhibition/views.py:1776
+msgid "Your changes have been saved."
+msgstr ""
+
+#: exhibition/views.py:953
+msgid "This proposal can no longer be withdrawn."
+msgstr ""
+
+#: exhibition/views.py:961
+msgid "Your request has been withdrawn."
+msgstr ""
+
+#: exhibition/views.py:963
+msgid "This request can no longer be withdrawn."
+msgstr ""
+
+#: exhibition/views.py:989 exhibition/views.py:999
+msgid "This request can no longer be reinstated."
+msgstr ""
+
+#: exhibition/views.py:997
+msgid "Your request has been reinstated and is pending review again."
+msgstr ""
+
+#: exhibition/views.py:1121
+msgid "Invalid request body."
+msgstr ""
+
+#: exhibition/views.py:1124 exhibition/views.py:1129
+msgid "Invalid sponsor group IDs."
+msgstr ""
+
+#: exhibition/views.py:1133
+msgid "Sponsor group IDs must be unique."
+msgstr ""
+
+#: exhibition/views.py:1141
+msgid "Reorder request must include each sponsor group exactly once."
+msgstr ""
+
+#: exhibition/views.py:1346
+msgid "This request can no longer be changed to that state."
+msgstr ""
+
+#: exhibition/views.py:1350
+msgid "Review details saved."
+msgstr ""
+
+#: exhibition/views.py:1359
+msgid ""
+"Request approved and partner profile created. An acceptance email was placed "
+"in the outbox."
+msgstr ""
+
+#: exhibition/views.py:1369
+msgid "Request rejected. A rejection email was placed in the outbox."
+msgstr ""
+
+#: exhibition/views.py:1372
+msgid "Request withdrawn."
+msgstr ""
+
+#: exhibition/views.py:1375
+msgid "Request reopened for review."
+msgstr ""
+
+#: exhibition/views.py:1407
+msgid "No valid action was selected."
+msgstr ""
+
+#: exhibition/views.py:1454
+#, python-format
+msgid "%(count)d request was approved."
+msgid_plural "%(count)d requests were approved."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:1455
+#, python-format
+msgid "%(count)d request was rejected."
+msgid_plural "%(count)d requests were rejected."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:1456
+#, python-format
+msgid "%(count)d request was withdrawn."
+msgid_plural "%(count)d requests were withdrawn."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:1457
+#, python-format
+msgid "%(count)d request was reopened."
+msgid_plural "%(count)d requests were reopened."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:1461
+msgid "No proposals were updated."
+msgstr ""
+
+#: exhibition/views.py:1464
+#, python-format
+msgid "%(skipped)d was skipped because it was already processed."
+msgid_plural "%(skipped)d were skipped because they were already processed."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:1605
+msgid "Exhibitor form settings have been saved."
+msgstr ""
+
+#: exhibition/views.py:1730
+msgid "The requested form field does not exist."
+msgstr ""
+
+#: exhibition/views.py:1791
+msgid "The field has been reset to its default."
+msgstr ""
+
+#: exhibition/views.py:1829 exhibition/views.py:1900
+msgid "An access-credentials email was placed in the outbox."
+msgstr ""
+
+#: exhibition/views.py:1907
+msgid "Edit Sponsor"
+msgstr ""
+
+#: exhibition/views.py:1908
+msgid "Edit Exhibitor"
+msgstr ""
+
+#: exhibition/views.py:1909
+msgid "Edit Exhibitor & Sponsor"
+msgstr ""
+
+#: exhibition/views.py:1910
+msgid "Edit Exhibitor or Sponsor"
+msgstr ""
+
+#: exhibition/views.py:1940
+msgid "Delete Sponsor"
+msgstr ""
+
+#: exhibition/views.py:1941
+msgid "Delete Exhibitor"
+msgstr ""
+
+#: exhibition/views.py:1942
+msgid "Delete Exhibitor & Sponsor"
+msgstr ""
+
+#: exhibition/views.py:1943
+msgid "Delete Exhibitor or Sponsor"
+msgstr ""
+
+#: exhibition/views.py:1992
+msgid "Voucher code"
+msgstr ""
+
+#: exhibition/views.py:1993
+msgid "Redeem link"
+msgstr ""
+
+#: exhibition/views.py:1999
+msgid "Maximum usages"
+msgstr ""
+
+#: exhibition/views.py:2035
+msgid "This voucher has already been redeemed and cannot be removed."
+msgstr ""
+
+#: exhibition/views.py:2040
+msgid "Voucher removed."
+msgstr ""
+
+#: exhibition/views.py:2060
+#, python-format
+msgid "%(count)d voucher created."
+msgid_plural "%(count)d vouchers created."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:2112
+#, python-format
+msgid "%(count)d device added."
+msgid_plural "%(count)d devices added."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:2123
+#, python-format
+msgid ""
+"New setup tokens generated. %(count)d device that was already scanning is "
+"now disconnected and must be set up again."
+msgid_plural ""
+"New setup tokens generated. %(count)d devices that were already scanning are "
+"now disconnected and must be set up again."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:2132
+msgid "New setup tokens generated."
+msgstr ""
+
+#: exhibition/views.py:2194
+msgid "No applicants matched the selected filters."
+msgstr ""
+
+#: exhibition/views.py:2202
+#, python-format
+msgid "%(count)d emails have been scheduled."
+msgstr ""
+
+#: exhibition/views.py:2206
+#, python-format
+msgid "%(count)d emails have been sent."
+msgstr ""
+
+#: exhibition/views.py:2210
+#, python-format
+msgid "%(count)d emails have been placed in the outbox."
+msgstr ""
+
+#: exhibition/views.py:2385
+msgid "The emails have been saved and sent."
+msgstr ""
+
+#: exhibition/views.py:2389
+msgid "The emails have been saved."
+msgstr ""
+
+#: exhibition/views.py:2395
+msgid "The email has been saved and sent."
+msgstr ""
+
+#: exhibition/views.py:2399
+msgid "The email has been saved."
+msgstr ""
+
+#: exhibition/views.py:2423 exhibition/views.py:2497
+#, python-format
+msgid "%(count)d email has been sent."
+msgid_plural "%(count)d emails have been sent."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:2459
+msgid "The email has been discarded."
+msgstr ""
+
+#: exhibition/views.py:2501 exhibition/views.py:2514 exhibition/views.py:2519
+msgid "No emails were selected."
+msgstr ""
+
+#: exhibition/views.py:2510
+#, python-format
+msgid "%(count)d email has been discarded."
+msgid_plural "%(count)d emails have been discarded."
+msgstr[0] ""
+msgstr[1] ""
+
+#: exhibition/views.py:2594
+msgid "Email templates have been saved."
+msgstr ""
+
+#: exhibition/views.py:2617 exhibition/views.py:2621
+msgid "Unknown template."
+msgstr ""
+
+#: exhibition/views.py:2667
+msgid "Custom template has been created."
+msgstr ""
+
+#: exhibition/views.py:2683
+msgid "Custom template has been deleted."
+msgstr ""

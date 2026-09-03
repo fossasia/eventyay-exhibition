@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='exhibitorinfo',
             name='slides',
-            field=models.FileField(blank=True, null=True, upload_to=exhibition.models.exhibitor_slides_path, verbose_name='Slides'),
+            field=models.FileField(blank=True, null=True, upload_to='exhibitors/slides', verbose_name='Slides'),
         ),
         migrations.AddField(
             model_name='exhibitorinfo',

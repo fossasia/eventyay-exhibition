@@ -1,9 +1,10 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import quote_plus
 
 from django.db.models import Q, QuerySet
 from django.utils import timezone
-from eventyay.common.urls import get_url_origin, normalize_url_scheme
+from eventyay.common.urls import get_url_origin
 from eventyay.common.utils.language import localize_event_text
 from i18nfield.strings import LazyI18nString
 
@@ -66,7 +67,7 @@ def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
     return (
         ExhibitorInfo.objects.filter(event=event, is_exhibitor=True, active=True)
         .filter(has_logo, has_header)
-        .prefetch_related("social_links", "extra_links")
+        .prefetch_related("social_links")
         .order_by("exhibitor_position", "name", "pk")
     )
 
@@ -102,68 +103,11 @@ def add_external_image_csp_sources(request, image_urls):
     request._external_image_csp_sources = sources
 
 
-def build_exhibitor_video_embed(url: str) -> dict | None:
-    url = (url or "").strip()
-    if not url:
-        return None
-
-    normalized = normalize_url_scheme(url)
-    parsed = urlparse(normalized)
-    host = parsed.netloc.lower()
-    path = parsed.path.strip("/")
-    path_parts = [part for part in path.split("/") if part]
-
-    if host in {"youtu.be", "www.youtu.be"} and path_parts:
-        return {
-            "type": "iframe",
-            "url": f"https://www.youtube.com/embed/{path_parts[0]}",
-        }
-
-    if host in {
-        "youtube.com",
-        "www.youtube.com",
-        "m.youtube.com",
-        "youtube-nocookie.com",
-        "www.youtube-nocookie.com",
-    }:
-        video_id = ""
-        if path_parts[:1] == ["watch"]:
-            video_id = parse_qs(parsed.query).get("v", [""])[0]
-        elif path_parts[:1] in (["embed"], ["shorts"], ["live"]):
-            video_id = path_parts[1] if len(path_parts) > 1 else ""
-        if video_id:
-            return {
-                "type": "iframe",
-                "url": f"https://www.youtube.com/embed/{video_id}",
-            }
-
-    if host in {"vimeo.com", "www.vimeo.com", "player.vimeo.com"}:
-        video_id = ""
-        if path_parts[:2] == ["video", path_parts[1] if len(path_parts) > 1 else ""]:
-            video_id = path_parts[1]
-        elif path_parts:
-            video_id = path_parts[-1]
-        if video_id.isdigit():
-            return {
-                "type": "iframe",
-                "url": f"https://player.vimeo.com/video/{video_id}",
-            }
-
-    if any(parsed.path.lower().endswith(ext) for ext in (".mp4", ".m4v", ".webm", ".ogg", ".mov")):
-        return {"type": "video", "url": normalized}
-
-    if "/embed/" in parsed.path and parsed.scheme == "https":
-        return {"type": "iframe", "url": normalized}
-
-    return None
-
-
 def create_exhibitor_from_proposal(proposal, requestor=None):
     from .models import (
         LOG_PARTNER_CREATED,
         LOG_PARTNER_REACTIVATED,
         ExhibitionProposalState,
-        ExhibitorExtraLink,
         ExhibitorInfo,
         ExhibitorSocialLink,
         generate_booth_id,
@@ -201,11 +145,7 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
         name=proposal.name,
         description=proposal.description,
         url=proposal.url,
-        email=proposal.email,
-        contact_url=proposal.contact_url,
-        video_url=proposal.video_url,
-        slides=proposal.slides,
-        slides_url=proposal.slides_url,
+        email=(proposal.email or "").strip() or (proposal.user.email if proposal.user_id else ""),
         logo=proposal.logo,
         logo_url=proposal.logo_url,
         header_image=proposal.header_image,
@@ -224,16 +164,6 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
                 url=link.url,
             )
             for link in proposal.social_links.all()
-        ]
-    )
-    ExhibitorExtraLink.objects.bulk_create(
-        [
-            ExhibitorExtraLink(
-                exhibitor=exhibitor,
-                label=link.label,
-                url=link.url,
-            )
-            for link in proposal.extra_links.all()
         ]
     )
     proposal.approved_exhibitor = exhibitor
@@ -259,7 +189,32 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
     return exhibitor
 
 
-def generate_exhibitor_vouchers(exhibitor, *, product, count, max_usages, price_mode, value, valid_until):
+def event_voucher_settings(event):
+    """Event-wide voucher defaults, without creating a settings row on a read path."""
+    from .models import ExhibitorSettings
+
+    return ExhibitorSettings.objects.filter(event=event).first() or ExhibitorSettings(event=event)
+
+
+def resolve_voucher_defaults(exhibitor, *, event_settings=None):
+    """Voucher settings for this exhibitor: their sponsor group's, or the event-wide default.
+
+    Pass ``event_settings`` when resolving for many exhibitors to avoid a query per row.
+    """
+    source = (
+        exhibitor.sponsor_group
+        if exhibitor.sponsor_group_id
+        else (event_settings or event_voucher_settings(exhibitor.event))
+    )
+    return {
+        "product": source.voucher_default_product,
+        "count": source.voucher_default_count,
+        "price_mode": source.voucher_default_price_mode,
+        "value": source.voucher_default_value,
+    }
+
+
+def generate_exhibitor_vouchers(exhibitor, *, product, count, price_mode, value):
     from eventyay.base.models import Voucher
 
     from .models import ExhibitorVoucher
@@ -270,10 +225,8 @@ def generate_exhibitor_vouchers(exhibitor, *, product, count, max_usages, price_
         voucher = Voucher.objects.create(
             event=exhibitor.event,
             product=product,
-            max_usages=max_usages,
             price_mode=price_mode,
             value=value,
-            valid_until=valid_until,
             tag=tag,
         )
         links.append(ExhibitorVoucher(exhibitor=exhibitor, voucher=voucher))
@@ -334,11 +287,6 @@ PROPOSAL_SYNCED_PROFILE_FIELDS = (
     "name",
     "description",
     "url",
-    "email",
-    "contact_url",
-    "video_url",
-    "slides",
-    "slides_url",
     "logo",
     "logo_url",
     "header_image",
@@ -348,7 +296,7 @@ PROPOSAL_SYNCED_PROFILE_FIELDS = (
 
 def sync_exhibitor_from_proposal(proposal, requestor=None):
     """Push submitter-owned profile fields of an accepted proposal onto its partner profile."""
-    from .models import LOG_PARTNER_SYNCED, ExhibitorExtraLink, ExhibitorSocialLink
+    from .models import LOG_PARTNER_SYNCED, ExhibitorSocialLink
 
     exhibitor = proposal.approved_exhibitor
     if not exhibitor:
@@ -387,20 +335,78 @@ def sync_exhibitor_from_proposal(proposal, requestor=None):
             for link in proposal.social_links.all()
         ]
     )
-    exhibitor.extra_links.all().delete()
-    ExhibitorExtraLink.objects.bulk_create(
-        [
-            ExhibitorExtraLink(
-                exhibitor=exhibitor,
-                label=link.label,
-                url=link.url,
-            )
-            for link in proposal.extra_links.all()
-        ]
-    )
     exhibitor.log_action(
         LOG_PARTNER_SYNCED,
         data={"proposal": proposal.code},
         user=requestor,
     )
     return exhibitor
+
+
+VOUCHER_CSV_FILENAME = "exhibitor-vouchers.csv"
+
+
+def voucher_redeem_url(event, voucher):
+    """Public checkout link that pre-applies this voucher code."""
+    from eventyay.multidomain.urlreverse import build_absolute_uri
+
+    url = f"{build_absolute_uri(event, 'presale:event.redeem')}?voucher={quote_plus(voucher.code)}"
+    if voucher.subevent_id:
+        url = f"{url}&subevent={voucher.subevent_id}"
+    return url
+
+
+def build_voucher_csv(event, vouchers) -> str:
+    """Render an exhibitor's vouchers as CSV, shared by the download view and the voucher email."""
+    import io
+
+    from defusedcsv import csv
+    from django.utils.translation import gettext_lazy as _
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_NONNUMERIC, delimiter=",")
+    writer.writerow(
+        [
+            str(_("Voucher code")),
+            str(_("Redeem link")),
+            str(_("Product")),
+            str(_("Price effect")),
+            str(_("Value")),
+            str(_("Valid until")),
+            str(_("Redeemed")),
+            str(_("Maximum usages")),
+        ]
+    )
+    for voucher in vouchers:
+        writer.writerow(
+            [
+                voucher.code,
+                voucher_redeem_url(event, voucher),
+                str(voucher.product) if voucher.product else "",
+                str(voucher.get_price_mode_display()),
+                str(voucher.value) if voucher.value is not None else "",
+                voucher.valid_until.isoformat() if voucher.valid_until else "",
+                str(voucher.redeemed),
+                str(voucher.max_usages),
+            ]
+        )
+    return output.getvalue()
+
+
+VOUCHER_CSV_RETENTION = timedelta(days=30)
+
+
+def store_voucher_csv(event, vouchers):
+    """Persist the voucher CSV as a CachedFile so it can be attached to an outgoing email."""
+    from django.core.files.base import ContentFile
+    from eventyay.base.models import CachedFile
+
+    cached = CachedFile.objects.create(
+        filename=VOUCHER_CSV_FILENAME,
+        type="text/csv",
+        web_download=False,
+        expires=timezone.now() + VOUCHER_CSV_RETENTION,
+    )
+    cached.file.save(VOUCHER_CSV_FILENAME, ContentFile(build_voucher_csv(event, vouchers).encode("utf-8")))
+    cached.save()
+    return cached

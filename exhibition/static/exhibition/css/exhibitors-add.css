@@ -36,21 +36,136 @@
     background-color: #ddd;
 }
 
-.partner-image-preview {
-    object-fit: contain;
-    object-position: center;
-    background: #f8f8f8;
+.exhibition-image-preview {
+    background-size: 21px 21px;
+    background-position:
+        0 0,
+        10px 10px;
+    background-image:
+        linear-gradient(
+            45deg,
+            #efefef 25%,
+            transparent 25%,
+            transparent 75%,
+            #efefef 75%,
+            #efefef
+        ),
+        linear-gradient(
+            45deg,
+            #efefef 25%,
+            transparent 25%,
+            transparent 75%,
+            #efefef 75%,
+            #efefef
+        );
+    border-radius: 6px;
+    display: inline-block;
+    max-width: 100%;
+}
+
+.exhibition-image-preview img {
+    border-radius: 6px;
+    max-width: 100%;
+    height: auto;
+    box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.12),
+        0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+.exhibition-image-preview a:hover img,
+.exhibition-image-preview a:focus img {
+    box-shadow:
+        0 2px 5px rgba(0, 0, 0, 0.25),
+        0 3px 5px rgba(0, 0, 0, 0.22);
 }
 
 .partner-image-preview-logo {
-    width: 180px;
-    height: 180px;
+    max-width: 180px;
 }
 
 .partner-image-preview-header {
-    width: 420px;
-    height: 180px;
-    max-width: 100%;
+    max-width: 420px;
+}
+
+dialog.exhibition-image-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    border: none;
+    padding: 0;
+    background: transparent;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: visible;
+}
+
+dialog.exhibition-image-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+dialog.exhibition-image-dialog .modal-card-content {
+    position: relative;
+    padding: 20px;
+    background: #fff;
+    border-radius: 6px;
+    box-shadow:
+        0 0 10px rgba(0, 0, 0, 0.5),
+        0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+dialog.exhibition-image-dialog figure {
+    margin: 0;
+}
+
+dialog.exhibition-image-dialog img {
+    display: block;
+    object-fit: contain;
+    max-width: min(80vw, 720px);
+    max-height: min(70vh, 540px);
+    height: auto;
+    width: auto;
+}
+
+dialog.exhibition-image-dialog figcaption {
+    margin-top: 8px;
+}
+
+dialog.exhibition-image-dialog .exhibition-image-dialog-close {
+    position: absolute;
+    top: -4px;
+    right: 0;
+    cursor: pointer;
+    color: rgba(0, 0, 0, 0.7);
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    appearance: none;
+}
+
+dialog.exhibition-image-dialog .exhibition-image-dialog-close:hover,
+dialog.exhibition-image-dialog .exhibition-image-dialog-close:active {
+    color: rgba(0, 0, 0, 0.9);
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus {
+    outline: none;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
+    outline: 2px solid rgba(0, 0, 0, 0.4);
+    outline-offset: 2px;
 }
 
 .partner-link-formset {

@@ -185,7 +185,7 @@ class Migration(migrations.Migration):
                     models.FileField(
                         blank=True,
                         null=True,
-                        upload_to=exhibition.models.proposal_slides_path,
+                        upload_to="exhibition-proposals/slides",
                         verbose_name="Slides",
                     ),
                 ),

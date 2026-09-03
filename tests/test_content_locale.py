@@ -1,12 +1,42 @@
+import base64
+
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django_scopes import scopes_disabled
 from eventyay.base.models import Event
 from eventyay.base.models.auth import User
 from i18nfield.strings import LazyI18nString
 
 from exhibition.forms import ExhibitionProposalForm
-from exhibition.models import ExhibitionProposal, ExhibitorInfo
+from exhibition.models import (
+    PROPOSAL_DEFAULT_FIELD_KEYS,
+    ExhibitionProposal,
+    ExhibitorInfo,
+    ExhibitorSettings,
+)
 from exhibition.utils import sync_exhibitor_from_proposal
+
+_PNG_BYTES = base64.b64decode(
+    b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _locked_image_uploads():
+    """Logo and header image stay locked-active, so any valid form post must include them."""
+    return {
+        "logo": SimpleUploadedFile("logo.png", _PNG_BYTES, content_type="image/png"),
+        "header_image": SimpleUploadedFile("header.png", _PNG_BYTES, content_type="image/png"),
+    }
+
+
+def _only_locked_fields(event):
+    """Deactivate every optional default field so locale tests post just name and content_locale."""
+    return ExhibitorSettings.objects.create(
+        event=event,
+        exhibitors_access_mail_subject="",
+        exhibitors_access_mail_body="",
+        proposal_field_settings={key: {"active": False, "required": False} for key in PROPOSAL_DEFAULT_FIELD_KEYS},
+    )
 
 
 def _multilingual(event):
@@ -64,8 +94,10 @@ def test_save_updates_chosen_locale_and_keeps_other_locales(event):
             name=LazyI18nString({"en": "Acme", "de": "Acme DE"}),
             content_locale="en",
         )
+        _only_locked_fields(event)
         form = ExhibitionProposalForm(
             data={"name": "Acme Ltd", "content_locale": "en"},
+            files=_locked_image_uploads(),
             instance=proposal,
             event=_multilingual(event),
         )
@@ -81,8 +113,10 @@ def test_save_updates_chosen_locale_and_keeps_other_locales(event):
 def test_save_records_the_selected_language(event):
     with scopes_disabled():
         proposal = _proposal(event, name=LazyI18nString({"en": "Acme"}), content_locale="en")
+        _only_locked_fields(event)
         form = ExhibitionProposalForm(
             data={"name": "Acme GmbH", "content_locale": "de"},
+            files=_locked_image_uploads(),
             instance=proposal,
             event=_multilingual(event),
         )

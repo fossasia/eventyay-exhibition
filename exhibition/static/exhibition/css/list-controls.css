@@ -10,3 +10,7 @@
 .reorder-hint {
     margin-bottom: 12px;
 }
+
+.partner-vouchers-col {
+    white-space: nowrap;
+}

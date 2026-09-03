@@ -22,7 +22,13 @@ from eventyay.presale.signals import (
     html_head,
 )
 
-from .mail import proposal_public_url, render_device_tokens, sample_device_tokens
+from .mail import (
+    proposal_public_url,
+    render_device_tokens,
+    render_voucher_list,
+    sample_device_tokens,
+    sample_voucher_list,
+)
 from .models import (
     LOG_CALL_SECRET_REGENERATED,
     LOG_CALL_SETTINGS_CHANGED,
@@ -253,6 +259,12 @@ def exhibition_mail_placeholders(sender, **kwargs):
             ["exhibitor"],
             render_device_tokens,
             sample_device_tokens,
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "voucher_list",
+            ["exhibitor"],
+            render_voucher_list,
+            sample_voucher_list,
         ),
     ]
 

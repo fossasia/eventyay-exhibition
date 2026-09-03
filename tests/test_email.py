@@ -9,9 +9,15 @@ from django.utils import timezone
 from django.utils.translation import get_language
 from django_scopes import scopes_disabled
 from eventyay.base.models.auth import User
+from i18nfield.strings import LazyI18nString
 
 from exhibition import mail as mail_helpers
-from exhibition.forms import ExhibitionComposeForm, ExhibitionMailTemplatesForm
+from exhibition.forms import (
+    ExhibitionComposeForm,
+    ExhibitionEmailBodyFormField,
+    ExhibitionEmailQueueForm,
+    ExhibitionMailTemplatesForm,
+)
 from exhibition.models import (
     ExhibitionEmailQueue,
     ExhibitionProposal,
@@ -447,6 +453,96 @@ def test_compose_form_requires_subject_and_body(mail_event):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "empty_body",
+    [
+        "",
+        "<p></p>",
+        "<p><br></p>",
+        "<p>&nbsp;</p>",
+        "<p>&#160;</p>",
+        "<p>&#xA0;</p>",
+    ],
+)
+def test_compose_form_rejects_empty_html_body(mail_event, empty_body):
+    form = ExhibitionComposeForm(
+        data={
+            "states": [ExhibitionProposalState.ACCEPTED],
+            **_compose_data(mail_event, subject="Hi", body=empty_body),
+        },
+        event=mail_event,
+    )
+    assert not form.is_valid()
+    assert "body" in form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "valid_body",
+    [
+        '<img src="https://example.com/logo.png">',
+        '<IMG SRC="https://example.com/logo.png">',
+        "<p>Hello world</p>",
+    ],
+)
+def test_compose_form_accepts_valid_body(mail_event, valid_body):
+    form = ExhibitionComposeForm(
+        data={
+            "states": [ExhibitionProposalState.ACCEPTED],
+            **_compose_data(mail_event, subject="Hi", body=valid_body),
+        },
+        event=mail_event,
+    )
+    assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "empty_body",
+    [
+        "",
+        "<p></p>",
+        "<p><br></p>",
+        "<p>&nbsp;</p>",
+        "<p>&#160;</p>",
+        "<p>&#xA0;</p>",
+    ],
+)
+def test_email_queue_edit_form_rejects_empty_html_body(mail_event, empty_body):
+    form = ExhibitionEmailQueueForm(
+        data={
+            "to_email": "test@example.com",
+            "subject": "Update",
+            "body": empty_body,
+        },
+        event=mail_event,
+    )
+    assert not form.is_valid()
+    assert "body" in form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "valid_body",
+    [
+        '<img src="https://example.com/logo.png">',
+        '<IMG SRC="https://example.com/logo.png">',
+        "<p>Hello world</p>",
+    ],
+)
+def test_email_queue_edit_form_accepts_valid_body(mail_event, valid_body):
+    form = ExhibitionEmailQueueForm(
+        data={
+            "to_email": "test@example.com",
+            "subject": "Update",
+            "body": valid_body,
+        },
+        event=mail_event,
+    )
+    assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
 def test_compose_view_saves_to_outbox(mail_event):
     _proposal(mail_event, "Acme", ExhibitionProposalState.ACCEPTED, email="a@example.com")
     form = ExhibitionComposeForm(
@@ -616,3 +712,43 @@ def test_delete_view_discards_whole_batch(mail_event):
 
     with scopes_disabled():
         assert ExhibitionEmailQueue.objects.filter(event=mail_event).count() == 0
+
+
+PLAIN_BODY = "First paragraph.\n\nSecond paragraph.\nSame paragraph, new line."
+
+
+def test_i18n_email_body_widget_seeds_editor_with_html():
+    """Plain-text bodies reach the Tiptap editor as block HTML, not collapsed whitespace."""
+    field = ExhibitionEmailBodyFormField(required=False, locales=["en"])
+    seeded = field.widget.decompress(LazyI18nString({"en": PLAIN_BODY}))[0]
+
+    assert seeded.count("<p>") == 2
+    assert "First paragraph." in seeded
+    assert "Second paragraph." in seeded
+
+
+def test_email_queue_body_widget_seeds_editor_with_html():
+    widget = ExhibitionEmailQueueForm.base_fields["body"].widget
+    seeded = widget.format_value(PLAIN_BODY)
+
+    assert seeded.count("<p>") == 2
+    assert "First paragraph." in seeded
+
+
+def test_email_body_widget_leaves_editor_html_untouched():
+    """Re-seeding already-Tiptap HTML must not wrap or re-escape it."""
+    field = ExhibitionEmailBodyFormField(required=False, locales=["en"])
+    html = "<p>First paragraph.</p><p>Second paragraph.</p>"
+    seeded = field.widget.decompress(LazyI18nString({"en": html}))[0]
+
+    assert seeded.count("<p>") == 2
+    assert "&lt;p&gt;" not in seeded
+
+
+def test_email_body_widget_keeps_markdown_emphasis():
+    """The access template's **bold** markers must survive as markup, not literal asterisks."""
+    field = ExhibitionEmailBodyFormField(required=False, locales=["en"])
+    seeded = field.widget.decompress(LazyI18nString({"en": "**Step 1:** open the app"}))[0]
+
+    assert "<strong>" in seeded
+    assert "**" not in seeded

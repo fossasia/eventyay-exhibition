@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 from types import SimpleNamespace
@@ -30,12 +31,31 @@ from exhibition.views import (
 )
 
 
-def make_exhibitor_settings(event):
+def make_exhibitor_settings(event, **kwargs):
     return ExhibitorSettings.objects.create(
         event=event,
         exhibitors_access_mail_subject="",
         exhibitors_access_mail_body="",
+        **kwargs,
     )
+
+
+def no_optional_profile_fields():
+    """Deactivate every default field, leaving only the locked name, for tests that ignore profile fields."""
+    return {key: {"active": False, "required": False} for key in PROPOSAL_DEFAULT_FIELD_KEYS}
+
+
+_PNG_BYTES = base64.b64decode(
+    b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _locked_image_uploads():
+    """Logo and header image stay locked-active, so any valid form post must include them."""
+    return {
+        "logo": SimpleUploadedFile("logo.png", _PNG_BYTES, content_type="image/png"),
+        "header_image": SimpleUploadedFile("header.png", _PNG_BYTES, content_type="image/png"),
+    }
 
 
 @pytest.mark.django_db
@@ -139,13 +159,14 @@ def test_delete_exhibitor_info(event):
 
 @pytest.mark.django_db
 def test_sponsor_group_form_accepts_event_kwarg_and_preserves_existing_level(event):
-    form = SponsorGroupForm(event=event)
-    assert form.event == event
+    with scopes_disabled():
+        form = SponsorGroupForm(event=event)
+        assert form.event == event
 
-    group = SponsorGroup.objects.create(event=event, name="Legacy Group", level=0)
-    form = SponsorGroupForm(instance=group, event=event)
-    form.cleaned_data = {"level": None}
-    assert form.clean_level() == 0
+        group = SponsorGroup.objects.create(event=event, name="Legacy Group", level=0)
+        form = SponsorGroupForm(instance=group, event=event)
+        form.cleaned_data = {"level": None}
+        assert form.clean_level() == 0
 
 
 @pytest.mark.django_db
@@ -408,7 +429,13 @@ def test_exhibitor_form_hides_sponsor_fields(event):
 
 @pytest.mark.django_db
 def test_scoped_forms_set_type_flags(event):
-    sponsor_form = ExhibitorInfoForm(data={"name_0": "Acme Sponsor"}, event=event, partner_type="sponsor")
+    make_exhibitor_settings(event, proposal_field_settings=no_optional_profile_fields())
+    sponsor_form = ExhibitorInfoForm(
+        data={"name_0": "Acme Sponsor"},
+        files=_locked_image_uploads(),
+        event=event,
+        partner_type="sponsor",
+    )
     assert sponsor_form.is_valid(), sponsor_form.errors
     sponsor = sponsor_form.save(commit=False)
     sponsor.event = event
@@ -416,7 +443,12 @@ def test_scoped_forms_set_type_flags(event):
     assert sponsor.is_sponsor is True
     assert sponsor.is_exhibitor is False
 
-    exhibitor_form = ExhibitorInfoForm(data={"name_0": "Acme Exhibitor"}, event=event, partner_type="exhibitor")
+    exhibitor_form = ExhibitorInfoForm(
+        data={"name_0": "Acme Exhibitor"},
+        files=_locked_image_uploads(),
+        event=event,
+        partner_type="exhibitor",
+    )
     assert exhibitor_form.is_valid(), exhibitor_form.errors
     exhibitor = exhibitor_form.save(commit=False)
     exhibitor.event = event

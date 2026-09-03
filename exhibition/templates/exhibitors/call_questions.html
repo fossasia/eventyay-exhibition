@@ -29,20 +29,37 @@
                         <th>{% trans "Field" %}</th>
                         <th class="text-center">{% trans "Active" %}</th>
                         <th class="text-center">{% trans "Required" %}</th>
-                        <th class="text-center">{% trans "Answers" %}</th>
                         <th class="text-right">{% trans "Settings" %}</th>
                     </tr>
                     </thead>
                     <tbody dragsort-url="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% for field in proposal_fields %}
                         <tr dragsort-id="{{ field.dragsort_id }}">
-                            <th>
-                                {% if field.is_custom %}
-                                    <a href="{% url 'plugins:exhibition:call.questions.edit' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}">{{ field.label }}</a>
-                                    <small class="text-muted">{% trans "Custom" %}</small>
-                                {% else %}
-                                    {{ field.label }}
-                                {% endif %}
+                            <th class="{% if field.lock_notice %}info-toggle-header{% endif %}">
+                                <div class="{% if field.lock_notice %}info-toggle-wrapper{% endif %}">
+                                    {% if field.is_custom %}
+                                        <a href="{% url 'plugins:exhibition:call.questions.edit' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}">{{ field.label }}</a>
+                                        <small class="text-muted">{% trans "Custom" %}</small>
+                                    {% else %}
+                                        <span>{{ field.label }}</span>
+                                    {% endif %}
+                                    {% if field.lock_notice %}
+                                        <span class="info-toggle" data-toggle="info-box" role="button" tabindex="0"
+                                              aria-label="{% blocktrans trimmed with field=field.label %}Why {{ field }} is locked{% endblocktrans %}">
+                                            <i class="fa fa-info-circle text-info"></i>
+                                        </span>
+                                        <div class="inline-info-box d-none">
+                                            <div class="talk-info-box">
+                                                <div class="talk-info-icon">
+                                                    <i class="fa fa-info-circle"></i>
+                                                </div>
+                                                <div class="talk-info-content">
+                                                    <span>{{ field.lock_notice }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                </div>
                             </th>
                             <td class="text-center">
                                 <label class="toggle-switch field-active-toggle {% if field.active_locked %}always-on{% endif %}" aria-label="{% blocktrans trimmed with field=field.label %}Toggle active state for {{ field }}{% endblocktrans %}">
@@ -67,7 +84,6 @@
                                     <span class="text-muted">-</span>
                                 {% endif %}
                             </td>
-                            <td class="text-center">{{ field.answer_count }}</td>
                             <td class="text-right">
                                 {% if field.is_custom %}
                                     <a class="btn btn-default btn-sm" href="{% url 'plugins:exhibition:call.questions.edit' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>

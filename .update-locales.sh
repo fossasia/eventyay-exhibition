@@ -7,7 +7,7 @@ if ! command -v wlc >/dev/null 2>&1; then
 fi
 
 COMPONENTS=eventyay/eventyay-exhibition
-DIR=eventyay_exhibition/locale
+DIR=exhibition/locale
 # Renerates .po files used for translating the plugin
 set -e
 set -x

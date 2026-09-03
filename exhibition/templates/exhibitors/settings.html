@@ -8,6 +8,8 @@
         {% trans "Call for Exhibitors" %}
     {% elif active_tab == "sponsors" %}
         {% trans "Sponsor Settings" %}
+    {% elif active_tab == "vouchers" %}
+        {% trans "Voucher Settings" %}
     {% else %}
         {% trans "Exhibitor Settings" %}
     {% endif %}
@@ -25,6 +27,8 @@
             {% trans "Call for Exhibitors" %}
         {% elif active_tab == "sponsors" %}
             {% trans "Sponsor Settings" %}
+        {% elif active_tab == "vouchers" %}
+            {% trans "Voucher Settings" %}
         {% else %}
             {% trans "Exhibitor Settings" %}
         {% endif %}
@@ -129,6 +133,50 @@
                     </div>
                 </div>
             {% endif %}
+    {% elif active_tab == "vouchers" %}
+            <form action="" method="post" class="form-horizontal">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save_voucher_settings">
+                <input type="hidden" name="tab" value="vouchers">
+                {% bootstrap_form_errors voucher_defaults_form %}
+                <fieldset>
+                    <legend>{% trans "Voucher defaults" %}</legend>
+                    <p>
+                        {% blocktrans trimmed %}
+                            Used when issuing or sending vouchers for any exhibitor or sponsor that does not
+                            belong to a sponsor group. Sponsor groups can override these on the Sponsors page.
+                        {% endblocktrans %}
+                    </p>
+                    {% bootstrap_field voucher_defaults_form.voucher_default_count layout="control" %}
+                    {% bootstrap_field voucher_defaults_form.voucher_default_product layout="control" %}
+                    <div class="form-group">
+                        <label class="col-md-3 control-label" for="{{ voucher_defaults_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
+                        <div class="col-md-5">
+                            {% bootstrap_field voucher_defaults_form.voucher_default_price_mode show_label=False form_group_class="" %}
+                        </div>
+                        <div class="col-md-4">
+                            {% bootstrap_field voucher_defaults_form.voucher_default_value show_label=False form_group_class="" %}
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset>
+                    <legend>{% trans "Voucher email" %}</legend>
+                    <p>
+                        {% blocktrans trimmed %}
+                            Applies to the voucher email sent to exhibitors and sponsors alike.
+                        {% endblocktrans %}
+                    </p>
+                    {% bootstrap_field voucher_defaults_form.voucher_attach_csv layout="control" %}
+                </fieldset>
+
+                <div class="form-group submit-group">
+                    <div class="col-md-9 col-md-offset-3">
+                        <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+                    </div>
+                </div>
+            </form>
+
     {% elif active_tab == "exhibitors" %}
             <form action="" method="post" class="form-horizontal">
                 {% csrf_token %}
@@ -152,16 +200,6 @@
                             {% endfor %}
                         </div>
                     </div>
-                </fieldset>
-
-                <fieldset>
-                    <legend>{% trans "Exhibitor login" %}</legend>
-                    <p>
-                        {% trans "The access-code email sent to exhibitors is now edited together with the plugin's other email templates." %}
-                        <a href="{% url 'plugins:exhibition:email.templates' organizer=request.event.organizer.slug event=request.event.slug %}">
-                            {% trans "Edit email templates" %}
-                        </a>
-                    </p>
                 </fieldset>
 
                 <div class="form-group submit-group">
@@ -188,6 +226,20 @@
                     {% bootstrap_form_errors add_group_form %}
                     {% bootstrap_field add_group_form.name layout="control" %}
                     {% bootstrap_field add_group_form.level layout="control" %}
+                    <fieldset>
+                        <legend>{% trans "Voucher defaults for this group" %}</legend>
+                        {% bootstrap_field add_group_form.voucher_default_count layout="control" %}
+                        {% bootstrap_field add_group_form.voucher_default_product layout="control" %}
+                        <div class="form-group">
+                            <label class="col-md-3 control-label" for="{{ add_group_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
+                            <div class="col-md-5">
+                                {% bootstrap_field add_group_form.voucher_default_price_mode show_label=False form_group_class="" %}
+                            </div>
+                            <div class="col-md-4">
+                                {% bootstrap_field add_group_form.voucher_default_value show_label=False form_group_class="" %}
+                            </div>
+                        </div>
+                    </fieldset>
                     <div class="form-group submit-group sponsor-group-editor-actions">
                         <div class="col-md-9 col-md-offset-3">
                             <button type="submit" class="btn btn-primary">{% trans "Add" %}</button>
@@ -266,6 +318,20 @@
                                             {% bootstrap_form_errors group.edit_form %}
                                             {% bootstrap_field group.edit_form.name layout="control" %}
                                             {% bootstrap_field group.edit_form.level layout="control" %}
+                                            <fieldset>
+                                                <legend>{% trans "Voucher defaults for this group" %}</legend>
+                                                {% bootstrap_field group.edit_form.voucher_default_count layout="control" %}
+                                                {% bootstrap_field group.edit_form.voucher_default_product layout="control" %}
+                                                <div class="form-group">
+                                                    <label class="col-md-3 control-label" for="{{ group.edit_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
+                                                    <div class="col-md-5">
+                                                        {% bootstrap_field group.edit_form.voucher_default_price_mode show_label=False form_group_class="" %}
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        {% bootstrap_field group.edit_form.voucher_default_value show_label=False form_group_class="" %}
+                                                    </div>
+                                                </div>
+                                            </fieldset>
                                             <div class="form-group submit-group sponsor-group-editor-actions">
                                                 <div class="col-md-9 col-md-offset-3">
                                                     <button type="submit" class="btn btn-primary">{% trans "Save" %}</button>

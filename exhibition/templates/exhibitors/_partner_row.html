@@ -34,6 +34,21 @@
             {% endif %}
         </td>
     {% endif %}
+    {% if "can_change_event_settings" in request.eventpermset %}
+        <td class="partner-vouchers-col">
+            {% if e.voucher_pending %}
+                <span class="label label-warning" title="{% trans "Waiting in the outbox" %}" data-toggle="tooltip">
+                    {% trans "In outbox" %}
+                </span>
+            {% elif e.voucher_sent_at %}
+                <span class="label label-success" title="{% blocktrans trimmed with sent=e.voucher_sent_at|date:"SHORT_DATETIME_FORMAT" %}Last sent {{ sent }}{% endblocktrans %}" data-toggle="tooltip">
+                    {% trans "Sent" %}
+                </span>
+            {% else %}
+                <span class="text-muted">{% trans "Not sent" %}</span>
+            {% endif %}
+        </td>
+    {% endif %}
     <td class="text-right flip">
         {% if "can_change_event_settings" in request.eventpermset %}
             <a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ partner_type }}" class="btn btn-default btn-sm" title="{% trans "Edit" %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>

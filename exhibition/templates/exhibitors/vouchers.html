@@ -78,19 +78,45 @@
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
-        <input type="hidden" name="action" value="generate">
         <fieldset>
             <legend>{% trans "Issue new vouchers" %}</legend>
-            {% bootstrap_field form.product layout="control" %}
+            <p class="help-block">
+                {% blocktrans trimmed %}
+                    Creates voucher codes using the ticket product and price configured under Settings.
+                    The email always carries the partner's complete list of codes, so you can create some
+                    now and send them together with more later. It is placed in the outbox for you to
+                    review before it goes out.
+                {% endblocktrans %}
+            </p>
+            {% if voucher_pending %}
+                <p class="text-warning">
+                    <i class="fa fa-clock-o"></i>
+                    {% trans "A voucher email for this partner is waiting in the outbox." %}
+                    <a href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
+                        {% trans "Go to outbox" %}
+                    </a>
+                </p>
+            {% elif voucher_sent_at %}
+                <p class="text-success">
+                    <i class="fa fa-check"></i>
+                    {% blocktrans trimmed with sent=voucher_sent_at|date:"SHORT_DATETIME_FORMAT" %}
+                        Vouchers were last emailed to this partner on {{ sent }}.
+                    {% endblocktrans %}
+                </p>
+            {% endif %}
+            {% if not exhibitor.email %}
+                <p class="text-danger">{% trans "This partner has no email address on file, so vouchers cannot be emailed." %}</p>
+            {% endif %}
             {% bootstrap_field form.count layout="control" %}
-            {% bootstrap_field form.max_usages layout="control" %}
-            {% bootstrap_field form.price_mode layout="control" %}
-            {% bootstrap_field form.value layout="control" %}
-            {% bootstrap_field form.valid_until layout="control" %}
         </fieldset>
         <div class="form-group submit-group">
             <div class="col-md-9 col-md-offset-3">
-                <button type="submit" class="btn btn-primary">{% trans "Create vouchers" %}</button>
+                <button type="submit" name="action" value="send" class="btn btn-primary" {% if not exhibitor.email %}disabled{% endif %}>
+                    <i class="fa fa-paper-plane"></i> {% trans "Create and prepare email" %}
+                </button>
+                <button type="submit" name="action" value="generate" class="btn btn-default">
+                    {% trans "Create without emailing" %}
+                </button>
                 <a class="btn btn-default" href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Back" %}
                 </a>

@@ -1,34 +1,39 @@
+from html import unescape
+
 import dateutil.parser
 from django import forms
 from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Max
 from django.forms import inlineformset_factory
 from django.utils import timezone
+from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
 from django_countries.fields import CountryField
-from eventyay.base.forms import I18nModelForm, SettingsForm
+from eventyay.base.forms import I18nFormSet, I18nModelForm, SettingsForm
 from eventyay.base.forms.widgets import (
     DatePickerWidget,
     SplitDateTimePickerWidget,
     TimePickerWidget,
 )
 from eventyay.base.models import PriceModeChoices, Product
+from eventyay.base.templatetags.rich_text import compile_email_body
 from eventyay.common.forms.fields import I18nEmailBodyFormField
 from eventyay.common.forms.mixins import (
     EventLocalizedModelChoiceField,
     EventLocalizedModelMultipleChoiceField,
 )
 from eventyay.common.forms.widgets import EmailEditorWidget, HtmlDateTimeInput, I18nEmailEditorWidget
-from eventyay.common.urls import normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.consts import SizeKey
 from eventyay.control.forms import ExtFileField, SplitDateTimeField
 from eventyay.helpers.countries import CachedCountries
 from eventyay.helpers.i18n import get_format_without_seconds, is_rtl
 from i18nfield.forms import I18nFormField, I18nTextInput
+from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
 from phonenumber_field.widgets import PhoneNumberPrefixWidget
 
@@ -41,13 +46,11 @@ from .models import (
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
     ExhibitionProposal,
-    ExhibitionProposalExtraLink,
     ExhibitionProposalSocialLink,
     ExhibitionProposalState,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuestionVariant,
-    ExhibitorExtraLink,
     ExhibitorInfo,
     ExhibitorSettings,
     ExhibitorSocialLink,
@@ -259,7 +262,6 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     )
 
     file_url_fields = {
-        "slides": "slides_url",
         "logo": "logo_url",
         "header_image": "header_image_url",
     }
@@ -271,17 +273,12 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "name",
             "description",
             "url",
-            "email",
-            "contact_url",
-            "video_url",
-            "slides",
             "logo",
             "header_image",
             "is_exhibitor",
             "is_sponsor",
             "sponsor_group",
             "booth_id",
-            "booth_name",
             "lead_scanning_enabled",
             "allow_voucher_access",
             "allow_lead_access",
@@ -290,16 +287,11 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         labels = {
             "name": _("Organization name"),
             "description": _("Organization description"),
-            "email": _("E-mail"),
-            "contact_url": _("Contact page URL"),
-            "video_url": _("Promotional video URL"),
-            "slides": _("Promotional slides"),
             "logo": _("Logo"),
             "header_image": _("Header image"),
             "url": _("Organization website"),
             "is_exhibitor": _("Mark this partner as an exhibitor"),
             "is_sponsor": _("Mark this partner as an event sponsor"),
-            "booth_name": _("Preferred booth name"),
             "lead_scanning_enabled": _("Can scan attendee badges"),
         }
         help_texts = {
@@ -312,22 +304,16 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     PROFILE_SETTING_FIELD_MAP = {
         "name": ("name",),
         "description": ("description",),
-        "email": ("email",),
         "url": ("url",),
-        "contact_url": ("contact_url",),
-        "video_url": ("video_url",),
-        "slides": ("slides",),
         "logo": ("logo",),
         "header_image": ("header_image",),
-        "booth_name": ("booth_name",),
     }
-    PROFILE_FORMSET_KEYS = ("social_links", "extra_links")
-    PROFILE_COMPOSITE_KEYS = ("slides", "logo", "header_image")
+    PROFILE_FORMSET_KEYS = ("social_links",)
+    PROFILE_COMPOSITE_KEYS = ("logo", "header_image")
 
     SPONSOR_ONLY_FIELDS = ("sponsor_group",)
     EXHIBITOR_ONLY_FIELDS = (
         "booth_id",
-        "booth_name",
         "lead_scanning_enabled",
         "allow_lead_access",
         "lead_scanning_scope_by_device",
@@ -348,7 +334,6 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             self.fields["sponsor_group"].empty_label = _("No sponsor group")
         for field_name in ("logo", "header_image"):
             self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
-        self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         if self.instance and self.instance.pk:
             self.initial["lead_scanning_scope_by_device"] = self.instance.lead_scanning_scope_by_device
         description_field = self.fields.get("description")
@@ -431,10 +416,10 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 if index == 0:
                     if setting.get("custom_label"):
                         field.label = setting["custom_label"]
-                    if setting.get("custom_help_text"):
-                        field.help_text = setting["custom_help_text"]
+                    if setting.get("help_text"):
+                        field.help_text = setting["help_text"]
                 field._required = is_required
-                if key in self.PROFILE_COMPOSITE_KEYS or key == "booth_name":
+                if key in self.PROFILE_COMPOSITE_KEYS:
                     continue
                 if isinstance(field, I18nFormField):
                     field.one_required = is_required
@@ -491,34 +476,8 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     def clean(self):
         cleaned_data = super().clean()
 
-        video_url = cleaned_data.get("video_url") or ""
-        if video_url:
-            cleaned_data["video_url"] = normalize_url_scheme(video_url)
-
-        submitted_slides = None
-        if "slides" in self.fields:
-            submitted_slides = self.fields["slides"].widget.value_from_datadict(
-                self.data,
-                self.files,
-                self.add_prefix("slides"),
-            )
-        has_new_slides_upload = isinstance(submitted_slides, UploadedFile)
-        if has_new_slides_upload:
-            slides_file = self.files.get(self.add_prefix("slides"))
-            filename = (slides_file.name or "").lower() if slides_file else ""
-            content_type = (slides_file.content_type or "").lower() if slides_file else ""
-            if not filename.endswith(".pdf"):
-                self.add_error("slides", _("Slides upload must be a PDF file."))
-            elif content_type and content_type not in {
-                "application/pdf",
-                "application/x-pdf",
-            }:
-                self.add_error("slides", _("Slides upload must be a PDF file."))
-
-        self._validate_required_file("slides", has_new_slides_upload)
-
         for image_field in self.file_url_fields:
-            if image_field == "slides" or image_field not in self.fields:
+            if image_field not in self.fields:
                 continue
             submitted_image = self.fields[image_field].widget.value_from_datadict(
                 self.data,
@@ -544,15 +503,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if not is_sponsor:
             cleaned_data["sponsor_group"] = None
 
-        if is_exhibitor:
-            if (
-                self.profile_key_is_required("booth_name")
-                and "booth_name" in self.fields
-                and not cleaned_data.get("booth_name")
-            ):
-                self.add_error("booth_name", _("This field is required."))
-        else:
-            cleaned_data["booth_name"] = ""
+        if not is_exhibitor:
             cleaned_data["booth_id"] = None
             cleaned_data["lead_scanning_enabled"] = False
             cleaned_data["allow_lead_access"] = False
@@ -621,66 +572,66 @@ class ExhibitorDeviceProvisionForm(forms.Form):
 
 
 class ExhibitorVoucherBatchForm(forms.Form):
-    product = forms.ModelChoiceField(
-        queryset=Product.objects.none(),
-        required=True,
-        empty_label=_("Select a product…"),
-        label=_("Ticket product"),
-        help_text=_("The product a redeemed voucher applies to."),
-    )
+    """How many vouchers to issue; the rest of the settings come from the resolved defaults."""
+
     count = forms.IntegerField(
-        min_value=1,
+        min_value=0,
         max_value=1000,
         initial=1,
-        label=_("Number of vouchers"),
-    )
-    max_usages = forms.IntegerField(
-        min_value=1,
-        initial=1,
-        label=_("Maximum usages per voucher"),
-    )
-    price_mode = forms.ChoiceField(
-        choices=PriceModeChoices.choices,
-        initial=PriceModeChoices.NONE,
-        label=_("Price effect"),
-    )
-    value = forms.DecimalField(
-        required=False,
-        decimal_places=2,
-        max_digits=10,
-        label=_("Value"),
-        help_text=_("Amount or percentage, depending on the selected price effect."),
-    )
-    valid_until = forms.DateTimeField(
-        required=False,
-        widget=HtmlDateTimeInput,
-        label=_("Valid until"),
+        label=_("New vouchers to create"),
+        help_text=_("Set to 0 to email the codes this partner already has without creating new ones."),
     )
 
-    def __init__(self, *args, **kwargs):
-        self.event = kwargs.pop("event", None)
-        super().__init__(*args, **kwargs)
-        if self.event:
-            self.fields["product"].queryset = Product.objects.filter(event=self.event, active=True).order_by(
-                "position", "pk"
-            )
 
-    def clean(self):
-        cleaned_data = super().clean()
-        price_mode = cleaned_data.get("price_mode")
-        value = cleaned_data.get("value")
+def _voucher_default_product_field():
+    """A fresh, unscoped ``ModelChoiceField`` for ``voucher_default_product``.
+
+    Must be declared directly on each concrete form (not just in ``Meta.fields``), otherwise Django's
+    ModelForm metaclass auto-builds it from the model FK at class-definition time via ``Product.objects.all()``
+    — outside any request's django_scopes context, which raises ``ScopeError``. A real queryset is set later,
+    per-event, in ``_wire_voucher_default_fields``.
+    """
+    return forms.ModelChoiceField(
+        queryset=Product.objects.none(),
+        required=False,
+        empty_label=_("Any eligible product"),
+        label=_("Default ticket product"),
+    )
+
+
+class VoucherDefaultsFormMixin:
+    """Shared field wiring for the voucher-defaults forms (event-scoped product, tz-aware deadline)."""
+
+    voucher_default_fields = [
+        "voucher_default_count",
+        "voucher_default_product",
+        "voucher_default_price_mode",
+        "voucher_default_value",
+    ]
+
+    def _wire_voucher_default_fields(self, event):
+        self.fields["voucher_default_product"].queryset = (
+            Product.objects.filter(event=event, active=True).order_by("position", "pk")
+            if event
+            else Product.objects.none()
+        )
+
+    def clean_voucher_defaults(self, cleaned_data):
+        price_mode = cleaned_data.get("voucher_default_price_mode")
+        value = cleaned_data.get("voucher_default_value")
         if price_mode and price_mode != PriceModeChoices.NONE and value is None:
-            self.add_error("value", _("Enter a value for the selected price effect."))
+            self.add_error("voucher_default_value", _("Enter a value for the selected price effect."))
         return cleaned_data
 
 
-class SponsorGroupForm(I18nModelForm):
+class SponsorGroupForm(VoucherDefaultsFormMixin, I18nModelForm):
     level = forms.IntegerField(min_value=1, required=False, label=_("Level"))
+    voucher_default_product = _voucher_default_product_field()
 
     class Meta:
         model = SponsorGroup
         localized_fields = "__all__"
-        fields = ["name", "level"]
+        fields = ["name", "level", *VoucherDefaultsFormMixin.voucher_default_fields]
         labels = {
             "name": _("Group name"),
         }
@@ -689,6 +640,7 @@ class SponsorGroupForm(I18nModelForm):
         event = kwargs.get("event")
         super().__init__(*args, **kwargs)
         self.event = event or getattr(self.instance, "event", None)
+        self._wire_voucher_default_fields(self.event)
 
     def clean_level(self):
         level = self.cleaned_data.get("level")
@@ -700,6 +652,27 @@ class SponsorGroupForm(I18nModelForm):
 
     def _default_level(self):
         return get_next_sponsor_group_level(self.event)
+
+    def clean(self):
+        return self.clean_voucher_defaults(super().clean())
+
+
+class ExhibitorVoucherDefaultsForm(VoucherDefaultsFormMixin, forms.ModelForm):
+    """Event-wide voucher defaults, used for any exhibitor with no sponsor group of their own."""
+
+    voucher_default_product = _voucher_default_product_field()
+
+    class Meta:
+        model = ExhibitorSettings
+        fields = [*VoucherDefaultsFormMixin.voucher_default_fields, "voucher_attach_csv"]
+
+    def __init__(self, *args, **kwargs):
+        self.event = kwargs.pop("event", None)
+        super().__init__(*args, **kwargs)
+        self._wire_voucher_default_fields(self.event)
+
+    def clean(self):
+        return self.clean_voucher_defaults(super().clean())
 
 
 class CallSettingsForm(I18nModelForm):
@@ -1037,22 +1010,15 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     )
 
     file_url_fields = {
-        "slides": "slides_url",
         "logo": "logo_url",
         "header_image": "header_image_url",
     }
     setting_field_map = {
         "name": ("name",),
         "description": ("description",),
-        "email": ("email",),
         "url": ("url",),
-        "contact_url": ("contact_url",),
-        "video_url": ("video_url",),
-        "slides": ("slides",),
         "logo": ("logo",),
         "header_image": ("header_image",),
-        "booth_name": ("booth_name",),
-        "notes": ("notes",),
     }
     DRAFT_REQUIRED_KEYS = ("name",)
 
@@ -1062,31 +1028,16 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         fields = [
             "name",
             "description",
-            "email",
-            "contact_url",
-            "video_url",
-            "slides",
             "logo",
             "header_image",
             "url",
-            "booth_name",
-            "notes",
         ]
         labels = {
             "name": _("Organization name"),
             "description": _("Organization description"),
-            "email": _("E-mail"),
-            "contact_url": _("Contact page URL"),
-            "video_url": _("Promotional video URL"),
-            "slides": _("Promotional slides"),
             "logo": _("Logo"),
             "header_image": _("Header image"),
             "url": _("Organization website"),
-            "booth_name": _("Preferred booth name"),
-            "notes": _("Message to the organizers"),
-        }
-        widgets = {
-            "notes": forms.Textarea(attrs={"rows": 4}),
         }
 
     SINGLE_LOCALE_FIELDS = ("name", "description", "booth_name")
@@ -1119,8 +1070,6 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         for field_name in ("logo", "header_image"):
             if field_name in self.fields:
                 self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
-        if "slides" in self.fields:
-            self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         description_field = self.fields.get("description")
         if description_field:
             widget = description_field.widget
@@ -1229,10 +1178,10 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 if index == 0:
                     if setting.get("custom_label"):
                         field.label = setting["custom_label"]
-                    if setting.get("custom_help_text"):
-                        field.help_text = setting["custom_help_text"]
+                    if setting.get("help_text"):
+                        field.help_text = setting["help_text"]
                 field._required = is_required
-                if key in file_field_keys or key == "booth_name":
+                if key in file_field_keys:
                     continue
                 if isinstance(field, I18nFormField):
                     field.one_required = is_required
@@ -1268,7 +1217,7 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if not self.exhibition_settings:
             return [{"kind": "field", "key": field_name, "field": self[field_name]} for field_name in self.fields]
         formset_keys = set(PROPOSAL_FORMSET_FIELD_KEYS)
-        composite_keys = {"slides", "logo", "header_image"}
+        composite_keys = {"logo", "header_image"}
         items = []
         for _position, _kind, key, field_names in self._ordered_proposal_entries():
             if key in formset_keys:
@@ -1328,18 +1277,6 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             cleaned_data["is_exhibitor"] = True
             cleaned_data["is_sponsor"] = False
 
-        if "video_url" in self.fields and (video_url := cleaned_data.get("video_url")):
-            cleaned_data["video_url"] = normalize_url_scheme(video_url)
-
-        submitted_slides = None
-        if "slides" in self.fields:
-            submitted_slides = self.fields["slides"].widget.value_from_datadict(
-                self.data,
-                self.files,
-                self.add_prefix("slides"),
-            )
-        has_new_slides_upload = isinstance(submitted_slides, UploadedFile)
-        self.validate_required_file("slides", has_new_slides_upload)
         for image_field in ("logo", "header_image"):
             if image_field not in self.fields:
                 continue
@@ -1349,16 +1286,6 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 self.add_prefix(image_field),
             )
             self.validate_required_file(image_field, isinstance(submitted_image, UploadedFile))
-
-        if not cleaned_data["is_exhibitor"]:
-            cleaned_data["booth_name"] = ""
-        elif (
-            not self.draft_save
-            and self.field_setting_is_required("booth_name")
-            and "booth_name" in self.fields
-            and not cleaned_data.get("booth_name")
-        ):
-            self.add_error("booth_name", _("This field is required."))
 
         return cleaned_data
 
@@ -1484,16 +1411,62 @@ class ExhibitionDefaultFieldForm(forms.Form):
             "label": self.field_setting["default_label"]
         }
         self.fields["label"].widget.attrs.setdefault("placeholder", self.field_setting["default_label"])
+        default_help_text = self.field_setting.get("default_help_text")
+        if default_help_text:
+            self.fields["help_text"].help_text = _("Leave empty to use the default: %(help_text)s") % {
+                "help_text": default_help_text
+            }
+            self.fields["help_text"].widget.attrs.setdefault("placeholder", default_help_text)
+
+
+class ExhibitionQuestionOptionForm(I18nModelForm):
+    def has_changed(self):
+        """Ignore the automatically submitted ordering value on blank extra rows."""
+        for name, field in self.fields.items():
+            if name in {"ORDER", "id"}:
+                continue
+
+            prefixed_name = self.add_prefix(name)
+            data_value = field.widget.value_from_datadict(self.data, self.files, prefixed_name)
+            initial_value = self.initial.get(name, field.initial)
+            if callable(initial_value):
+                initial_value = initial_value()
+            if field.has_changed(initial_value, data_value):
+                return True
+        return False
+
+    class Meta:
+        model = ExhibitionQuestionOption
+        localized_fields = "__all__"
+        fields = ["answer"]
+
+
+class BaseExhibitionQuestionOptionFormSet(I18nFormSet):
+    def __init__(self, *args, requires_option=False, **kwargs):
+        self.requires_option = requires_option
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if any(self.errors) or not self.requires_option:
+            return
+
+        if not any(form.cleaned_data.get("answer") and not form.cleaned_data.get("DELETE") for form in self.forms):
+            raise ValidationError(_("Please provide at least one option for this question type."))
+
+
+ExhibitionQuestionOptionFormSet = inlineformset_factory(
+    ExhibitionQuestion,
+    ExhibitionQuestionOption,
+    form=ExhibitionQuestionOptionForm,
+    formset=BaseExhibitionQuestionOptionFormSet,
+    can_order=True,
+    can_delete=True,
+    extra=0,
+)
 
 
 class ExhibitionQuestionForm(I18nModelForm):
-    options_text = forms.CharField(
-        required=False,
-        label=_("Options"),
-        help_text=_("For choice fields, enter one option per line."),
-        widget=forms.Textarea(attrs={"rows": 6}),
-    )
-
     class Meta:
         model = ExhibitionQuestion
         localized_fields = "__all__"
@@ -1518,23 +1491,10 @@ class ExhibitionQuestionForm(I18nModelForm):
         self.event = kwargs.get("event")
         super().__init__(*args, **kwargs)
         self.fields["variant"].widget.attrs["data-question-variant"] = "1"
-        if self.instance and self.instance.pk:
-            self.fields["options_text"].initial = "\n".join(str(option) for option in self.instance.options.all())
 
     @property
     def choice_variant_values(self):
         return " ".join(sorted(str(variant) for variant in self.choice_variants))
-
-    def clean(self):
-        cleaned_data = super().clean()
-        variant = cleaned_data.get("variant")
-        options = [option.strip() for option in (cleaned_data.get("options_text") or "").splitlines() if option.strip()]
-        if variant in self.choice_variants and not options:
-            self.add_error(
-                "options_text",
-                _("Please provide at least one option for this question type."),
-            )
-        return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -1547,28 +1507,7 @@ class ExhibitionQuestionForm(I18nModelForm):
             instance.position = max((max_position or -1) + 1, len(PROPOSAL_DEFAULT_FIELD_KEYS))
         if commit:
             instance.save()
-            self.save_options(instance)
         return instance
-
-    def save_options(self, question):
-        if question.variant not in self.choice_variants:
-            question.options.all().delete()
-            return
-        options = [
-            option.strip() for option in (self.cleaned_data.get("options_text") or "").splitlines() if option.strip()
-        ]
-        question.options.all().delete()
-        locale = self.event.locale if self.event else "en"
-        ExhibitionQuestionOption.objects.bulk_create(
-            [
-                ExhibitionQuestionOption(
-                    question=question,
-                    answer={locale: option},
-                    position=index,
-                )
-                for index, option in enumerate(options)
-            ]
-        )
 
 
 class ExhibitorSocialLinkForm(forms.ModelForm):
@@ -1635,31 +1574,6 @@ class ExhibitorSocialLinkForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class ExhibitorExtraLinkForm(forms.ModelForm):
-    class Meta:
-        model = ExhibitorExtraLink
-        fields = ["label", "url"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["label"].widget.attrs.update(
-            {
-                "class": "form-control",
-                "placeholder": _("Link label"),
-            }
-        )
-        self.fields["url"].widget.attrs.update(
-            {
-                "class": "form-control",
-                "placeholder": _("https://example.com"),
-            }
-        )
-
-    def clean_url(self):
-        url = self.cleaned_data.get("url") or ""
-        return normalize_url_scheme(url)
-
-
 class ExhibitionProposalSocialLinkForm(forms.ModelForm):
     network = forms.ChoiceField(
         choices=(("", _("Choose social platform")),) + SOCIAL_LINK_CHOICES,
@@ -1724,43 +1638,10 @@ class ExhibitionProposalSocialLinkForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class ExhibitionProposalExtraLinkForm(forms.ModelForm):
-    class Meta:
-        model = ExhibitionProposalExtraLink
-        fields = ["label", "url"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["label"].widget.attrs.update(
-            {
-                "class": "form-control",
-                "placeholder": _("Link label"),
-            }
-        )
-        self.fields["url"].widget.attrs.update(
-            {
-                "class": "form-control",
-                "placeholder": _("https://example.com"),
-            }
-        )
-
-    def clean_url(self):
-        url = self.cleaned_data.get("url") or ""
-        return normalize_url_scheme(url)
-
-
 ExhibitorSocialLinkFormSet = inlineformset_factory(
     ExhibitorInfo,
     ExhibitorSocialLink,
     form=ExhibitorSocialLinkForm,
-    can_delete=True,
-    extra=0,
-)
-
-ExhibitorExtraLinkFormSet = inlineformset_factory(
-    ExhibitorInfo,
-    ExhibitorExtraLink,
-    form=ExhibitorExtraLinkForm,
     can_delete=True,
     extra=0,
 )
@@ -1773,17 +1654,43 @@ ExhibitionProposalSocialLinkFormSet = inlineformset_factory(
     extra=0,
 )
 
-ExhibitionProposalExtraLinkFormSet = inlineformset_factory(
-    ExhibitionProposal,
-    ExhibitionProposalExtraLink,
-    form=ExhibitionProposalExtraLinkForm,
-    can_delete=True,
-    extra=0,
-)
-
 
 def social_link_prefixes() -> dict[str, str]:
     return {key: spec.prefix for key, spec in SOCIAL_LINK_SPECS.items()}
+
+
+class _EmailBodyEditorWidget(I18nEmailEditorWidget):
+    """Seed each locale editor with rendered HTML so stored plain text keeps its line breaks."""
+
+    def decompress(self, value):
+        return [compile_email_body(item) if item else item for item in super().decompress(value)]
+
+
+class _EmailBodyEditorTextarea(EmailEditorWidget):
+    """Non-i18n counterpart of :class:`_EmailBodyEditorWidget`."""
+
+    def format_value(self, value):
+        return compile_email_body(value) if value else value
+
+
+class ExhibitionEmailBodyFormField(I18nEmailBodyFormField):
+    """Email body field whose editor is seeded with rendered HTML."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("widget", _EmailBodyEditorWidget)
+        super().__init__(*args, **kwargs)
+
+
+def _is_html_empty(html: str) -> bool:
+    """Check whether an HTML snippet contains no substantive text or media."""
+    if not html:
+        return True
+    text = unescape(strip_tags(html)).replace("\xa0", " ").strip()
+    if text:
+        return False
+    if "<img" in html.lower():
+        return False
+    return True
 
 
 class ExhibitionEmailQueueForm(forms.ModelForm):
@@ -1799,7 +1706,7 @@ class ExhibitionEmailQueueForm(forms.ModelForm):
         model = ExhibitionEmailQueue
         fields = ("to_email", "subject", "body", "scheduled_at")
         widgets = {
-            "body": EmailEditorWidget(attrs={"rows": 12}),
+            "body": _EmailBodyEditorTextarea(attrs={"rows": 12}),
             "scheduled_at": HtmlDateTimeInput,
         }
         help_texts = {
@@ -1807,6 +1714,12 @@ class ExhibitionEmailQueueForm(forms.ModelForm):
                 "Leave empty to keep this in the outbox until sent manually. Time is interpreted in the event timezone."
             ),
         }
+
+    def clean_body(self):
+        body = self.cleaned_data.get("body")
+        if not body or _is_html_empty(body):
+            raise forms.ValidationError(_("This field is required."))
+        return body
 
     def clean_scheduled_at(self):
         scheduled_at = self.cleaned_data.get("scheduled_at")
@@ -1855,7 +1768,7 @@ class ExhibitionComposeForm(forms.Form):
         self.event = kwargs.pop("event")
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
-        self.fields["body"] = I18nEmailBodyFormField(
+        self.fields["body"] = ExhibitionEmailBodyFormField(
             label=_("Body"),
             placeholders=mail_helpers.placeholder_names(self.event, mail_helpers.PROPOSAL_PLACEHOLDER_CONTEXT),
         )
@@ -1871,6 +1784,22 @@ class ExhibitionComposeForm(forms.Form):
             }
         )
 
+    def clean_body(self):
+        body = self.cleaned_data.get("body")
+        if not body:
+            raise forms.ValidationError(_("This field is required."))
+        if isinstance(body, LazyI18nString):
+            data = body.data
+            if isinstance(data, dict):
+                has_content = any(not _is_html_empty(v) for v in data.values() if v)
+                if not has_content:
+                    raise forms.ValidationError(_("This field is required."))
+            elif isinstance(data, str) and _is_html_empty(data):
+                raise forms.ValidationError(_("This field is required."))
+        elif isinstance(body, str) and _is_html_empty(body):
+            raise forms.ValidationError(_("This field is required."))
+        return body
+
     def clean_scheduled_at(self):
         scheduled_at = self.cleaned_data.get("scheduled_at")
         if scheduled_at and scheduled_at <= timezone.now():
@@ -1881,27 +1810,20 @@ class ExhibitionComposeForm(forms.Form):
 class ExhibitionMailTemplatesForm(SettingsForm):
     """Editable lifecycle email templates, stored in ``event.settings``."""
 
-    _ROLE_LABELS = {
-        mail_helpers.PROPOSAL_NEW: _("Request received (confirmation)"),
-        mail_helpers.PROPOSAL_ACCEPTED: _("Request accepted"),
-        mail_helpers.PROPOSAL_REJECTED: _("Request rejected"),
-        mail_helpers.EXHIBITOR_ACCESS: _("Exhibitor lead scanning key"),
-    }
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for role in mail_helpers.LIFECYCLE_ROLES:
             default_subject, default_body = mail_helpers.default_template_initial(role, self.locales)
-            label = self._ROLE_LABELS[role]
+            # The panel heading already names the template, so the fields are not prefixed with it.
             self.fields[mail_helpers.subject_settings_key(role)] = I18nFormField(
-                label=_("%(role)s — subject") % {"role": label},
+                label=_("Subject"),
                 required=False,
                 widget=I18nTextInput,
                 initial=default_subject,
                 locales=self.locales,
             )
-            self.fields[mail_helpers.body_settings_key(role)] = I18nEmailBodyFormField(
-                label=_("%(role)s — body") % {"role": label},
+            self.fields[mail_helpers.body_settings_key(role)] = ExhibitionEmailBodyFormField(
+                label=_("Body"),
                 required=False,
                 placeholders=mail_helpers.role_placeholder_names(self.obj, role),
                 initial=default_body,
@@ -1923,7 +1845,7 @@ class ExhibitionCustomEmailTemplateForm(I18nModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         placeholder_names = mail_helpers.placeholder_names(self.event, mail_helpers.PROPOSAL_PLACEHOLDER_CONTEXT)
-        self.fields["body"] = I18nEmailBodyFormField(
+        self.fields["body"] = ExhibitionEmailBodyFormField(
             label=self.fields["body"].label,
             required=False,
             placeholders=placeholder_names,
