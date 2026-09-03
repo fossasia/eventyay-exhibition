@@ -38,6 +38,7 @@ from .views import (
     ExhibitorEditView,
     ExhibitorListView,
     ExhibitorReorderView,
+    ExhibitorVoucherBulkSendView,
     ExhibitorVoucherManageView,
     ProposalActionView,
     ProposalDetailView,
@@ -119,6 +120,11 @@ urlpatterns = [
         name="settings.sponsors",
     ),
     path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/vouchers",
+        SettingsView.as_view(active_tab="vouchers"),
+        name="settings.vouchers",
+    ),
+    path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/call",
         SettingsView.as_view(active_tab="call"),
         name="settings.call",
@@ -154,6 +160,11 @@ urlpatterns = [
         name="exhibitors.reorder",
     ),
     path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors/send-vouchers",
+        ExhibitorVoucherBulkSendView.as_view(partner_type="exhibitor"),
+        name="exhibitors.send_vouchers",
+    ),
+    path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/sponsors",
         ExhibitorListView.as_view(partner_type="sponsor"),
         name="sponsors",
@@ -162,6 +173,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/sponsors/reorder",
         SponsorReorderView.as_view(),
         name="sponsors.reorder",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/sponsors/send-vouchers",
+        ExhibitorVoucherBulkSendView.as_view(partner_type="sponsor"),
+        name="sponsors.send_vouchers",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors/add",

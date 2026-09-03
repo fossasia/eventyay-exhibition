@@ -236,6 +236,11 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     event = models.ForeignKey("base.Event", on_delete=models.CASCADE)
     exhibitors_access_mail_subject = models.CharField(max_length=255)
     exhibitors_access_mail_body = models.TextField()
+    voucher_attach_csv = models.BooleanField(
+        default=True,
+        verbose_name=_("Attach voucher list as CSV"),
+        help_text=_("Adds a spreadsheet of the recipient's own voucher codes to the voucher email."),
+    )
     allowed_fields = models.JSONField(default=default_allowed_fields)
     call_enabled = models.BooleanField(default=False)
     call_headline = I18nCharField(
@@ -990,6 +995,13 @@ class ExhibitionEmailQueue(LoggedModel):
     body = models.TextField(verbose_name=_("Body"))
     reply_to = models.CharField(max_length=255, blank=True, default="")
     locale = models.CharField(max_length=32, blank=True, default="")
+    attachment = models.ForeignKey(
+        "base.CachedFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     scheduled_at = models.DateTimeField(null=True, blank=True, db_index=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
@@ -1020,6 +1032,7 @@ class ExhibitionEmailQueue(LoggedModel):
             locale=self.locale or None,
             auto_email=False,
             event_reply_to=self.reply_to or None,
+            attach_cached_files=[self.attachment_id] if self.attachment_id else None,
         )
         self.sent_at = timezone.now()
         self.scheduled_at = None

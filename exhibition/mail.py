@@ -6,12 +6,12 @@ import logging
 import re
 import uuid
 from collections import defaultdict
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import urljoin
 
 from django.conf import settings as django_settings
 from django.urls import reverse
 from django.utils.html import escape
-from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, override
+from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, ngettext, override
 from eventyay.base.models import PriceModeChoices
 from i18nfield.strings import LazyI18nString
 
@@ -294,16 +294,6 @@ def _voucher_applies_to_text(voucher):
     return f"{product_name}{effect}"
 
 
-def voucher_redeem_url(event, voucher):
-    """Public checkout link that pre-applies this voucher code."""
-    from eventyay.multidomain.urlreverse import build_absolute_uri
-
-    url = f"{build_absolute_uri(event, 'presale:event.redeem')}?voucher={quote_plus(voucher.code)}"
-    if voucher.subevent_id:
-        url = f"{url}&subevent={voucher.subevent_id}"
-    return url
-
-
 def _voucher_block_html(code, applies_to_text, redeem_url=None):
     block = (
         f"<p>{escape(str(_lazy('Voucher code')))}: <code>{escape(code)}</code><br>"
@@ -314,24 +304,43 @@ def _voucher_block_html(code, applies_to_text, redeem_url=None):
     return f"{block}</p>"
 
 
-def format_voucher_list(vouchers, event=None):
-    """One block per voucher: its code, what it applies to, and its redemption link."""
-    return "".join(
+VOUCHER_LIST_INLINE_LIMIT = 5
+
+
+def _voucher_overflow_html(remaining):
+    text = ngettext(
+        "…and %(count)d more voucher code in the attached CSV file.",
+        "…and %(count)d more voucher codes in the attached CSV file.",
+        remaining,
+    ) % {"count": remaining}
+    return f"<p>{escape(text)}</p>"
+
+
+def format_voucher_list(vouchers, event=None, *, limit=None):
+    """One block per voucher: its code, what it applies to, and its redemption link.
+
+    With ``limit``, only the first ``limit`` are listed and the rest are summarised; callers pass
+    it only when the complete list travels with the mail as a CSV attachment.
+    """
+    from .utils import voucher_redeem_url
+
+    vouchers = list(vouchers)
+    shown = vouchers[:limit] if limit else vouchers
+    blocks = "".join(
         _voucher_block_html(
             voucher.code,
             _voucher_applies_to_text(voucher),
             voucher_redeem_url(event or voucher.event, voucher),
         )
-        for voucher in vouchers
+        for voucher in shown
     )
+    remaining = len(vouchers) - len(shown)
+    return f"{blocks}{_voucher_overflow_html(remaining)}" if remaining else blocks
 
 
 def render_voucher_list(exhibitor):
     """All vouchers currently linked to this exhibitor, as a fallback when not overridden by the sender."""
-    from .models import ExhibitorVoucher
-
-    links = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher", "voucher__product")
-    return format_voucher_list([link.voucher for link in links], event=exhibitor.event)
+    return format_voucher_list(exhibitor_vouchers(exhibitor), event=exhibitor.event)
 
 
 def _sample_redeem_url(event, code):
@@ -453,9 +462,18 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
     )
 
 
+def exhibitor_vouchers(exhibitor):
+    """Every voucher currently linked to this exhibitor, in issue order."""
+    from .models import ExhibitorVoucher
+
+    links = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher", "voucher__product")
+    return [link.voucher for link in links]
+
+
 def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor=None):
     """Queue the voucher email for one exhibitor; ``None`` if there is no recipient address."""
-    from .models import ExhibitionEmailQueue
+    from .models import ExhibitionEmailQueue, ExhibitorSettings
+    from .utils import store_voucher_csv
 
     to_email = (exhibitor.email or "").strip()
     if not to_email:
@@ -464,7 +482,12 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
     subject_tpl, body_tpl = get_email_template(event, VOUCHERS)
     locale = recipient_locale(event)
     context = build_exhibitor_context(event, exhibitor)
-    context["voucher_list"] = format_voucher_list(vouchers, event=event)
+
+    settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
+    attachment = store_voucher_csv(event, vouchers) if settings.voucher_attach_csv else None
+    context["voucher_list"] = format_voucher_list(
+        vouchers, event=event, limit=VOUCHER_LIST_INLINE_LIMIT if attachment else None
+    )
 
     queued = ExhibitionEmailQueue.objects.create(
         event=event,
@@ -474,7 +497,55 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
         subject=_render(subject_tpl, context, locale),
         body=_render(body_tpl, context, locale),
         locale=locale or "",
+        attachment=attachment,
     )
     if send_now:
         queued.send(requestor=requestor)
     return queued
+
+
+VOUCHER_SKIP_NO_EMAIL = "no_email"
+VOUCHER_SKIP_NO_VOUCHERS = "no_vouchers"
+
+
+def issue_default_vouchers(exhibitor, *, event_settings=None):
+    """Create a batch from this exhibitor's resolved defaults; empty when the default count is 0."""
+    from .utils import generate_exhibitor_vouchers, resolve_voucher_defaults
+
+    defaults = resolve_voucher_defaults(exhibitor, event_settings=event_settings)
+    if not defaults["count"]:
+        return []
+    return generate_exhibitor_vouchers(
+        exhibitor,
+        product=defaults["product"],
+        count=defaults["count"],
+        price_mode=defaults["price_mode"],
+        value=defaults["value"],
+    )
+
+
+def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=False):
+    """Queue one voucher email per exhibitor, reporting who was skipped and why.
+
+    With ``issue_missing``, an exhibitor holding no vouchers gets a batch created from their
+    defaults first, so a bulk send does not skip everyone who was never issued vouchers by hand.
+    """
+    from .utils import event_voucher_settings
+
+    queued = []
+    skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: []}
+    event_settings = event_voucher_settings(event) if issue_missing else None
+    for exhibitor in exhibitors:
+        if not (exhibitor.email or "").strip():
+            skipped[VOUCHER_SKIP_NO_EMAIL].append(exhibitor)
+            continue
+        vouchers = exhibitor_vouchers(exhibitor)
+        if not vouchers and issue_missing and issue_default_vouchers(exhibitor, event_settings=event_settings):
+            vouchers = exhibitor_vouchers(exhibitor)
+        if not vouchers:
+            skipped[VOUCHER_SKIP_NO_VOUCHERS].append(exhibitor)
+            continue
+        email = queue_voucher_email(event, exhibitor, vouchers, requestor=requestor)
+        if email is not None:
+            queued.append(email)
+    return queued, skipped

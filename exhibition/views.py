@@ -87,8 +87,11 @@ from .models import (
 )
 from .social_links import serialize_social_link
 from .utils import (
+    VOUCHER_CSV_FILENAME,
     add_external_image_csp_sources,
     allow_blob_image_previews,
+    build_voucher_csv,
+    event_voucher_settings,
     generate_exhibitor_vouchers,
     provision_exhibitor_devices,
     public_exhibitors_queryset,
@@ -273,7 +276,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
 
     def get_active_tab(self):
         tab = self.request.GET.get("tab") or self.request.POST.get("tab") or self.active_tab
-        if tab not in {"exhibitors", "sponsors", "call"}:
+        if tab not in {"exhibitors", "sponsors", "call", "vouchers"}:
             return "exhibitors"
         return tab
 
@@ -281,6 +284,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         route_names = {
             "call": "plugins:exhibition:settings.call",
             "sponsors": "plugins:exhibition:settings.sponsors",
+            "vouchers": "plugins:exhibition:settings.vouchers",
         }
         route_name = route_names.get(tab, "plugins:exhibition:settings.exhibitors")
         return reverse(
@@ -373,6 +377,17 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         active_tab = self.get_active_tab()
 
         if action == "save_exhibitor_settings":
+            settings.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
+            settings.save(update_fields=["allowed_fields"])
+            settings.log_action(
+                LOG_SETTINGS_CHANGED,
+                data={"allowed_fields": settings.allowed_fields},
+                user=request.user,
+            )
+            messages.success(self.request, _("Settings have been saved."))
+            return redirect(self.get_settings_url("exhibitors"))
+
+        if action == "save_voucher_settings":
             voucher_defaults_form = ExhibitorVoucherDefaultsForm(
                 request.POST,
                 instance=settings,
@@ -380,15 +395,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             )
             if not voucher_defaults_form.is_valid():
                 return self.render_to_response(self.get_context_data(voucher_defaults_form=voucher_defaults_form))
-            settings.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
             voucher_defaults_form.save()
             settings.log_action(
                 LOG_SETTINGS_CHANGED,
-                data={"allowed_fields": settings.allowed_fields, "changed": voucher_defaults_form.changed_data},
+                data={"changed": voucher_defaults_form.changed_data},
                 user=request.user,
             )
             messages.success(self.request, _("Settings have been saved."))
-            return redirect(self.get_settings_url("exhibitors"))
+            return redirect(self.get_settings_url("vouchers"))
 
         if action == "save_call_settings":
             form = CallSettingsForm(
@@ -539,10 +553,26 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         context = super().get_context_data(**kwargs)
         context["partner_type"] = self.partner_type
         context["reorder_enabled"] = not self.filter_form.filtered and not context["is_paginated"]
+        context["send_vouchers_url"] = self.send_vouchers_url()
+        context["query_string"] = self.request.GET.urlencode()
         if self.partner_type == "sponsor":
             context["sponsor_group_sections"] = self.build_sponsor_group_sections(context["exhibitors"])
         self.annotate_voucher_status(context["exhibitors"])
         return context
+
+    def send_vouchers_url(self):
+        """URL of the bulk voucher send action, or ``None`` when the user may not use it."""
+        if not self.request.user.has_event_permission(
+            self.request.event.organizer, self.request.event, "can_change_event_settings", request=self.request
+        ):
+            return None
+        route = {
+            "sponsor": "plugins:exhibition:sponsors.send_vouchers",
+            "exhibitor": "plugins:exhibition:exhibitors.send_vouchers",
+        }.get(self.partner_type)
+        if route is None:
+            return None
+        return reverse(route, kwargs=event_kwargs(self.request.event))
 
     def annotate_voucher_status(self, exhibitors):
         ids = [exhibitor.pk for exhibitor in exhibitors]
@@ -1971,39 +2001,11 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         return context
 
     def download_csv(self):
-        from eventyay.multidomain.urlreverse import build_absolute_uri
-
-        redeem_base = build_absolute_uri(self.request.event, "presale:event.index")
-        output = io.StringIO()
-        writer = csv.writer(output, quoting=csv.QUOTE_NONNUMERIC, delimiter=",")
-        writer.writerow(
-            [
-                _("Voucher code"),
-                _("Redeem link"),
-                _("Product"),
-                _("Price effect"),
-                _("Value"),
-                _("Valid until"),
-                _("Redeemed"),
-                _("Maximum usages"),
-            ]
-        )
-        for link in self.voucher_links():
-            voucher = link.voucher
-            writer.writerow(
-                [
-                    voucher.code,
-                    f"{redeem_base}?voucher={voucher.code}",
-                    str(voucher.product) if voucher.product else "",
-                    voucher.get_price_mode_display(),
-                    str(voucher.value) if voucher.value is not None else "",
-                    voucher.valid_until.isoformat() if voucher.valid_until else "",
-                    str(voucher.redeemed),
-                    str(voucher.max_usages),
-                ]
-            )
-        response = HttpResponse(output.getvalue().encode("utf-8"), content_type="text/csv")
-        response["Content-Disposition"] = 'attachment; filename="exhibitor-vouchers.csv"'
+        vouchers = [link.voucher for link in self.voucher_links()]
+        payload = build_voucher_csv(self.request.event, vouchers)
+        response = HttpResponse(payload.encode("utf-8"), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{VOUCHER_CSV_FILENAME}"'
+        response["Cache-Control"] = "no-store"
         return response
 
     def get_success_url(self):
@@ -2060,19 +2062,19 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
 
     @transaction.atomic
     def send_vouchers(self, request):
-        """Create any requested vouchers, then outbox an email with the partner's complete list of codes."""
+        """Create any requested vouchers, then outbox an email with the complete list of codes."""
         form = ExhibitorVoucherBatchForm(request.POST)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
         if not (self.object.email or "").strip():
-            messages.error(request, _("This partner has no email address on file, so vouchers cannot be emailed."))
+            messages.error(request, _("No email address is on file, so vouchers cannot be emailed."))
             return redirect(self.get_success_url())
         count = form.cleaned_data["count"]
         if count:
             self.issue_vouchers(count)
         vouchers = [link.voucher for link in self.voucher_links()]
         if not vouchers:
-            form.add_error("count", _("This partner has no vouchers yet, so there is nothing to email."))
+            form.add_error("count", _("There are no vouchers yet, so there is nothing to email."))
             return self.render_to_response(self.get_context_data(form=form))
         mail_helpers.queue_voucher_email(request.event, self.object, vouchers, requestor=request.user)
         messages.success(
@@ -2085,6 +2087,129 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             % {"count": len(vouchers)},
         )
         return redirect(self.get_success_url())
+
+
+class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
+    """Queue voucher emails for everyone in the current list, after confirmation."""
+
+    permission = ("can_change_event_settings",)
+    partner_type = None
+
+    def target_queryset(self):
+        queryset = ExhibitorInfo.objects.filter(event=self.request.event)
+        if self.partner_type == "sponsor":
+            queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
+        elif self.partner_type == "exhibitor":
+            queryset = queryset.filter(is_exhibitor=True).order_by("exhibitor_position", "name", "pk")
+        else:
+            queryset = queryset.order_by("name", "pk")
+        form = ExhibitorFilterForm(
+            data=self.request.GET,
+            event=self.request.event,
+            organization_type=self.partner_type,
+        )
+        if form.is_valid():
+            queryset = form.filter_qs(queryset)
+        return queryset
+
+    def list_url(self):
+        return partner_list_url(self.request.event, self.partner_type)
+
+    def preview(self, exhibitors):
+        """Split the list into who will be emailed and who cannot be, without creating anything.
+
+        Anyone holding no vouchers is still sendable when their defaults would issue some; the
+        counts annotated here are what the confirmation page reports.
+        """
+        event_settings = event_voucher_settings(self.request.event)
+        sendable, no_email, no_vouchers = [], [], []
+        for exhibitor in exhibitors:
+            if not (exhibitor.email or "").strip():
+                no_email.append(exhibitor)
+                continue
+            existing = len(mail_helpers.exhibitor_vouchers(exhibitor))
+            planned = 0 if existing else resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
+            if not existing and not planned:
+                no_vouchers.append(exhibitor)
+                continue
+            exhibitor.voucher_total = existing or planned
+            exhibitor.voucher_new = planned
+            sendable.append(exhibitor)
+        return sendable, no_email, no_vouchers
+
+    def post(self, request, *args, **kwargs):
+        exhibitors = list(self.target_queryset())
+        sendable, no_email, no_vouchers = self.preview(exhibitors)
+
+        if not request.POST.get("confirmed"):
+            return render(
+                request,
+                "exhibitors/voucher_bulk_send.html",
+                {
+                    "partner_type": self.partner_type,
+                    "sendable": sendable,
+                    "no_email": no_email,
+                    "no_vouchers": no_vouchers,
+                    "list_url": self.list_url(),
+                    "query_string": request.GET.urlencode(),
+                },
+            )
+
+        if not sendable:
+            messages.info(request, _("There is nobody to send vouchers to in this list."))
+            return redirect(self.list_url())
+
+        queued, skipped = self.queue_all(sendable, requestor=request.user)
+        messages.success(
+            request,
+            ngettext(
+                "%(count)d voucher email was placed in the outbox.",
+                "%(count)d voucher emails were placed in the outbox.",
+                len(queued),
+            )
+            % {"count": len(queued)},
+        )
+        missing_email = len(no_email) + len(skipped[mail_helpers.VOUCHER_SKIP_NO_EMAIL])
+        missing_vouchers = len(no_vouchers) + len(skipped[mail_helpers.VOUCHER_SKIP_NO_VOUCHERS])
+        if missing_email:
+            messages.warning(request, self.skipped_no_email_message(missing_email))
+        if missing_vouchers:
+            messages.warning(request, self.skipped_no_vouchers_message(missing_vouchers))
+        return redirect(self.list_url())
+
+    @transaction.atomic
+    def queue_all(self, sendable, *, requestor):
+        return mail_helpers.queue_voucher_emails(self.request.event, sendable, requestor=requestor, issue_missing=True)
+
+    def skipped_no_email_message(self, count):
+        if self.partner_type == "sponsor":
+            text = ngettext(
+                "%(count)d sponsor was skipped because it has no email address.",
+                "%(count)d sponsors were skipped because they have no email address.",
+                count,
+            )
+        else:
+            text = ngettext(
+                "%(count)d exhibitor was skipped because it has no email address.",
+                "%(count)d exhibitors were skipped because they have no email address.",
+                count,
+            )
+        return text % {"count": count}
+
+    def skipped_no_vouchers_message(self, count):
+        if self.partner_type == "sponsor":
+            text = ngettext(
+                "%(count)d sponsor was skipped because their default number of vouchers is 0.",
+                "%(count)d sponsors were skipped because their default number of vouchers is 0.",
+                count,
+            )
+        else:
+            text = ngettext(
+                "%(count)d exhibitor was skipped because their default number of vouchers is 0.",
+                "%(count)d exhibitors were skipped because their default number of vouchers is 0.",
+                count,
+            )
+        return text % {"count": count}
 
 
 class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):

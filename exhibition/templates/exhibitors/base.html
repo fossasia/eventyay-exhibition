@@ -37,6 +37,11 @@
             <span class="sidebar-text">{% trans "Sponsors" %}</span>
           </a>
         </li>
+        <li>
+          <a href="{% url 'plugins:exhibition:settings.vouchers' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'settings.vouchers' %}class="active"{% endif %}>
+            <span class="sidebar-text">{% trans "Vouchers" %}</span>
+          </a>
+        </li>
       </ul>
     </li>
     <li>
