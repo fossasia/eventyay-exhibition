@@ -91,8 +91,9 @@ from .utils import (
     add_external_image_csp_sources,
     allow_blob_image_previews,
     build_voucher_csv,
+    claim_pool_vouchers,
     event_voucher_settings,
-    generate_exhibitor_vouchers,
+    pool_remaining,
     provision_exhibitor_devices,
     public_exhibitors_queryset,
     reset_exhibitor_device_setup,
@@ -326,6 +327,10 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             instance=settings,
             event=self.request.event,
         )
+        ctx["exhibitor_pool_tag"] = settings.voucher_pool_tag
+        ctx["exhibitor_pool_remaining"] = pool_remaining(self.request.event, settings.voucher_pool_tag)
+        ctx["sponsor_pool_tag"] = settings.sponsor_voucher_pool_tag
+        ctx["sponsor_pool_remaining"] = pool_remaining(self.request.event, settings.sponsor_voucher_pool_tag)
         ctx["show_add_group_form"] = kwargs.get("show_add_group_form", False)
         ctx["expanded_group_pk"] = kwargs.get("expanded_group_pk")
         return ctx
@@ -526,7 +531,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         return super().get(request, *args, **kwargs)
 
     def download_keys_csv(self):
-        queryset = self.get_queryset()
+        queryset = self.get_queryset().prefetch_related("source_proposals__user")
         selected_pks = self.request.GET.getlist("pk")
         if selected_pks:
             queryset = queryset.filter(pk__in=selected_pks)
@@ -540,7 +545,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
                     localize_event_text(exhibitor.name) or str(exhibitor.name),
                     exhibitor.booth_id or "",
                     exhibitor.localized_booth_name,
-                    exhibitor.email or "",
+                    exhibitor.recipient_email,
                     exhibitor.key,
                 ]
             )
@@ -2006,9 +2011,11 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        default_count = resolve_voucher_defaults(self.object)["count"]
-        context.setdefault("form", ExhibitorVoucherBatchForm(initial={"count": default_count}))
+        defaults = resolve_voucher_defaults(self.object)
+        context.setdefault("form", ExhibitorVoucherBatchForm(initial={"count": defaults["count"]}))
         context["vouchers"] = self.voucher_links()
+        context["pool_tag"] = defaults["pool_tag"]
+        context["pool_remaining"] = pool_remaining(self.request.event, defaults["pool_tag"])
         emails = ExhibitionEmailQueue.objects.filter(exhibitor=self.object, role=mail_helpers.VOUCHERS)
         context["voucher_sent_at"] = emails.filter(sent_at__isnull=False).aggregate(last=Max("sent_at"))["last"]
         context["voucher_pending"] = emails.filter(sent_at__isnull=True).exists()
@@ -2038,15 +2045,35 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         return self.create_vouchers(request)
 
     def remove_voucher(self, request):
+        """Return a voucher to the pool by unlinking it; the code itself stays in Tickets."""
         link = get_object_or_404(ExhibitorVoucher, pk=request.POST.get("voucher"), exhibitor=self.object)
         if link.voucher.redeemed:
-            messages.error(request, _("This voucher has already been redeemed and cannot be removed."))
+            messages.error(request, _("This voucher has already been redeemed and cannot be returned."))
             return redirect(self.get_success_url())
-        voucher = link.voucher
+        if self.was_already_emailed(link):
+            messages.error(
+                request,
+                _(
+                    "This code was already included in a voucher email to this partner, so it cannot be "
+                    "returned to the pool. Delete it under Tickets → Vouchers instead."
+                ),
+            )
+            return redirect(self.get_success_url())
         link.delete()
-        voucher.delete()
-        messages.success(request, _("Voucher removed."))
+        messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
+
+    def was_already_emailed(self, link):
+        """Whether a voucher email went out after this code was assigned, and so lists it.
+
+        Returning such a code would hand it to somebody else while the first recipient still
+        holds it in their inbox.
+        """
+        return ExhibitionEmailQueue.objects.filter(
+            exhibitor=self.object,
+            role=mail_helpers.VOUCHERS,
+            created__gte=link.created,
+        ).exists()
 
     @transaction.atomic
     def create_vouchers(self, request):
@@ -2055,40 +2082,52 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             return self.render_to_response(self.get_context_data(form=form))
         count = form.cleaned_data["count"]
         if not count:
-            form.add_error("count", _("Enter how many vouchers to create."))
+            form.add_error("count", _("Enter how many vouchers to take from the pool."))
             return self.render_to_response(self.get_context_data(form=form))
-        self.issue_vouchers(count)
+        if not self.claim_vouchers(count):
+            form.add_error("count", self.pool_short_message(count))
+            return self.render_to_response(self.get_context_data(form=form))
         messages.success(
             request,
-            ngettext("%(count)d voucher created.", "%(count)d vouchers created.", count) % {"count": count},
+            ngettext(
+                "%(count)d voucher taken from the pool.",
+                "%(count)d vouchers taken from the pool.",
+                count,
+            )
+            % {"count": count},
         )
         return redirect(self.get_success_url())
 
-    def issue_vouchers(self, count):
+    def claim_vouchers(self, count):
         defaults = resolve_voucher_defaults(self.object)
-        return generate_exhibitor_vouchers(
-            self.object,
-            product=defaults["product"],
-            count=count,
-            price_mode=defaults["price_mode"],
-            value=defaults["value"],
-        )
+        return claim_pool_vouchers(self.object, count, pool_tag=defaults["pool_tag"])
+
+    def pool_short_message(self, count):
+        defaults = resolve_voucher_defaults(self.object)
+        if not defaults["pool_tag"]:
+            return _("No voucher pool is selected yet. Choose one under Settings → Vouchers.")
+        remaining = pool_remaining(self.request.event, defaults["pool_tag"])
+        return _("The pool only has %(remaining)d voucher(s) left, so %(count)d cannot be taken.") % {
+            "remaining": remaining,
+            "count": count,
+        }
 
     @transaction.atomic
     def send_vouchers(self, request):
-        """Create any requested vouchers, then outbox an email with the complete list of codes."""
+        """Take any requested vouchers from the pool, then outbox an email with the complete list."""
         form = ExhibitorVoucherBatchForm(request.POST)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
-        if not (self.object.email or "").strip():
+        if not self.object.recipient_email:
             messages.error(request, _("No email address is on file, so vouchers cannot be emailed."))
             return redirect(self.get_success_url())
         count = form.cleaned_data["count"]
-        if count:
-            self.issue_vouchers(count)
+        if count and not self.claim_vouchers(count):
+            form.add_error("count", self.pool_short_message(count))
+            return self.render_to_response(self.get_context_data(form=form))
         vouchers = [link.voucher for link in self.voucher_links()]
         if not vouchers:
-            form.add_error("count", _("There are no vouchers yet, so there is nothing to email."))
+            form.add_error("count", _("This partner holds no vouchers yet, so there is nothing to email."))
             return self.render_to_response(self.get_context_data(form=form))
         mail_helpers.queue_voucher_email(request.event, self.object, vouchers, requestor=request.user)
         messages.success(
@@ -2110,7 +2149,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
     partner_type = None
 
     def target_queryset(self):
-        queryset = ExhibitorInfo.objects.filter(event=self.request.event)
+        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("source_proposals__user")
         if self.partner_type == "sponsor":
             queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
         elif self.partner_type == "exhibitor":
@@ -2130,30 +2169,41 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         return partner_list_url(self.request.event, self.partner_type)
 
     def preview(self, exhibitors):
-        """Split the list into who will be emailed and who cannot be, without creating anything.
+        """Split the list into who will be emailed and who cannot be, without claiming anything.
 
-        Anyone holding no vouchers is still sendable when their defaults would issue some; the
-        counts annotated here are what the confirmation page reports.
+        Anyone holding no vouchers is still sendable when their pool can cover their share; the
+        pool is drawn down as we go, so the preview reflects what the whole run would consume.
         """
         event_settings = event_voucher_settings(self.request.event)
-        sendable, no_email, no_vouchers = [], [], []
+        remaining = {}
+        sendable, no_email, no_vouchers, pool_short = [], [], [], []
         for exhibitor in exhibitors:
-            if not (exhibitor.email or "").strip():
+            if not exhibitor.recipient_email:
                 no_email.append(exhibitor)
                 continue
             existing = len(mail_helpers.exhibitor_vouchers(exhibitor))
-            planned = 0 if existing else resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
-            if not existing and not planned:
+            if existing:
+                exhibitor.voucher_total, exhibitor.voucher_new = existing, 0
+                sendable.append(exhibitor)
+                continue
+            defaults = resolve_voucher_defaults(exhibitor, event_settings=event_settings)
+            planned, pool_tag = defaults["count"], defaults["pool_tag"]
+            if not planned:
                 no_vouchers.append(exhibitor)
                 continue
-            exhibitor.voucher_total = existing or planned
-            exhibitor.voucher_new = planned
+            if pool_tag not in remaining:
+                remaining[pool_tag] = pool_remaining(self.request.event, pool_tag)
+            if remaining[pool_tag] < planned:
+                pool_short.append(exhibitor)
+                continue
+            remaining[pool_tag] -= planned
+            exhibitor.voucher_total = exhibitor.voucher_new = planned
             sendable.append(exhibitor)
-        return sendable, no_email, no_vouchers
+        return sendable, no_email, no_vouchers, pool_short
 
     def post(self, request, *args, **kwargs):
         exhibitors = list(self.target_queryset())
-        sendable, no_email, no_vouchers = self.preview(exhibitors)
+        sendable, no_email, no_vouchers, pool_short = self.preview(exhibitors)
 
         if not request.POST.get("confirmed"):
             return render(
@@ -2164,6 +2214,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                     "sendable": sendable,
                     "no_email": no_email,
                     "no_vouchers": no_vouchers,
+                    "pool_short": pool_short,
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
@@ -2189,6 +2240,17 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
             messages.warning(request, self.skipped_no_email_message(missing_email))
         if missing_vouchers:
             messages.warning(request, self.skipped_no_vouchers_message(missing_vouchers))
+        short = len(pool_short) + len(skipped[mail_helpers.VOUCHER_SKIP_POOL_EMPTY])
+        if short:
+            messages.warning(
+                request,
+                ngettext(
+                    "%(count)d was skipped because no unassigned codes were available from their pool.",
+                    "%(count)d were skipped because no unassigned codes were available from their pool.",
+                    short,
+                )
+                % {"count": short},
+            )
         return redirect(self.list_url())
 
     @transaction.atomic
@@ -2213,14 +2275,14 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
     def skipped_no_vouchers_message(self, count):
         if self.partner_type == "sponsor":
             text = ngettext(
-                "%(count)d sponsor was skipped because their default number of vouchers is 0.",
-                "%(count)d sponsors were skipped because their default number of vouchers is 0.",
+                "%(count)d sponsor was skipped because their voucher count is set to 0.",
+                "%(count)d sponsors were skipped because their voucher count is set to 0.",
                 count,
             )
         else:
             text = ngettext(
-                "%(count)d exhibitor was skipped because their default number of vouchers is 0.",
-                "%(count)d exhibitors were skipped because their default number of vouchers is 0.",
+                "%(count)d exhibitor was skipped because their voucher count is set to 0.",
+                "%(count)d exhibitors were skipped because their voucher count is set to 0.",
                 count,
             )
         return text % {"count": count}

@@ -196,41 +196,76 @@ def event_voucher_settings(event):
     return ExhibitorSettings.objects.filter(event=event).first() or ExhibitorSettings(event=event)
 
 
-def resolve_voucher_defaults(exhibitor, *, event_settings=None):
-    """Voucher settings for this exhibitor: their sponsor group's, or the event-wide default.
+def resolve_voucher_pool_tag(exhibitor, *, event_settings=None):
+    """The pool an exhibitor draws from: the sponsor pool for sponsors, else the exhibitor pool."""
+    settings = event_settings or event_voucher_settings(exhibitor.event)
+    if exhibitor.is_sponsor and not exhibitor.is_exhibitor and settings.sponsor_voucher_pool_tag:
+        return settings.sponsor_voucher_pool_tag
+    return settings.voucher_pool_tag
 
+
+def resolve_voucher_defaults(exhibitor, *, event_settings=None):
+    """How many pool vouchers this exhibitor gets, and which pool they come from.
+
+    The count is their sponsor group's when they have one, otherwise the event-wide default.
     Pass ``event_settings`` when resolving for many exhibitors to avoid a query per row.
     """
-    source = (
-        exhibitor.sponsor_group
-        if exhibitor.sponsor_group_id
-        else (event_settings or event_voucher_settings(exhibitor.event))
-    )
+    settings = event_settings or event_voucher_settings(exhibitor.event)
+    source = exhibitor.sponsor_group if exhibitor.sponsor_group_id else settings
     return {
-        "product": source.voucher_default_product,
         "count": source.voucher_default_count,
-        "price_mode": source.voucher_default_price_mode,
-        "value": source.voucher_default_value,
+        "pool_tag": resolve_voucher_pool_tag(exhibitor, event_settings=settings),
     }
 
 
-def generate_exhibitor_vouchers(exhibitor, *, product, count, price_mode, value):
+def pool_tag_choices(event):
+    """Every voucher tag in use on this event, for the pool dropdowns."""
+    from eventyay.base.models import Voucher
+
+    return list(
+        Voucher.objects.filter(event=event).exclude(tag="").values_list("tag", flat=True).distinct().order_by("tag")
+    )
+
+
+def unassigned_pool_vouchers(event, pool_tag):
+    """Vouchers in the pool that no exhibitor holds yet.
+
+    Excluded by subquery rather than ``exhibitor_link__isnull``: that builds an outer join, and
+    Postgres refuses ``SELECT ... FOR UPDATE`` on the nullable side of one.
+    """
     from eventyay.base.models import Voucher
 
     from .models import ExhibitorVoucher
 
-    tag = f"exhibitor-{exhibitor.key}"
-    links = []
-    for _ in range(count):
-        voucher = Voucher.objects.create(
-            event=exhibitor.event,
-            product=product,
-            price_mode=price_mode,
-            value=value,
-            tag=tag,
-        )
-        links.append(ExhibitorVoucher(exhibitor=exhibitor, voucher=voucher))
-    return ExhibitorVoucher.objects.bulk_create(links)
+    if not pool_tag:
+        return Voucher.objects.none()
+    linked_ids = ExhibitorVoucher.objects.filter(exhibitor__event=event).values("voucher_id")
+    return Voucher.objects.filter(event=event, tag=pool_tag).exclude(pk__in=linked_ids)
+
+
+def pool_remaining(event, pool_tag):
+    return unassigned_pool_vouchers(event, pool_tag).count()
+
+
+def claim_pool_vouchers(exhibitor, count, *, pool_tag=None):
+    """Hand ``count`` unclaimed pool vouchers to this exhibitor, or none at all if the pool is short.
+
+    Rows are locked for the duration so two concurrent sends cannot hand out the same code.
+    """
+    from .models import ExhibitorVoucher
+
+    if not count:
+        return []
+    if pool_tag is None:
+        pool_tag = resolve_voucher_pool_tag(exhibitor)
+    available = list(
+        unassigned_pool_vouchers(exhibitor.event, pool_tag).select_for_update(skip_locked=True).order_by("pk")[:count]
+    )
+    if len(available) < count:
+        return []
+    return ExhibitorVoucher.objects.bulk_create(
+        ExhibitorVoucher(exhibitor=exhibitor, voucher=voucher) for voucher in available
+    )
 
 
 PROPOSAL_LOCALIZED_PROFILE_FIELDS = ("name", "description")

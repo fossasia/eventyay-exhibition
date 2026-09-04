@@ -31,7 +31,7 @@
             <ul>
                 {% for exhibitor in sendable %}
                     <li>
-                        {{ exhibitor.name }} <span class="text-muted">{{ exhibitor.email }}</span>
+                        {{ exhibitor.name }} <span class="text-muted">{{ exhibitor.recipient_email }}</span>
                         {% if exhibitor.voucher_new %}
                             <span class="text-muted">
                                 {% blocktrans trimmed count counter=exhibitor.voucher_new %}
@@ -72,9 +72,21 @@
         {% endif %}
 
         {% if no_vouchers %}
-            <h4>{% trans "Skipped: default number of vouchers is 0" %}</h4>
+            <h4>{% trans "Skipped: voucher count is set to 0" %}</h4>
             <ul>
                 {% for exhibitor in no_vouchers %}
+                    <li>{{ exhibitor.name }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if pool_short %}
+            <h4>{% trans "Skipped: no vouchers available from their pool" %}</h4>
+            <p class="help-block">
+                {% trans "Check that a voucher pool is selected under Settings → Vouchers and that it still has unassigned codes." %}
+            </p>
+            <ul>
+                {% for exhibitor in pool_short %}
                     <li>{{ exhibitor.name }}</li>
                 {% endfor %}
             </ul>

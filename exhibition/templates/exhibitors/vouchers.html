@@ -11,13 +11,13 @@
 {% block exhibitors_content %}
     <p>
         {% blocktrans trimmed %}
-            Issue ticket vouchers for this partner to hand out. Whoever redeems one on the ticket shop
-            becomes a lead this partner can retrieve, as long as voucher data access is enabled for them.
+            Hand this exhibitor or sponsor codes from the voucher pool. Whoever redeems one on the ticket
+            shop becomes a lead they can retrieve, as long as voucher data access is enabled for them.
         {% endblocktrans %}
     </p>
 
     <fieldset>
-        <legend>{% trans "Issued vouchers" %}</legend>
+        <legend>{% trans "Assigned vouchers" %}</legend>
         {% if vouchers %}
             <p>
                 <a class="btn btn-default" href="?download=yes">
@@ -59,7 +59,7 @@
                                             </button>
                                         </span>
                                     {% else %}
-                                        <button type="submit" class="btn btn-delete btn-danger btn-sm" title="{% trans "Delete" %}" data-toggle="tooltip">
+                                        <button type="submit" class="btn btn-delete btn-danger btn-sm" title="{% trans "Return to pool" %}" data-toggle="tooltip">
                                             <i class="fa fa-trash"></i>
                                         </button>
                                     {% endif %}
@@ -71,7 +71,7 @@
                 </table>
             </div>
         {% else %}
-            <p class="text-muted">{% trans "No vouchers have been issued for this partner yet." %}</p>
+            <p class="text-muted">{% trans "No vouchers have been assigned to this partner yet." %}</p>
         {% endif %}
     </fieldset>
 
@@ -79,15 +79,27 @@
         {% csrf_token %}
         {% bootstrap_form_errors form %}
         <fieldset>
-            <legend>{% trans "Issue new vouchers" %}</legend>
+            <legend>{% trans "Take more from the pool" %}</legend>
             <p class="help-block">
                 {% blocktrans trimmed %}
-                    Creates voucher codes using the ticket product and price configured under Settings.
-                    The email always carries the partner's complete list of codes, so you can create some
-                    now and send them together with more later. It is placed in the outbox for you to
-                    review before it goes out.
+                    Codes come from the voucher pool chosen under Settings. The email always carries this
+                    partner's complete list of codes, so you can assign some now and send them together
+                    with more later. It is placed in the outbox for you to review before it goes out.
                 {% endblocktrans %}
             </p>
+            {% if pool_tag %}
+                <p class="help-block">
+                    {% blocktrans trimmed count counter=pool_remaining %}
+                        {{ counter }} voucher is left unassigned in the pool.
+                    {% plural %}
+                        {{ counter }} vouchers are left unassigned in the pool.
+                    {% endblocktrans %}
+                </p>
+            {% else %}
+                <p class="text-danger">
+                    {% trans "No voucher pool is selected yet. Choose one under Settings → Vouchers." %}
+                </p>
+            {% endif %}
             {% if voucher_pending %}
                 <p class="text-warning">
                     <i class="fa fa-clock-o"></i>
@@ -104,18 +116,18 @@
                     {% endblocktrans %}
                 </p>
             {% endif %}
-            {% if not exhibitor.email %}
+            {% if not exhibitor.recipient_email %}
                 <p class="text-danger">{% trans "This partner has no email address on file, so vouchers cannot be emailed." %}</p>
             {% endif %}
             {% bootstrap_field form.count layout="control" %}
         </fieldset>
         <div class="form-group submit-group">
             <div class="col-md-9 col-md-offset-3">
-                <button type="submit" name="action" value="send" class="btn btn-primary" {% if not exhibitor.email %}disabled{% endif %}>
-                    <i class="fa fa-paper-plane"></i> {% trans "Create and prepare email" %}
+                <button type="submit" name="action" value="send" class="btn btn-primary" {% if not exhibitor.recipient_email %}disabled{% endif %}>
+                    <i class="fa fa-paper-plane"></i> {% trans "Assign and prepare email" %}
                 </button>
                 <button type="submit" name="action" value="generate" class="btn btn-default">
-                    {% trans "Create without emailing" %}
+                    {% trans "Assign without emailing" %}
                 </button>
                 <a class="btn btn-default" href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Back" %}

@@ -19,7 +19,6 @@ from eventyay.base.forms.widgets import (
     SplitDateTimePickerWidget,
     TimePickerWidget,
 )
-from eventyay.base.models import PriceModeChoices, Product
 from eventyay.base.templatetags.rich_text import compile_email_body
 from eventyay.common.forms.fields import I18nEmailBodyFormField
 from eventyay.common.forms.mixins import (
@@ -63,7 +62,7 @@ from .social_links import (
     build_social_link_url,
     get_social_link_value,
 )
-from .utils import localized_value_for, merge_localized_value
+from .utils import localized_value_for, merge_localized_value, pool_tag_choices
 
 
 def get_tz_help(event):
@@ -572,61 +571,25 @@ class ExhibitorDeviceProvisionForm(forms.Form):
 
 
 class ExhibitorVoucherBatchForm(forms.Form):
-    """How many vouchers to issue; the rest of the settings come from the resolved defaults."""
+    """How many more pool vouchers to hand this partner now."""
 
     count = forms.IntegerField(
         min_value=0,
         max_value=1000,
         initial=1,
-        label=_("New vouchers to create"),
-        help_text=_("Set to 0 to email the codes this partner already has without creating new ones."),
-    )
-
-
-def _voucher_default_product_field():
-    """A fresh, unscoped ``ModelChoiceField`` for ``voucher_default_product``.
-
-    Must be declared directly on each concrete form (not just in ``Meta.fields``), otherwise Django's
-    ModelForm metaclass auto-builds it from the model FK at class-definition time via ``Product.objects.all()``
-    — outside any request's django_scopes context, which raises ``ScopeError``. A real queryset is set later,
-    per-event, in ``_wire_voucher_default_fields``.
-    """
-    return forms.ModelChoiceField(
-        queryset=Product.objects.none(),
-        required=False,
-        empty_label=_("Any eligible product"),
-        label=_("Default ticket product"),
+        label=_("Vouchers to take from the pool"),
+        help_text=_("Set to 0 to email the codes this partner already has without taking any more."),
     )
 
 
 class VoucherDefaultsFormMixin:
-    """Shared field wiring for the voucher-defaults forms (event-scoped product, tz-aware deadline)."""
+    """Shared wiring for the forms that set how many pool vouchers a partner receives."""
 
-    voucher_default_fields = [
-        "voucher_default_count",
-        "voucher_default_product",
-        "voucher_default_price_mode",
-        "voucher_default_value",
-    ]
-
-    def _wire_voucher_default_fields(self, event):
-        self.fields["voucher_default_product"].queryset = (
-            Product.objects.filter(event=event, active=True).order_by("position", "pk")
-            if event
-            else Product.objects.none()
-        )
-
-    def clean_voucher_defaults(self, cleaned_data):
-        price_mode = cleaned_data.get("voucher_default_price_mode")
-        value = cleaned_data.get("voucher_default_value")
-        if price_mode and price_mode != PriceModeChoices.NONE and value is None:
-            self.add_error("voucher_default_value", _("Enter a value for the selected price effect."))
-        return cleaned_data
+    voucher_default_fields = ["voucher_default_count"]
 
 
 class SponsorGroupForm(VoucherDefaultsFormMixin, I18nModelForm):
     level = forms.IntegerField(min_value=1, required=False, label=_("Level"))
-    voucher_default_product = _voucher_default_product_field()
 
     class Meta:
         model = SponsorGroup
@@ -640,7 +603,6 @@ class SponsorGroupForm(VoucherDefaultsFormMixin, I18nModelForm):
         event = kwargs.get("event")
         super().__init__(*args, **kwargs)
         self.event = event or getattr(self.instance, "event", None)
-        self._wire_voucher_default_fields(self.event)
 
     def clean_level(self):
         level = self.cleaned_data.get("level")
@@ -653,26 +615,37 @@ class SponsorGroupForm(VoucherDefaultsFormMixin, I18nModelForm):
     def _default_level(self):
         return get_next_sponsor_group_level(self.event)
 
-    def clean(self):
-        return self.clean_voucher_defaults(super().clean())
-
 
 class ExhibitorVoucherDefaultsForm(VoucherDefaultsFormMixin, forms.ModelForm):
-    """Event-wide voucher defaults, used for any exhibitor with no sponsor group of their own."""
+    """Which pools partners draw from, and how many codes each one gets by default."""
 
-    voucher_default_product = _voucher_default_product_field()
+    voucher_pool_tag = forms.ChoiceField(required=False, label=_("Exhibitor voucher pool"))
+    sponsor_voucher_pool_tag = forms.ChoiceField(required=False, label=_("Sponsor voucher pool"))
 
     class Meta:
         model = ExhibitorSettings
-        fields = [*VoucherDefaultsFormMixin.voucher_default_fields, "voucher_attach_csv"]
+        fields = [
+            "voucher_pool_tag",
+            "sponsor_voucher_pool_tag",
+            *VoucherDefaultsFormMixin.voucher_default_fields,
+            "voucher_attach_csv",
+        ]
 
     def __init__(self, *args, **kwargs):
         self.event = kwargs.pop("event", None)
         super().__init__(*args, **kwargs)
-        self._wire_voucher_default_fields(self.event)
+        self._wire_pool_fields()
 
-    def clean(self):
-        return self.clean_voucher_defaults(super().clean())
+    def _wire_pool_fields(self):
+        """Offer the tags that already exist on the event, keeping any pool that has since been emptied."""
+        tags = pool_tag_choices(self.event) if self.event else []
+        for name, empty_label in (
+            ("voucher_pool_tag", _("— No pool selected —")),
+            ("sponsor_voucher_pool_tag", _("— Use the exhibitor pool —")),
+        ):
+            current = self.get_initial_for_field(self.fields[name], name)
+            known = tags if not current or current in tags else [*tags, current]
+            self.fields[name].choices = [("", empty_label), *((tag, tag) for tag in known)]
 
 
 class CallSettingsForm(I18nModelForm):

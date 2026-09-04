@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
-from eventyay.base.models import Device, Event, PriceModeChoices, Product, Voucher
+from eventyay.base.models import Device, Event, Voucher
 from eventyay.base.models.base import LoggedModel
 from eventyay.common.utils.language import localize_event_text
 from i18nfield.fields import I18nCharField, I18nTextField
@@ -200,32 +200,11 @@ def default_allowed_fields():
 
 
 class VoucherDefaultsMixin(models.Model):
-    """Default voucher settings applied when issuing/sending vouchers without overriding them."""
+    """How many pool vouchers an exhibitor or sponsor receives when none is set on them directly."""
 
     voucher_default_count = models.PositiveIntegerField(
         default=1,
-        verbose_name=_("Default number of vouchers"),
-    )
-    voucher_default_product = models.ForeignKey(
-        Product,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        verbose_name=_("Default ticket product"),
-    )
-    voucher_default_price_mode = models.CharField(
-        max_length=20,
-        choices=PriceModeChoices.choices,
-        default=PriceModeChoices.NONE,
-        verbose_name=_("Default price effect"),
-    )
-    voucher_default_value = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        verbose_name=_("Default value"),
+        verbose_name=_("Vouchers per exhibitor"),
     )
 
     class Meta:
@@ -234,6 +213,20 @@ class VoucherDefaultsMixin(models.Model):
 
 class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     event = models.ForeignKey("base.Event", on_delete=models.CASCADE)
+    voucher_pool_tag = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Exhibitor voucher pool"),
+        help_text=_("The voucher tag created under Tickets → Vouchers that exhibitors draw their codes from."),
+    )
+    sponsor_voucher_pool_tag = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Sponsor voucher pool"),
+        help_text=_("Leave empty to draw sponsor codes from the exhibitor pool as well."),
+    )
     exhibitors_access_mail_subject = models.CharField(max_length=255)
     exhibitors_access_mail_body = models.TextField()
     voucher_attach_csv = models.BooleanField(
@@ -405,6 +398,23 @@ class ExhibitorInfo(LoggedModel):
             if self.is_sponsor and not self.sponsor_position:
                 self.sponsor_position = get_next_sponsor_position(self.event, self.sponsor_group)
         super().save(*args, **kwargs)
+
+    @property
+    def recipient_email(self):
+        """Where mail for this partner goes.
+
+        Their own address when one was stored, otherwise the account that applied for them —
+        the same fallback the lifecycle emails use, since the address is no longer editable on
+        the profile form and manually created partners never get one.
+        """
+        stored = (self.email or "").strip()
+        if stored:
+            return stored
+        proposals = sorted(self.source_proposals.all(), key=lambda proposal: proposal.pk, reverse=True)
+        if not proposals:
+            return ""
+        latest = proposals[0]
+        return (latest.email or "").strip() or (latest.user.email if latest.user_id else "")
 
     @property
     def localized_booth_name(self):

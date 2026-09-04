@@ -140,24 +140,66 @@
                 <input type="hidden" name="tab" value="vouchers">
                 {% bootstrap_form_errors voucher_defaults_form %}
                 <fieldset>
-                    <legend>{% trans "Voucher defaults" %}</legend>
+                    <legend>{% trans "Voucher pools" %}</legend>
+                    <div class="row">
+                        <div class="col-md-9">
+                            <p>
+                                {% blocktrans trimmed %}
+                                    Create the voucher codes under Tickets → Vouchers and give them a tag, then
+                                    pick that tag here. Exhibitors and sponsors are handed codes from the pool
+                                    you choose. Reload this page to pick up a tag you just created.
+                                {% endblocktrans %}
+                            </p>
+                        </div>
+                        <div class="col-md-3 text-right flip">
+                            <a href="{% url 'control:event.vouchers.bulk' organizer=request.event.organizer.slug event=request.event.slug %}"
+                               target="_blank" rel="noopener">
+                                <strong>{% trans "Create vouchers pool" %}</strong>
+                                <i class="fa fa-external-link" aria-hidden="true"></i>
+                                <span class="sr-only">{% trans "(opens in a new tab)" %}</span>
+                            </a>
+                        </div>
+                    </div>
+                    {% bootstrap_field voucher_defaults_form.voucher_pool_tag layout="control" %}
+                    {% if exhibitor_pool_tag %}
+                        <div class="form-group">
+                            <div class="col-md-9 col-md-offset-3">
+                                <p class="help-block">
+                                    {% blocktrans trimmed count counter=exhibitor_pool_remaining %}
+                                        {{ counter }} voucher in this pool is not assigned to anyone yet.
+                                    {% plural %}
+                                        {{ counter }} vouchers in this pool are not assigned to anyone yet.
+                                    {% endblocktrans %}
+                                </p>
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% bootstrap_field voucher_defaults_form.sponsor_voucher_pool_tag layout="control" %}
+                    {% if sponsor_pool_tag %}
+                        <div class="form-group">
+                            <div class="col-md-9 col-md-offset-3">
+                                <p class="help-block">
+                                    {% blocktrans trimmed count counter=sponsor_pool_remaining %}
+                                        {{ counter }} voucher in this pool is not assigned to anyone yet.
+                                    {% plural %}
+                                        {{ counter }} vouchers in this pool are not assigned to anyone yet.
+                                    {% endblocktrans %}
+                                </p>
+                            </div>
+                        </div>
+                    {% endif %}
+                </fieldset>
+
+                <fieldset>
+                    <legend>{% trans "How many each one gets" %}</legend>
                     <p>
                         {% blocktrans trimmed %}
-                            Used when issuing or sending vouchers for any exhibitor or sponsor that does not
-                            belong to a sponsor group. Sponsor groups can override these on the Sponsors page.
+                            Applies to any exhibitor or sponsor that does not belong to a sponsor group.
+                            Sponsor groups set their own number on the Sponsors page, and an individual
+                            exhibitor or sponsor can be given a different number on their own voucher page.
                         {% endblocktrans %}
                     </p>
                     {% bootstrap_field voucher_defaults_form.voucher_default_count layout="control" %}
-                    {% bootstrap_field voucher_defaults_form.voucher_default_product layout="control" %}
-                    <div class="form-group">
-                        <label class="col-md-3 control-label" for="{{ voucher_defaults_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
-                        <div class="col-md-5">
-                            {% bootstrap_field voucher_defaults_form.voucher_default_price_mode show_label=False form_group_class="" %}
-                        </div>
-                        <div class="col-md-4">
-                            {% bootstrap_field voucher_defaults_form.voucher_default_value show_label=False form_group_class="" %}
-                        </div>
-                    </div>
                 </fieldset>
 
                 <fieldset>
@@ -229,16 +271,6 @@
                     <fieldset>
                         <legend>{% trans "Voucher defaults for this group" %}</legend>
                         {% bootstrap_field add_group_form.voucher_default_count layout="control" %}
-                        {% bootstrap_field add_group_form.voucher_default_product layout="control" %}
-                        <div class="form-group">
-                            <label class="col-md-3 control-label" for="{{ add_group_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
-                            <div class="col-md-5">
-                                {% bootstrap_field add_group_form.voucher_default_price_mode show_label=False form_group_class="" %}
-                            </div>
-                            <div class="col-md-4">
-                                {% bootstrap_field add_group_form.voucher_default_value show_label=False form_group_class="" %}
-                            </div>
-                        </div>
                     </fieldset>
                     <div class="form-group submit-group sponsor-group-editor-actions">
                         <div class="col-md-9 col-md-offset-3">
@@ -321,16 +353,6 @@
                                             <fieldset>
                                                 <legend>{% trans "Voucher defaults for this group" %}</legend>
                                                 {% bootstrap_field group.edit_form.voucher_default_count layout="control" %}
-                                                {% bootstrap_field group.edit_form.voucher_default_product layout="control" %}
-                                                <div class="form-group">
-                                                    <label class="col-md-3 control-label" for="{{ group.edit_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
-                                                    <div class="col-md-5">
-                                                        {% bootstrap_field group.edit_form.voucher_default_price_mode show_label=False form_group_class="" %}
-                                                    </div>
-                                                    <div class="col-md-4">
-                                                        {% bootstrap_field group.edit_form.voucher_default_value show_label=False form_group_class="" %}
-                                                    </div>
-                                                </div>
                                             </fieldset>
                                             <div class="form-group submit-group sponsor-group-editor-actions">
                                                 <div class="col-md-9 col-md-offset-3">
