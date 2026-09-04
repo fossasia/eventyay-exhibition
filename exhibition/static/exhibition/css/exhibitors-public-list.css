@@ -31,8 +31,8 @@
 
 .exhibition-public-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 28px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.5rem;
 }
 
 .exhibition-public-card-link {
@@ -49,28 +49,33 @@
 }
 
 .exhibition-public-card {
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
+    background: #fff;
+    border: 1px solid var(--color-grey-light, #e2e8f0);
+    border-radius: 12px;
+    box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.05),
+        0 2px 4px -1px rgba(0, 0, 0, 0.03);
     display: flex;
     flex-direction: column;
     height: 100%;
-    overflow: visible;
-    transition: none;
+    overflow: hidden;
+    transition:
+        transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .exhibition-public-card-link:hover .exhibition-public-card,
 .exhibition-public-card-link:focus .exhibition-public-card {
-    transform: none;
-    box-shadow: none;
+    transform: translateY(-4px);
+    box-shadow:
+        0 20px 25px -5px rgba(0, 0, 0, 0.1),
+        0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
 .exhibition-public-card-image {
-    background: #edf2f7;
-    height: 220px;
+    background: var(--color-grey-lightest, #f8f9fa);
+    height: 180px;
     overflow: hidden;
-    border-radius: 16px;
 }
 
 .exhibition-public-card-image img {
@@ -84,9 +89,9 @@
 .exhibition-public-card-body {
     display: flex;
     align-items: center;
-    gap: 14px;
-    min-height: 84px;
-    padding: 16px 0 0;
+    flex: 1;
+    gap: 0.65rem;
+    padding: 1.15rem 1.4rem 1.1rem;
 }
 
 .exhibition-public-card-logo-wrap {
@@ -110,7 +115,7 @@
 
 .exhibition-public-card-name {
     margin: 0;
-    font-size: 1.8rem;
+    font-size: 1.4rem;
     font-weight: 700;
     line-height: 1.2;
     color: #1f2933;
@@ -118,6 +123,12 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+    .exhibition-public-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 992px) {
@@ -133,13 +144,5 @@
 
     .exhibition-public-grid {
         grid-template-columns: 1fr;
-    }
-
-    .exhibition-public-card-image {
-        height: 200px;
-    }
-
-    .exhibition-public-card-name {
-        font-size: 1.55rem;
     }
 }
