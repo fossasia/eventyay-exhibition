@@ -9,7 +9,7 @@
 <form method="post" action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}">
     {% csrf_token %}
     {% if entries %}
-        <div class="email-bulk-toolbar">
+        <div class="email-bulk-toolbar" data-total-count="{{ page_obj.paginator.count }}" data-selected-label="{% trans 'selected' %}">
             <button type="submit" class="btn btn-default btn-sm" name="op" value="send">
                 <i class="fa fa-mail-forward"></i> {% trans "Send selected" %}
             </button>
@@ -22,6 +22,7 @@
             <button type="submit" class="btn btn-danger btn-sm" name="op" value="discard_all">
                 {% trans "Discard all" %}
             </button>
+            <span class="text-muted" data-selected-count></span>
         </div>
     {% endif %}
     <div class="table-responsive">

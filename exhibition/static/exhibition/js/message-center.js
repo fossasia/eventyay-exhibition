@@ -52,19 +52,55 @@
 
     function onChange(event) {
         var element = event.target;
+        if (!element.matches || !element.matches("[data-select-all], [data-select-row]")) {
+            return;
+        }
+
+        var table = element.closest("table");
+        if (!table) {
+            return;
+        }
+
+        var form = element.closest("form");
+        var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
+
         if (element.matches("[data-select-all]")) {
-            var rows = element.closest("table").querySelectorAll("[data-select-row]");
-            rows.forEach(function (row) {
+            boxes.forEach(function (row) {
                 row.checked = element.checked;
             });
+            if (form) {
+                form.dataset.selectAllPages = element.checked ? "true" : "false";
+            }
         } else if (element.matches("[data-select-row]")) {
-            var table = element.closest("table");
+            if (form) {
+                form.dataset.selectAllPages = "false";
+            }
             var all = table.querySelector("[data-select-all]");
             if (all) {
-                var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
                 all.checked = boxes.length > 0 && boxes.every(function (box) {
                     return box.checked;
                 });
+                all.indeterminate = !all.checked && boxes.some(function (box) {
+                    return box.checked;
+                });
+            }
+        }
+
+        var toolbar = form ? form.querySelector(".email-bulk-toolbar") : null;
+        var countLabel = toolbar ? toolbar.querySelector("[data-selected-count]") : null;
+
+        if (countLabel) {
+            var checkedCount = boxes.filter(function (b) { return b.checked; }).length;
+            var selectedLabel = toolbar.dataset.selectedLabel || "selected";
+            var isSelectAllPages = form && form.dataset.selectAllPages === "true";
+            var totalCount = toolbar ? toolbar.dataset.totalCount : null;
+
+            if (isSelectAllPages && totalCount) {
+                countLabel.textContent = totalCount + " " + selectedLabel;
+            } else if (checkedCount > 0) {
+                countLabel.textContent = checkedCount + " " + selectedLabel;
+            } else {
+                countLabel.textContent = "";
             }
         }
     }
@@ -72,6 +108,7 @@
     document.addEventListener("submit", onSubmit);
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
+
     window.addEventListener("popstate", function () {
         if (container()) {
             load(window.location.href, false);
