@@ -61,30 +61,43 @@
             return;
         }
 
+        var form = element.closest("form");
         var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
 
         if (element.matches("[data-select-all]")) {
             boxes.forEach(function (row) {
                 row.checked = element.checked;
             });
+            if (form) {
+                form.dataset.selectAllPages = element.checked ? "true" : "false";
+            }
         } else if (element.matches("[data-select-row]")) {
+            if (form) {
+                form.dataset.selectAllPages = "false";
+            }
             var all = table.querySelector("[data-select-all]");
             if (all) {
                 all.checked = boxes.length > 0 && boxes.every(function (box) {
                     return box.checked;
                 });
+                all.indeterminate = !all.checked && boxes.some(function (box) {
+                    return box.checked;
+                });
             }
         }
 
-        var form = element.closest("form");
         var toolbar = form ? form.querySelector(".email-bulk-toolbar") : null;
         var countLabel = toolbar ? toolbar.querySelector("[data-selected-count]") : null;
 
         if (countLabel) {
             var checkedCount = boxes.filter(function (b) { return b.checked; }).length;
             var selectedLabel = toolbar.dataset.selectedLabel || "selected";
+            var isSelectAllPages = form && form.dataset.selectAllPages === "true";
+            var totalCount = toolbar ? toolbar.dataset.totalCount : null;
 
-            if (checkedCount > 0) {
+            if (isSelectAllPages && totalCount) {
+                countLabel.textContent = totalCount + " " + selectedLabel;
+            } else if (checkedCount > 0) {
                 countLabel.textContent = checkedCount + " " + selectedLabel;
             } else {
                 countLabel.textContent = "";
@@ -92,8 +105,29 @@
         }
     }
 
+    function onBulkButtonClick(event) {
+        var btn = event.target.closest('button[type="submit"][name="op"]');
+        if (!btn) {
+            return;
+        }
+
+        var form = btn.closest("form");
+        if (!form || form.dataset.selectAllPages !== "true") {
+            return;
+        }
+
+        if (btn.value === "send" || btn.value === "discard") {
+            var originalValue = btn.value;
+            btn.value = originalValue + "_all";
+            setTimeout(function () {
+                btn.value = originalValue;
+            }, 0);
+        }
+    }
+
     document.addEventListener("submit", onSubmit);
     document.addEventListener("click", onClick);
+    document.addEventListener("click", onBulkButtonClick);
     document.addEventListener("change", onChange);
 
     window.addEventListener("popstate", function () {
