@@ -105,29 +105,8 @@
         }
     }
 
-    function onBulkButtonClick(event) {
-        var btn = event.target.closest('button[type="submit"][name="op"]');
-        if (!btn) {
-            return;
-        }
-
-        var form = btn.closest("form");
-        if (!form || form.dataset.selectAllPages !== "true") {
-            return;
-        }
-
-        if (btn.value === "send" || btn.value === "discard") {
-            var originalValue = btn.value;
-            btn.value = originalValue + "_all";
-            setTimeout(function () {
-                btn.value = originalValue;
-            }, 0);
-        }
-    }
-
     document.addEventListener("submit", onSubmit);
     document.addEventListener("click", onClick);
-    document.addEventListener("click", onBulkButtonClick);
     document.addEventListener("change", onChange);
 
     window.addEventListener("popstate", function () {
