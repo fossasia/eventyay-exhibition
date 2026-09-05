@@ -2515,9 +2515,12 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         return kwargs
 
     def batch_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(
+        qs = ExhibitionEmailQueue.objects.filter(
             event=self.request.event, batch=self.object.batch
         )
+        if self.object.sent_at is not None:
+            qs = qs.filter(sent_at__isnull=False)
+        return qs
 
     def editable_batch_queryset(self):
         return self.batch_queryset().filter(sent_at__isnull=True)
@@ -2581,6 +2584,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
+        self.object.refresh_from_db()
         if self.object.sent_at is not None:
             return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
         return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
