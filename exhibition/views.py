@@ -2498,7 +2498,7 @@ class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
 
 
 class EmailEditView(EventPermissionRequiredMixin, UpdateView):
-    """Preview and edit a queued (unsent) email before sending."""
+    """Preview and edit a queued (unsent) email before sending, or view a sent email."""
 
     model = ExhibitionEmailQueue
     form_class = ExhibitionEmailQueueForm
@@ -2507,7 +2507,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
     context_object_name = "email"
 
     def get_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+        return ExhibitionEmailQueue.objects.filter(event=self.request.event)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -2516,7 +2516,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
 
     def batch_queryset(self):
         return ExhibitionEmailQueue.objects.filter(
-            event=self.request.event, batch=self.object.batch, sent_at__isnull=True
+            event=self.request.event, batch=self.object.batch
         )
 
     def get_context_data(self, **kwargs):
@@ -2525,7 +2525,10 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
             context["recipients"] = list(self.batch_queryset().values_list("to_email", flat=True))
         else:
             context["recipients"] = [self.object.to_email]
+        context["is_sent"] = self.object.sent_at is not None
         return context
+
+
 
     def reschedule(self, rows, scheduled_at):
         from .tasks import send_scheduled_email
@@ -2567,33 +2570,17 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
             messages.success(self.request, _("The email has been saved."))
         return redirect(self.get_success_url())
 
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.sent_at is not None:
+            messages.error(self.request, _("Cannot edit a sent email."))
+            return redirect(self.get_success_url())
+        return super().post(request, *args, **kwargs)
+
     def get_success_url(self):
+        if self.object.sent_at is not None:
+            return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
         return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
-
-
-class EmailPreviewView(EventPermissionRequiredMixin, DetailView):
-    """Preview a queued (sent) email."""
-
-    model = ExhibitionEmailQueue
-    permission = EMAIL_MANAGE_PERMISSION
-    template_name = "exhibitors/email_preview.html"
-    context_object_name = "email"
-
-    def get_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=False)
-
-    def batch_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(
-            event=self.request.event, batch=self.object.batch, sent_at__isnull=False
-        )
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        if self.object.batch:
-            context["recipients"] = list(self.batch_queryset().values_list("to_email", flat=True))
-        else:
-            context["recipients"] = [self.object.to_email]
-        return context
 
 
 class EmailSendView(EventPermissionRequiredMixin, View):
