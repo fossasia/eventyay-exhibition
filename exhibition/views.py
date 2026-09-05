@@ -2519,6 +2519,9 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
             event=self.request.event, batch=self.object.batch
         )
 
+    def editable_batch_queryset(self):
+        return self.batch_queryset().filter(sent_at__isnull=True)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.object.batch:
@@ -2546,8 +2549,8 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         reschedule = "scheduled_at" in form.changed_data
 
         if self.object.batch:
-            rows = list(self.batch_queryset())
-            self.batch_queryset().update(subject=subject, body=body, scheduled_at=scheduled_at)
+            rows = list(self.editable_batch_queryset())
+            self.editable_batch_queryset().update(subject=subject, body=body, scheduled_at=scheduled_at)
             if "_send" in self.request.POST:
                 for row in rows:
                     row.subject = subject
