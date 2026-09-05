@@ -2571,6 +2571,31 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
 
 
+class EmailPreviewView(EventPermissionRequiredMixin, DetailView):
+    """Preview a queued (sent) email."""
+
+    model = ExhibitionEmailQueue
+    permission = EMAIL_MANAGE_PERMISSION
+    template_name = "exhibitors/email_preview.html"
+    context_object_name = "email"
+
+    def get_queryset(self):
+        return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=False)
+
+    def batch_queryset(self):
+        return ExhibitionEmailQueue.objects.filter(
+            event=self.request.event, batch=self.object.batch, sent_at__isnull=False
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.object.batch:
+            context["recipients"] = list(self.batch_queryset().values_list("to_email", flat=True))
+        else:
+            context["recipients"] = [self.object.to_email]
+        return context
+
+
 class EmailSendView(EventPermissionRequiredMixin, View):
     """Send a queued email (or the whole batch it belongs to)."""
 
