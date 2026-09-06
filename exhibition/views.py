@@ -611,6 +611,11 @@ class PublicExhibitorListView(ListView):
     def filter_form(self):
         return PublicExhibitorFilterForm(data=self.request.GET, event=self.request.event)
 
+    def get(self, request, *args, **kwargs):
+        if "clear" in request.GET:
+            return redirect(request.path)
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
         return self.filter_form.filter_qs(public_exhibitors_queryset(self.request.event))
 
