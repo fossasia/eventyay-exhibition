@@ -177,8 +177,6 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
 }
 
 .partner-link-actions {
-    /* Centre the small "Add ..." button on the label instead of pushing it below:
-       half the difference between a standard 34px control and this 28px button. */
     margin-top: 3px;
 }
 
@@ -217,15 +215,10 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
     }
 }
 
-/* The control theme clears Bootstrap's horizontal-form label offset, which leaves
-   every label sitting a line above the text of its own field. #page-wrapper keeps
-   this off the public request form, where Bootstrap's own offset already applies. */
 #page-wrapper .exhibition-partner-form .control-label {
     padding-top: 7px;
 }
 
-/* File pickers open with their own text line at the top of the field column, so
-   their label stays flush with that line. */
 #page-wrapper .exhibition-partner-form .form-group:has(.bootstrap3-multi-input) .control-label {
     padding-top: 0;
 }
