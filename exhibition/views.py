@@ -2534,8 +2534,6 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         context["is_sent"] = self.object.sent_at is not None
         return context
 
-
-
     def reschedule(self, rows, scheduled_at):
         from .tasks import send_scheduled_email
 
