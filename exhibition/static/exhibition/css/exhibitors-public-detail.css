@@ -387,11 +387,10 @@
 }
 
 .exhibition-session-list .pretalx-session-info .abstract {
-    display: block;
+    display: -webkit-box;
     margin: 8px 0 12px;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
-    display: -webkit-box;
     overflow: hidden;
 }
 
@@ -409,7 +408,6 @@
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    word-wrap: normal;
 }
 
 .exhibition-session-list .pretalx-session-info .track {
