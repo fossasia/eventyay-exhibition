@@ -28,9 +28,9 @@
                     <i class="fa fa-search" aria-hidden="true"></i>
                     {% trans "Search" %}
                 </button>
-                <a href="{{ request.path }}" class="btn btn-default exhibition-public-filter-reset">
-                    {% trans "Reset" %}
-                </a>
+                <button type="submit" name="clear" value="1" class="btn btn-primary exhibition-public-filter-reset">
+                    {% trans "Clear" %}
+                </button>
             </form>
             {% if exhibitors %}
                 <div class="exhibition-public-grid">

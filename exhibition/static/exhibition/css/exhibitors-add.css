@@ -177,7 +177,7 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
 }
 
 .partner-link-actions {
-    margin-top: 10px;
+    margin-top: 3px;
 }
 
 .partner-link-add {
@@ -213,4 +213,12 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
     .partner-link-remove {
         margin-top: 10px;
     }
+}
+
+#page-wrapper .exhibition-partner-form .control-label {
+    padding-top: 7px;
+}
+
+#page-wrapper .exhibition-partner-form .form-group:has(.bootstrap3-multi-input) .control-label {
+    padding-top: 0;
 }
