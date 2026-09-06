@@ -384,6 +384,12 @@ class ExhibitorInfo(LoggedModel):
     lead_scanning_scope_by_device = models.BooleanField(default=False)
     exhibitor_position = models.IntegerField(default=0)
     sponsor_position = models.IntegerField(default=0)
+    sessions = models.ManyToManyField(
+        "base.Submission",
+        blank=True,
+        related_name="exhibitors",
+        verbose_name=_("Related sessions"),
+    )
 
     class Meta:
         ordering = ("name",)

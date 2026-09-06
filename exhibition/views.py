@@ -94,6 +94,7 @@ from .utils import (
     event_voucher_settings,
     generate_exhibitor_vouchers,
     provision_exhibitor_devices,
+    public_exhibitor_sessions,
     public_exhibitors_queryset,
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
@@ -656,6 +657,7 @@ class PublicExhibitorDetailView(DetailView):
             context["next_exhibitor"] = None
 
         context["social_links"] = [serialize_social_link(link) for link in self.object.social_links.all()]
+        context["related_sessions"] = public_exhibitor_sessions(self.object, self.request.user)
 
         add_external_image_csp_sources(
             self.request,

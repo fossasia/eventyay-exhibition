@@ -51,10 +51,6 @@
                             </div>
                         {% endif %}
 
-                                </div>
-                            </div>
-                        {% endif %}
-
                         {% if exhibitor.email or exhibitor.url or social_links %}
                             <div class="exhibition-detail-description-actions">
                                 {% if exhibitor.email %}
@@ -83,6 +79,19 @@
                         {% endif %}
                     </div>
                 </article>
+
+                {% if related_sessions %}
+                    <section class="exhibition-detail-sessions" aria-labelledby="exhibition-detail-sessions-heading">
+                        <h2 id="exhibition-detail-sessions-heading">{% trans "Related sessions" %}</h2>
+                        <div class="exhibition-session-list">
+                            {% for slot in related_sessions %}
+                                <a class="exhibition-session-link" href="{{ slot.submission.urls.public }}">
+                                    {% include "agenda/session_block.html" with session=slot show_date=True DAY_MONTH_DATE_FORMAT='D j M' %}
+                                </a>
+                            {% endfor %}
+                        </div>
+                    </section>
+                {% endif %}
             </div>
         </section>
     </main>

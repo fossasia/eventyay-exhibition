@@ -155,6 +155,11 @@
             {% bootstrap_field form.booth_id layout="control" %}
         </div>
         {% endif %}
+        {% if form.sessions %}
+        <div id="sessions-wrapper">
+            {% bootstrap_field form.sessions layout="control" %}
+        </div>
+        {% endif %}
     </fieldset>
     {% endif %}
 
