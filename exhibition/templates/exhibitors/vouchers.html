@@ -129,9 +129,6 @@
                 <button type="submit" name="action" value="generate" class="btn btn-default btn-save">
                     {% trans "Assign without emailing" %}
                 </button>
-                <a class="btn btn-default" href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}">
-                    {% trans "Back" %}
-                </a>
             </div>
         </div>
     </form>
