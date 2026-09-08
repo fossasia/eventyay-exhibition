@@ -9,12 +9,6 @@
 {% endblock %}
 
 {% block exhibitors_content %}
-    <p>
-        <a class="btn btn-default" href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
-            <i class="fa fa-arrow-left"></i> {% trans "Back to outbox" %}
-        </a>
-    </p>
-
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
