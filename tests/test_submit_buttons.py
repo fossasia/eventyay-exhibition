@@ -37,7 +37,7 @@ def test_submit_buttons_in_offset_column_use_btn_save():
         assert found == expected, f"{name}: expected {expected} submits, found {found}"
 
 
-def test_back_and_cancel_in_offset_column_stay_default_size():
+def test_nav_controls_in_offset_column_do_not_use_btn_save():
     for name, expected in EXPECTED_NAV.items():
         found = 0
         for section in _wrappers(name):
