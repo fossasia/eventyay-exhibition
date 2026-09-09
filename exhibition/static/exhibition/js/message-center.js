@@ -1,8 +1,58 @@
 (function () {
     "use strict";
 
+    var store = null;
+
     function container() {
         return document.getElementById("email-list");
+    }
+
+    function selectionTable() {
+        var target = container();
+        return target ? target.querySelector("table") : null;
+    }
+
+    function rowBoxes(table) {
+        return Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
+    }
+
+    function selectionStore() {
+        if (!store) {
+            store = window.ExhibitionSelection.create();
+        }
+        return store;
+    }
+
+    /*
+     * Re-tick the rows the user picked on other pages and show the total across
+     * every page, not just the rows currently rendered.
+     */
+    function refreshSelection() {
+        var table = selectionTable();
+        if (!table) {
+            return;
+        }
+        var boxes = rowBoxes(table);
+        if (!boxes.length) {
+            return;
+        }
+        var selection = selectionStore();
+        boxes.forEach(function (box) {
+            box.checked = selection.has(box.value);
+        });
+        var all = table.querySelector("[data-select-all]");
+        if (all) {
+            var onPage = boxes.filter(function (box) {
+                return box.checked;
+            }).length;
+            all.checked = onPage === boxes.length;
+            all.indeterminate = onPage > 0 && onPage < boxes.length;
+        }
+        var label = document.querySelector("[data-email-selected-count]");
+        if (label) {
+            var total = selection.size();
+            label.textContent = total ? total + " " + (label.dataset.selectedLabel || "selected") : "";
+        }
     }
 
     function load(url, push) {
@@ -18,12 +68,16 @@
             .then(function (html) {
                 target.innerHTML = html;
                 target.classList.remove("email-list-loading");
-                target.dispatchEvent(
-                    new CustomEvent("eventyay:ajax-results-replaced", { bubbles: true, detail: { container: target } })
-                );
                 if (push) {
                     window.history.pushState({ emailList: true }, "", url);
                 }
+                // Rebuild the store against the URL we actually landed on, so a
+                // filter change drops the selection but paging keeps it.
+                store = null;
+                refreshSelection();
+                target.dispatchEvent(
+                    new CustomEvent("eventyay:ajax-results-replaced", { bubbles: true, detail: { container: target } })
+                );
             })
             .catch(function () {
                 target.classList.remove("email-list-loading");
@@ -33,12 +87,37 @@
 
     function onSubmit(event) {
         var form = event.target;
-        if (!form.matches || !form.matches("#email-list form[data-ajax]")) {
+        if (!form.matches || !form.matches("#email-list form")) {
             return;
         }
-        event.preventDefault();
-        var params = new URLSearchParams(new FormData(form)).toString();
-        load(window.location.pathname + "?" + params, true);
+        if (form.matches("[data-ajax]")) {
+            var params = new URLSearchParams(new FormData(form)).toString();
+            event.preventDefault();
+            load(window.location.pathname + "?" + params, true);
+            return;
+        }
+        var submitter = event.submitter;
+        if (!submitter || submitter.name !== "op") {
+            return;
+        }
+        // Bulk ops act on the whole cross-page selection: rows picked on other
+        // pages have no checkbox here, so send them as hidden fields.
+        var selection = selectionStore();
+        var onPage = {};
+        rowBoxes(form).forEach(function (box) {
+            onPage[box.value] = true;
+        });
+        selection.ids().forEach(function (id) {
+            if (onPage[id]) {
+                return;
+            }
+            var hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.name = "selected";
+            hidden.value = id;
+            form.appendChild(hidden);
+        });
+        selection.clear();
     }
 
     function onClick(event) {
@@ -52,20 +131,20 @@
 
     function onChange(event) {
         var element = event.target;
+        if (!element.matches) {
+            return;
+        }
         if (element.matches("[data-select-all]")) {
-            var rows = element.closest("table").querySelectorAll("[data-select-row]");
-            rows.forEach(function (row) {
-                row.checked = element.checked;
-            });
-        } else if (element.matches("[data-select-row]")) {
             var table = element.closest("table");
-            var all = table.querySelector("[data-select-all]");
-            if (all) {
-                var boxes = Array.prototype.slice.call(table.querySelectorAll("[data-select-row]"));
-                all.checked = boxes.length > 0 && boxes.every(function (box) {
-                    return box.checked;
-                });
-            }
+            var selection = selectionStore();
+            rowBoxes(table).forEach(function (row) {
+                row.checked = element.checked;
+                selection.toggle(row.value, element.checked);
+            });
+            refreshSelection();
+        } else if (element.matches("[data-select-row]")) {
+            selectionStore().toggle(element.value, element.checked);
+            refreshSelection();
         }
     }
 
@@ -77,4 +156,10 @@
             load(window.location.href, false);
         }
     });
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", refreshSelection);
+    } else {
+        refreshSelection();
+    }
 })();

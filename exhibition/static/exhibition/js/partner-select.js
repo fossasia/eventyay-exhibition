@@ -14,34 +14,35 @@
         var downloadLink = scope.querySelector('[data-partner-download-link]')
         var selectedLabel = scope.dataset.selectedLabel || 'selected'
         var baseHref = downloadLink ? downloadLink.getAttribute('href') : null
+        var store = window.ExhibitionSelection.create()
 
         function checkboxes() {
             return Array.prototype.slice.call(scope.querySelectorAll('[data-partner-checkbox]'))
         }
 
-        function selectedValues() {
-            return checkboxes()
-                .filter(function (box) {
-                    return box.checked
-                })
-                .map(function (box) {
-                    return box.value
-                })
+        function restoreSelection() {
+            checkboxes().forEach(function (box) {
+                box.checked = store.has(box.value)
+            })
         }
 
         function refreshSelection() {
             var boxes = checkboxes()
-            var selected = selectedValues()
+            var onPage = boxes.filter(function (box) {
+                return box.checked
+            }).length
+            // The count covers every page, not just the rows currently rendered.
+            var total = store.size()
             if (countLabel) {
-                countLabel.textContent = selected.length ? selected.length + ' ' + selectedLabel : ''
+                countLabel.textContent = total ? total + ' ' + selectedLabel : ''
             }
             if (selectAll) {
-                selectAll.checked = boxes.length > 0 && selected.length === boxes.length
-                selectAll.indeterminate = selected.length > 0 && selected.length < boxes.length
+                selectAll.checked = boxes.length > 0 && onPage === boxes.length
+                selectAll.indeterminate = onPage > 0 && onPage < boxes.length
             }
             if (downloadLink) {
-                downloadLink.classList.toggle('disabled', selected.length === 0)
-                downloadLink.setAttribute('aria-disabled', selected.length === 0 ? 'true' : 'false')
+                downloadLink.classList.toggle('disabled', total === 0)
+                downloadLink.setAttribute('aria-disabled', total === 0 ? 'true' : 'false')
             }
         }
 
@@ -49,6 +50,7 @@
             selectAll.addEventListener('change', function () {
                 checkboxes().forEach(function (box) {
                     box.checked = selectAll.checked
+                    store.toggle(box.value, selectAll.checked)
                 })
                 refreshSelection()
             })
@@ -56,6 +58,7 @@
 
         scope.addEventListener('change', function (event) {
             if (event.target.hasAttribute('data-partner-checkbox')) {
+                store.toggle(event.target.value, event.target.checked)
                 refreshSelection()
             }
         })
@@ -63,7 +66,7 @@
         if (downloadLink && baseHref) {
             downloadLink.addEventListener('click', function (event) {
                 event.preventDefault()
-                var selected = selectedValues()
+                var selected = store.ids()
                 if (!selected.length) {
                     return
                 }
@@ -76,6 +79,7 @@
             })
         }
 
+        restoreSelection()
         refreshSelection()
     }
 
