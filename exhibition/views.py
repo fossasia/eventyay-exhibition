@@ -2751,14 +2751,24 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         batches = [batch for batch in base.filter(pk__in=selected).values_list("batch", flat=True) if batch]
         return base.filter(Q(pk__in=selected) | Q(batch__in=batches))
 
+    def outbox_redirect(self, request, done=False):
+        """Back to the outbox. ``?bulk=done`` tells the page its selection was consumed.
+
+        Only set it once rows have actually been sent or discarded, so a cancelled
+        confirmation or a request that did nothing leaves the selection to retry.
+        """
+        response = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
+        if done:
+            response["Location"] += "?bulk=done"
+        return response
+
     def post(self, request, *args, **kwargs):
         op = request.POST.get("op", "")
         action = "send" if op.startswith("send") else "discard" if op.startswith("discard") else None
         scope = "all" if op.endswith("_all") else "selected"
-        outbox_url = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
 
         if action is None:
-            return outbox_url
+            return self.outbox_redirect(request)
 
         rows = self.target_rows(request, scope)
 
@@ -2775,7 +2785,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request, done=bool(count))
 
         if request.POST.get("confirmed"):
             count = rows.count()
@@ -2788,12 +2798,12 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request, done=bool(count))
 
         count = rows.count()
         if not count:
             messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request)
         return render(
             request,
             "exhibitors/email_bulk_discard.html",

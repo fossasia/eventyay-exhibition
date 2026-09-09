@@ -8,6 +8,8 @@
 {% endblock %}
 
 {% block exhibitors_content %}
+    {# Part of the list's own flow: cancelling must not drop the list selection. #}
+    <span data-selection-passthrough hidden></span>
     <form action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}" method="post">
         {% csrf_token %}
         <input type="hidden" name="op" value="{% if scope == 'all' %}discard_all{% else %}discard{% endif %}">

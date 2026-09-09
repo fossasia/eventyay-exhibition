@@ -55,6 +55,25 @@
         }
     }
 
+    /*
+     * A bulk operation that actually sent or discarded rows redirects back with
+     * ?bulk=done: those rows are gone, so the selection goes with them. Doing it
+     * here rather than at submit time means a cancelled discard confirmation, a
+     * failed request, or an op that matched nothing leaves the selection intact
+     * for the user to retry.
+     */
+    function consumeBulkResult() {
+        var params = new URLSearchParams(window.location.search);
+        if (!params.has("bulk")) {
+            return;
+        }
+        selectionStore().clear();
+        params.delete("bulk");
+        var query = params.toString();
+        window.history.replaceState({}, "", window.location.pathname + (query ? "?" + query : ""));
+        store = null;
+    }
+
     function load(url, push) {
         var target = container();
         if (!target) {
@@ -117,7 +136,6 @@
             hidden.value = id;
             form.appendChild(hidden);
         });
-        selection.clear();
     }
 
     function onClick(event) {
@@ -157,9 +175,14 @@
         }
     });
 
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", refreshSelection);
-    } else {
+    function onReady() {
+        consumeBulkResult();
         refreshSelection();
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", onReady);
+    } else {
+        onReady();
     }
 })();

@@ -86,7 +86,11 @@
         var current = window.location.pathname
         try {
             var previous = storage.getItem(LAST_PATH_KEY)
-            storage.setItem(LAST_PATH_KEY, current)
+            // A bulk-action confirmation belongs to the list that opened it, so it
+            // leaves the marker untouched: cancelling returns you to your selection.
+            if (!document.querySelector('[data-selection-passthrough]')) {
+                storage.setItem(LAST_PATH_KEY, current)
+            }
             return previous === current
         } catch (err) {
             return false
