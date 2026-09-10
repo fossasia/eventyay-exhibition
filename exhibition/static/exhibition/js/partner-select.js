@@ -14,7 +14,7 @@
         var downloadLink = scope.querySelector('[data-partner-download-link]')
         var selectedLabel = scope.dataset.selectedLabel || 'selected'
         var baseHref = downloadLink ? downloadLink.getAttribute('href') : null
-        var store = window.ExhibitionSelection.create()
+        var store = window.ExhibitionSelection.create({ scope: scope })
 
         function checkboxes() {
             return Array.prototype.slice.call(scope.querySelectorAll('[data-partner-checkbox]'))

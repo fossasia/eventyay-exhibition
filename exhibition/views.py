@@ -2,6 +2,7 @@ import io
 import json
 
 from defusedcsv import csv
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
@@ -191,6 +192,11 @@ class PublicCallEnabledMixin:
 class FilteredListMixin(PaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
+    # Field whose values back the list's row checkboxes. Lists that set it expose
+    # every value still in the filtered result as ``selectable_ids``, so the
+    # cross-page selection can drop rows removed since they were picked.
+    selection_field = None
+
     def build_filter_form(self):
         raise NotImplementedError
 
@@ -208,6 +214,8 @@ class FilteredListMixin(PaginationMixin):
         context["filter_form"] = self.filter_form
         context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form)
         context["advanced_filter_count"] = advanced_filter_count(self.filter_form)
+        if self.selection_field:
+            context["selectable_ids"] = list(self.object_list.order_by().values_list(self.selection_field, flat=True))
         return context
 
 
@@ -500,6 +508,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
     permission = ("can_change_event_settings", "can_view_orders")
     template_name = "exhibitors/exhibitor_info.html"
     context_object_name = "exhibitors"
+    selection_field = "pk"
     partner_type = None
 
     def build_filter_form(self):
@@ -1302,6 +1311,7 @@ class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_list.html"
     context_object_name = "proposals"
+    selection_field = "code"
 
     @cached_property
     def hide_applicant_emails(self):
@@ -2579,6 +2589,17 @@ class EmailListMixin(FilteredListMixin):
         return [self.template_name]
 
 
+def bulk_email_selection_limit():
+    """Most rows a bulk email request can carry, or ``None`` when Django sets no cap.
+
+    Each selected row is its own POST field, and Django rejects a request with
+    more than ``DATA_UPLOAD_MAX_NUMBER_FIELDS`` of them. The discard confirmation
+    re-posts the selection alongside the CSRF token, ``op`` and ``confirmed``.
+    """
+    limit = django_settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+    return None if limit is None else limit - 3
+
+
 class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
     """Unsent queued emails awaiting organiser review."""
 
@@ -2587,9 +2608,15 @@ class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView
     template_name = "exhibitors/email_outbox.html"
     partial_template_name = "exhibitors/_email_outbox_body.html"
     date_field = "created"
+    selection_field = "pk"
 
     def base_queryset(self):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["selection_limit"] = bulk_email_selection_limit()
+        return context
 
 
 class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):

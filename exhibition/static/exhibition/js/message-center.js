@@ -18,9 +18,20 @@
 
     function selectionStore() {
         if (!store) {
-            store = window.ExhibitionSelection.create();
+            store = window.ExhibitionSelection.create({ scope: selectionTable() });
         }
         return store;
+    }
+
+    /*
+     * Every carried row is its own POST field, and Django rejects a request with
+     * more than DATA_UPLOAD_MAX_NUMBER_FIELDS of them, so the server renders how
+     * many a bulk op can take.
+     */
+    function selectionLimit() {
+        var warning = document.querySelector("[data-email-selection-limit]");
+        var limit = warning ? parseInt(warning.dataset.emailSelectionLimit, 10) : NaN;
+        return isNaN(limit) ? Infinity : limit;
     }
 
     /*
@@ -32,11 +43,8 @@
         if (!table) {
             return;
         }
-        var boxes = rowBoxes(table);
-        if (!boxes.length) {
-            return;
-        }
         var selection = selectionStore();
+        var boxes = rowBoxes(table);
         boxes.forEach(function (box) {
             box.checked = selection.has(box.value);
         });
@@ -45,14 +53,27 @@
             var onPage = boxes.filter(function (box) {
                 return box.checked;
             }).length;
-            all.checked = onPage === boxes.length;
+            all.checked = boxes.length > 0 && onPage === boxes.length;
             all.indeterminate = onPage > 0 && onPage < boxes.length;
         }
+        var total = selection.size();
         var label = document.querySelector("[data-email-selected-count]");
         if (label) {
-            var total = selection.size();
             label.textContent = total ? total + " " + (label.dataset.selectedLabel || "selected") : "";
         }
+        var warning = document.querySelector("[data-email-selection-limit]");
+        if (warning) {
+            warning.hidden = total <= selectionLimit();
+        }
+    }
+
+    // Hidden inputs a previous submit carried into the form. They outlive a
+    // blocked submit or a back/forward-cache restore, so they are always
+    // cleared before the next submit adds the current selection.
+    function dropCarried(root) {
+        Array.prototype.slice.call(root.querySelectorAll("[data-selection-carried]")).forEach(function (input) {
+            input.remove();
+        });
     }
 
     /*
@@ -115,13 +136,21 @@
             load(window.location.pathname + "?" + params, true);
             return;
         }
+        dropCarried(form);
         var submitter = event.submitter;
-        if (!submitter || submitter.name !== "op") {
+        // "Send all" and "Discard all" ignore the selection; only the
+        // selected-rows ops need it.
+        if (!submitter || submitter.name !== "op" || (submitter.value !== "send" && submitter.value !== "discard")) {
+            return;
+        }
+        var selection = selectionStore();
+        if (selection.size() > selectionLimit()) {
+            event.preventDefault();
+            refreshSelection();
             return;
         }
         // Bulk ops act on the whole cross-page selection: rows picked on other
         // pages have no checkbox here, so send them as hidden fields.
-        var selection = selectionStore();
         var onPage = {};
         rowBoxes(form).forEach(function (box) {
             onPage[box.value] = true;
@@ -134,6 +163,7 @@
             hidden.type = "hidden";
             hidden.name = "selected";
             hidden.value = id;
+            hidden.setAttribute("data-selection-carried", "");
             form.appendChild(hidden);
         });
     }
@@ -173,6 +203,17 @@
         if (container()) {
             load(window.location.href, false);
         }
+    });
+    window.addEventListener("pageshow", function (event) {
+        var target = container();
+        if (!event.persisted || !target) {
+            return;
+        }
+        // Restored from the back/forward cache: drop what the last submit
+        // carried and re-read the selection, which may have changed since.
+        dropCarried(target);
+        store = null;
+        refreshSelection();
     });
 
     function onReady() {

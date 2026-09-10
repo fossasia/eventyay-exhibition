@@ -25,9 +25,16 @@
             <span class="text-muted" data-email-selected-count
                   data-selected-label="{% trans "selected" %}"></span>
         </div>
+        {% if selection_limit %}
+            <p class="text-danger" data-email-selection-limit="{{ selection_limit }}" hidden>
+                {% blocktrans trimmed with limit=selection_limit %}
+                    At most {{ limit }} emails can be sent or discarded at once. Deselect some, or use "Send all" or "Discard all".
+                {% endblocktrans %}
+            </p>
+        {% endif %}
     {% endif %}
     <div class="table-responsive">
-        <table class="table table-hover">
+        <table class="table table-hover" data-selection-ids="{{ selectable_ids|join:' ' }}">
             <thead>
             <tr>
                 <th class="email-select"><input type="checkbox" data-select-all></th>
@@ -42,7 +49,8 @@
             {% for entry in entries %}
                 <tr>
                     <td class="email-select">
-                        <input type="checkbox" name="selected" value="{{ entry.pk }}" data-select-row>
+                        {# The selection is kept in sessionStorage, so ticking a row is not an unsaved change for are-you-sure. #}
+                        <input type="checkbox" name="selected" value="{{ entry.pk }}" data-select-row data-ays-ignore="true">
                     </td>
                     <td>
                         <span class="email-recipients" title="{{ entry.recipients|join:', ' }}"

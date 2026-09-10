@@ -33,7 +33,7 @@
         var bulkHint = container.querySelector('[data-proposal-bulk-hint]')
         var bulkReasons = bulkBar ? bulkBar.dataset : {}
         var selectAllAcrossPages = false
-        var store = window.ExhibitionSelection.create()
+        var store = window.ExhibitionSelection.create({ scope: container })
 
         function allResultsSelected() {
             return selectAllAcrossPages && store.size() > 0

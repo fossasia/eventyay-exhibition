@@ -102,6 +102,20 @@
     var continued = continuesSameList()
     var started = {}
 
+    // Ids the list still contains, from the data-selection-ids attribute the
+    // server renders; null when the element does not carry one.
+    function presentIds(element) {
+        if (!element || !element.hasAttribute('data-selection-ids')) {
+            return null
+        }
+        return element.getAttribute('data-selection-ids').split(' ').filter(Boolean)
+    }
+
+    /*
+     * options.scope: element carrying data-selection-ids. Stored ids missing from
+     * it were deleted or acted on since they were picked, so they are dropped
+     * rather than inflating the count with rows the server would ignore.
+     */
     function create(options) {
         var settings = options || {}
         var key = settings.key || window.location.pathname
@@ -116,6 +130,18 @@
         }
         if (!state || state.signature !== signature || !state.items) {
             state = { signature: signature, items: {} }
+        }
+        var present = presentIds(settings.scope)
+        if (present) {
+            var keep = {}
+            present.forEach(function (id) {
+                keep[id] = true
+            })
+            Object.keys(state.items).forEach(function (id) {
+                if (!keep[id]) {
+                    delete state.items[id]
+                }
+            })
         }
         write(key, state)
 
