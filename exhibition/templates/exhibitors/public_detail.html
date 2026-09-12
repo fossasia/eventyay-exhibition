@@ -105,13 +105,8 @@
                             </div>
                         {% endif %}
 
-                        {% if exhibitor.email or exhibitor.url or social_links or extra_links %}
+                        {% if exhibitor.url or social_links or extra_links %}
                             <div class="exhibition-detail-description-actions">
-                                {% if exhibitor.email %}
-                                    <a class="exhibition-detail-icon-link" href="mailto:{{ exhibitor.email }}" aria-label="{% trans 'Send email' %}" title="{% trans 'Send email' %}">
-                                        <i class="fa fa-envelope-o" aria-hidden="true"></i>
-                                    </a>
-                                {% endif %}
                                 {% for social_link in social_links %}
                                     <a class="exhibition-detail-icon-link exhibition-detail-icon-link--{{ social_link.key }}" href="{{ social_link.url }}" target="_blank" rel="noopener noreferrer" aria-label="{{ social_link.label }}" title="{{ social_link.label }}">
                                         {% if social_link.icon_class %}
@@ -138,6 +133,19 @@
                         {% endif %}
                     </div>
                 </article>
+
+                {% if related_sessions %}
+                    <section class="exhibition-detail-sessions" aria-labelledby="exhibition-detail-sessions-heading">
+                        <h2 id="exhibition-detail-sessions-heading">{% trans "Related sessions" %}</h2>
+                        <div class="exhibition-session-list">
+                            {% for slot in related_sessions %}
+                                <a class="exhibition-session-link" href="{{ slot.submission.urls.public }}">
+                                    {% include "agenda/session_block.html" with session=slot show_date=True DAY_MONTH_DATE_FORMAT='D j M' %}
+                                </a>
+                            {% endfor %}
+                        </div>
+                    </section>
+                {% endif %}
             </div>
         </section>
     </main>

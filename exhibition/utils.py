@@ -5,8 +5,11 @@ from urllib.parse import parse_qs, quote_plus, urlparse
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
+from django_scopes import scope
+from eventyay.base.models import TalkSlot
 from eventyay.common.urls import get_url_origin, normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
+from eventyay.talk_rules.agenda import is_agenda_visible
 from i18nfield.strings import LazyI18nString
 
 if TYPE_CHECKING:
@@ -71,6 +74,24 @@ def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
         .prefetch_related("social_links", "extra_links")
         .order_by("exhibitor_position", "name", "pk")
     )
+
+
+def public_exhibitor_sessions(exhibitor: "ExhibitorInfo", user) -> list[TalkSlot]:
+    """Scheduled slots for an exhibitor's sessions that are live on the published schedule."""
+    event = exhibitor.event
+    with scope(event=event):
+        if not is_agenda_visible(user, event):
+            return []
+        return list(
+            TalkSlot.objects.filter(
+                schedule=event.current_schedule,
+                is_visible=True,
+                submission__in=exhibitor.sessions.all(),
+            )
+            .select_related("submission", "submission__track", "room")
+            .prefetch_related("submission__speakers")
+            .order_by("start", "pk")
+        )
 
 
 def allow_blob_image_previews(request):

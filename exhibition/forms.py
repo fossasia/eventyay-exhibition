@@ -13,12 +13,14 @@ from django.utils import timezone
 from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
 from django_countries.fields import CountryField
+from django_scopes import scope
 from eventyay.base.forms import I18nFormSet, I18nModelForm, SettingsForm
 from eventyay.base.forms.widgets import (
     DatePickerWidget,
     SplitDateTimePickerWidget,
     TimePickerWidget,
 )
+from eventyay.base.models import Submission, SubmissionStates
 from eventyay.base.templatetags.rich_text import compile_email_body
 from eventyay.common.forms.fields import I18nEmailBodyFormField
 from eventyay.common.forms.mixins import (
@@ -205,6 +207,21 @@ class ExhibitionQuestionFieldsMixin:
                 answer.options.clear()
 
 
+class SessionSelectWidget(forms.CheckboxSelectMultiple):
+    template_name = "exhibitors/session_select.html"
+    option_template_name = "exhibitors/session_select_option.html"
+
+
+class SessionChoiceField(forms.ModelMultipleChoiceField):
+    widget = SessionSelectWidget
+
+    def label_from_instance(self, obj: Submission) -> str:
+        speakers = obj.display_speaker_names
+        if speakers:
+            return f"{obj.title} — {speakers}"
+        return str(obj.title)
+
+
 class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     sponsor_group = forms.ModelChoiceField(
         queryset=SponsorGroup.objects.none(),
@@ -262,6 +279,14 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         required=False,
         label=_("Booth ID"),
     )
+    sessions = SessionChoiceField(
+        queryset=Submission.objects.none(),
+        required=False,
+        label=_("Related sessions"),
+        help_text=_(
+            "Sessions to show on this partner's public page. Only sessions on the published schedule are shown there."
+        ),
+    )
 
     file_url_fields = {
         "slides": "slides_url",
@@ -291,6 +316,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "allow_voucher_access",
             "allow_lead_access",
             "lead_scanning_scope_by_device",
+            "sessions",
         ]
         labels = {
             "name": _("Organization name"),
@@ -342,8 +368,9 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self.partner_type = kwargs.pop("partner_type", None)
         event = kwargs.get("event")
         instance = kwargs.get("instance")
-        super().__init__(*args, **kwargs)
         self.event = event or getattr(instance, "event", None)
+        with scope(event=self.event):
+            super().__init__(*args, **kwargs)
         if self.partner_type == "sponsor":
             self._drop_fields(self.EXHIBITOR_ONLY_FIELDS + ("is_sponsor",))
         elif self.partner_type == "exhibitor":
@@ -351,6 +378,18 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if "sponsor_group" in self.fields:
             self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("pk")
             self.fields["sponsor_group"].empty_label = _("No sponsor group")
+        if self.event:
+            with scope(event=self.event):
+                self.fields["sessions"].queryset = (
+                    Submission.objects.filter(
+                        event=self.event,
+                        state__in=SubmissionStates.accepted_states,
+                    )
+                    .prefetch_related("speakers")
+                    .order_by("title")
+                )
+        else:
+            self._drop_fields(("sessions",))
         for field_name in ("logo", "header_image"):
             self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
@@ -598,7 +637,8 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
         if commit:
             instance.save()
-            self.save_m2m()
+            with scope(event=instance.event):
+                self.save_m2m()
             if self.linked_proposal:
                 self.save_exhibition_questions(self.linked_proposal)
             if files_to_delete:

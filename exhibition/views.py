@@ -98,6 +98,7 @@ from .utils import (
     event_voucher_settings,
     pool_remaining,
     provision_exhibitor_devices,
+    public_exhibitor_sessions,
     public_exhibitors_queryset,
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
@@ -672,6 +673,7 @@ class PublicExhibitorDetailView(DetailView):
         context["extra_links"] = list(self.object.extra_links.all())
         context["video_embed"] = build_exhibitor_video_embed(self.object.video_url or "")
         context["slides_document_url"] = self.object.visible_slides_url
+        context["related_sessions"] = public_exhibitor_sessions(self.object, self.request.user)
 
         add_external_image_csp_sources(
             self.request,

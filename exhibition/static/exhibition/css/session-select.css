@@ -1,0 +1,138 @@
+.exhibition-session-select {
+    position: relative;
+}
+
+.exhibition-session-field {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 34px;
+    height: auto;
+    padding: 5px 28px 5px 10px;
+    cursor: pointer;
+}
+
+.exhibition-session-select.is-open .exhibition-session-field {
+    border-color: #66afe9;
+}
+
+.exhibition-session-placeholder {
+    color: #999;
+}
+
+.exhibition-session-caret {
+    position: absolute;
+    top: 11px;
+    right: 10px;
+    font-size: 11px;
+    color: #888;
+    pointer-events: none;
+}
+
+.exhibition-session-select.is-open .exhibition-session-caret {
+    transform: rotate(180deg);
+}
+
+.exhibition-session-chips {
+    display: contents;
+}
+
+.exhibition-session-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 2px 4px 2px 8px;
+    border: 1px solid #c9dcea;
+    border-radius: 3px;
+    background: #eaf3fa;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.exhibition-session-chip-label {
+    overflow-wrap: anywhere;
+}
+
+.exhibition-session-chip-remove {
+    border: 0;
+    background: none;
+    padding: 0 4px;
+    color: #5a7c93;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.exhibition-session-chip-remove:hover,
+.exhibition-session-chip-remove:focus {
+    color: #a94442;
+}
+
+.exhibition-session-panel {
+    position: absolute;
+    z-index: 1000;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.175);
+}
+
+.exhibition-session-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.exhibition-session-search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.exhibition-session-clear {
+    flex: 0 0 auto;
+}
+
+.exhibition-session-list {
+    list-style: none;
+    margin: 0;
+    padding: 5px 0;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.exhibition-session-option {
+    padding: 6px 12px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.exhibition-session-option:hover,
+.exhibition-session-option:focus {
+    background: #f5f5f5;
+}
+
+.exhibition-session-option input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+    margin: 0;
+}
+
+.exhibition-session-option-label {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.exhibition-session-empty {
+    margin: 0;
+    padding: 10px 12px;
+    color: #777;
+}

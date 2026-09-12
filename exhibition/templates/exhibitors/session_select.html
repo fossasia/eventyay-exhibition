@@ -1,0 +1,48 @@
+{% load i18n %}
+<div class="exhibition-session-select" data-session-select>
+  <div class="form-control exhibition-session-field"
+       data-session-field
+       role="combobox"
+       tabindex="0"
+       aria-expanded="false"
+       aria-haspopup="listbox"
+       aria-controls="{{ widget.attrs.id }}-session-panel">
+    <span class="exhibition-session-chips" data-session-chips data-remove-label="{% translate 'Remove' %}"></span>
+    <span class="exhibition-session-placeholder" data-session-placeholder>
+      {% translate 'No sessions selected' %}
+    </span>
+    <span class="exhibition-session-caret fa fa-chevron-down" aria-hidden="true"></span>
+  </div>
+
+  <div class="exhibition-session-panel" id="{{ widget.attrs.id }}-session-panel" data-session-panel hidden>
+    <div class="exhibition-session-panel-head">
+      <input type="search"
+             class="form-control exhibition-session-search"
+             data-session-search
+             placeholder="{% translate 'Search sessions…' %}"
+             autocomplete="off"
+             aria-label="{% translate 'Search sessions' %}">
+      <button type="button" class="btn btn-default exhibition-session-clear" data-session-deselect-all>
+        {% translate 'Deselect all' %}
+      </button>
+    </div>
+
+    <ul class="exhibition-session-list" data-session-list role="listbox" aria-multiselectable="true">
+      {% for group, options, index in widget.optgroups %}
+        {% for option in options %}
+          <li class="exhibition-session-option"
+              data-session-option
+              data-session-label="{{ option.label }}"
+              role="option"
+              aria-selected="{% if option.attrs.checked %}true{% else %}false{% endif %}">
+            {% include option.template_name with widget=option %}
+          </li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+
+    <p class="exhibition-session-empty" data-session-empty hidden>
+      {% translate 'No sessions match your search.' %}
+    </p>
+  </div>
+</div>
