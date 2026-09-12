@@ -740,7 +740,6 @@ def test_outbox_lists_every_selectable_row_not_just_the_current_page(mail_event)
     context = _outbox_context(mail_event, page_size=1)
 
     assert len(context["entries"]) == 1
-    # A batch is one row, keyed by its lowest pk, just like its checkbox.
     assert sorted(context["selectable_ids"]) == sorted([min(row.pk for row in batch), single.pk])
 
 

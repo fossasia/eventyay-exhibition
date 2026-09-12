@@ -20,25 +20,27 @@
             return Array.prototype.slice.call(scope.querySelectorAll('[data-partner-checkbox]'))
         }
 
-        function restoreSelection() {
-            checkboxes().forEach(function (box) {
-                box.checked = store.has(box.value)
-            })
+        function selectableIds() {
+            return (
+                store.available() ||
+                checkboxes().map(function (box) {
+                    return box.value
+                })
+            )
         }
 
         function refreshSelection() {
-            var boxes = checkboxes()
-            var onPage = boxes.filter(function (box) {
-                return box.checked
-            }).length
-            // The count covers every page, not just the rows currently rendered.
+            checkboxes().forEach(function (box) {
+                box.checked = store.has(box.value)
+            })
             var total = store.size()
+            var selectable = selectableIds().length
             if (countLabel) {
                 countLabel.textContent = total ? total + ' ' + selectedLabel : ''
             }
             if (selectAll) {
-                selectAll.checked = boxes.length > 0 && onPage === boxes.length
-                selectAll.indeterminate = onPage > 0 && onPage < boxes.length
+                selectAll.checked = selectable > 0 && total === selectable
+                selectAll.indeterminate = total > 0 && total < selectable
             }
             if (downloadLink) {
                 downloadLink.classList.toggle('disabled', total === 0)
@@ -48,10 +50,11 @@
 
         if (selectAll) {
             selectAll.addEventListener('change', function () {
-                checkboxes().forEach(function (box) {
-                    box.checked = selectAll.checked
-                    store.toggle(box.value, selectAll.checked)
-                })
+                if (selectAll.checked) {
+                    store.addAll(selectableIds())
+                } else {
+                    store.clear()
+                }
                 refreshSelection()
             })
         }
@@ -70,6 +73,12 @@
                 if (!selected.length) {
                     return
                 }
+                if (selected.length === selectableIds().length) {
+                    var filtered = new URLSearchParams(window.location.search)
+                    filtered.set('download', 'yes')
+                    window.location.href = window.location.pathname + '?' + filtered.toString()
+                    return
+                }
                 var params = selected
                     .map(function (value) {
                         return 'pk=' + encodeURIComponent(value)
@@ -79,7 +88,6 @@
             })
         }
 
-        restoreSelection()
         refreshSelection()
     }
 

@@ -49,7 +49,6 @@
             {% for entry in entries %}
                 <tr>
                     <td class="email-select">
-                        {# The selection is kept in sessionStorage, so ticking a row is not an unsaved change for are-you-sure. #}
                         <input type="checkbox" name="selected" value="{{ entry.pk }}" data-select-row data-ays-ignore="true">
                     </td>
                     <td>

@@ -192,9 +192,6 @@ class PublicCallEnabledMixin:
 class FilteredListMixin(PaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
-    # Field whose values back the list's row checkboxes. Lists that set it expose
-    # every value still in the filtered result as ``selectable_ids``, so the
-    # cross-page selection can drop rows removed since they were picked.
     selection_field = None
 
     def build_filter_form(self):

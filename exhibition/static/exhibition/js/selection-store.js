@@ -1,20 +1,9 @@
-/*
- * Cross-page selection for the paginated exhibition lists.
- *
- * Checkbox state used to live only in the DOM, so paginating a list threw the
- * selection away. This keeps it in sessionStorage instead, keyed by the list's
- * path, so it survives pagination, sorting and page-size changes while still
- * resetting when the filters change or the list is left.
- */
 ;(function () {
     'use strict'
 
     var PREFIX = 'exhibition:selection:'
-
-    // Query parameters that move you around a result set without changing it.
-    // Everything else counts as a filter, and changing a filter drops the
-    // selection because the user is now looking at a different list.
     var VOLATILE_PARAMS = ['page', 'page_size', 'ordering']
+    var LAST_PATH_KEY = PREFIX + 'last-path'
 
     function openStorage() {
         try {
@@ -24,7 +13,6 @@
             storage.removeItem(probe)
             return storage
         } catch (err) {
-            // Private mode or blocked storage: fall back to per-page selection.
             return null
         }
     }
@@ -49,7 +37,7 @@
         try {
             storage.setItem(PREFIX + key, JSON.stringify(state))
         } catch (err) {
-            // Quota exhausted: the selection just stops persisting.
+            return
         }
     }
 
@@ -65,20 +53,6 @@
         return pairs.sort().join('&')
     }
 
-    var LAST_PATH_KEY = PREFIX + 'last-path'
-
-    /*
-     * True when this page load continues browsing the same list, i.e. a
-     * pagination or sort click, a reload, or a step back to another page of it.
-     * Arriving from anywhere else -- the dashboard, another list -- means the
-     * list was left, so the stored selection is dropped.
-     *
-     * document.referrer cannot answer this: the control panel ships
-     * <meta name="referrer" content="origin">, so it never carries a path.
-     * Instead every exhibition page records its own path as it loads (this
-     * module is pulled in from exhibitors/base.html), and the previous value is
-     * where the user just came from.
-     */
     function continuesSameList() {
         if (!storage) {
             return false
@@ -86,8 +60,6 @@
         var current = window.location.pathname
         try {
             var previous = storage.getItem(LAST_PATH_KEY)
-            // A bulk-action confirmation belongs to the list that opened it, so it
-            // leaves the marker untouched: cancelling returns you to your selection.
             if (!document.querySelector('[data-selection-passthrough]')) {
                 storage.setItem(LAST_PATH_KEY, current)
             }
@@ -97,13 +69,9 @@
         }
     }
 
-    // Evaluated once per page load; init() may run again after an AJAX refresh
-    // and must not re-drop a selection the user is still building.
     var continued = continuesSameList()
     var started = {}
 
-    // Ids the list still contains, from the data-selection-ids attribute the
-    // server renders; null when the element does not carry one.
     function presentIds(element) {
         if (!element || !element.hasAttribute('data-selection-ids')) {
             return null
@@ -111,11 +79,6 @@
         return element.getAttribute('data-selection-ids').split(' ').filter(Boolean)
     }
 
-    /*
-     * options.scope: element carrying data-selection-ids. Stored ids missing from
-     * it were deleted or acted on since they were picked, so they are dropped
-     * rather than inflating the count with rows the server would ignore.
-     */
     function create(options) {
         var settings = options || {}
         var key = settings.key || window.location.pathname
@@ -160,6 +123,12 @@
                 state.items[id] = meta || {}
                 persist()
             },
+            addAll: function (ids, metaFor) {
+                ids.forEach(function (id) {
+                    state.items[id] = (metaFor ? metaFor(id) : null) || state.items[id] || {}
+                })
+                persist()
+            },
             remove: function (id) {
                 delete state.items[id]
                 persist()
@@ -174,6 +143,9 @@
             },
             ids: function () {
                 return Object.keys(state.items)
+            },
+            available: function () {
+                return present ? present.slice() : null
             },
             size: function () {
                 return Object.keys(state.items).length

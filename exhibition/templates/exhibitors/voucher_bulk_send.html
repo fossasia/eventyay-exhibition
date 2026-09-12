@@ -8,7 +8,6 @@
 {% endblock %}
 
 {% block exhibitors_content %}
-    {# Part of the list's own flow: cancelling must not drop the list selection. #}
     <span data-selection-passthrough hidden></span>
     <form action="?{{ query_string }}" method="post">
         {% csrf_token %}

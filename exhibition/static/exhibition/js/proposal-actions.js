@@ -32,11 +32,20 @@
         var bulkBar = container.querySelector('.proposal-bulk-bar')
         var bulkHint = container.querySelector('[data-proposal-bulk-hint]')
         var bulkReasons = bulkBar ? bulkBar.dataset : {}
-        var selectAllAcrossPages = false
         var store = window.ExhibitionSelection.create({ scope: container })
 
+        function selectableIds() {
+            return (
+                store.available() ||
+                checkboxes().map(function (box) {
+                    return box.value
+                })
+            )
+        }
+
         function allResultsSelected() {
-            return selectAllAcrossPages && store.size() > 0
+            var selectable = selectableIds().length
+            return selectable > 0 && store.size() === selectable
         }
 
         function filterParams() {
@@ -57,27 +66,28 @@
             return Array.prototype.slice.call(container.querySelectorAll('[data-proposal-checkbox]'))
         }
 
-        // Which bulk actions a row allows travels with the selection, so a
-        // request picked on page 1 is still filtered correctly from page 3.
         function metaFor(box) {
             return {
                 actions: (box.dataset.proposalBulkActions || '').split(' ').filter(Boolean),
             }
         }
 
-        function restoreSelection() {
+        function metaLookup() {
+            var known = {}
             checkboxes().forEach(function (box) {
-                box.checked = store.has(box.value)
-                if (box.checked) {
+                known[box.value] = metaFor(box)
+            })
+            return function (code) {
+                return known[code] || null
+            }
+        }
+
+        function refreshMeta() {
+            checkboxes().forEach(function (box) {
+                if (store.has(box.value)) {
                     store.add(box.value, metaFor(box))
                 }
             })
-        }
-
-        function selectedOnPage() {
-            return checkboxes().filter(function (box) {
-                return box.checked
-            }).length
         }
 
         function eligibleFor(action) {
@@ -96,10 +106,10 @@
         }
 
         function refreshSelection() {
-            var boxes = checkboxes()
-            var onPage = selectedOnPage()
+            checkboxes().forEach(function (box) {
+                box.checked = store.has(box.value)
+            })
             var count = store.size()
-            var pageFullySelected = boxes.length > 0 && onPage === boxes.length
             var acrossPages = allResultsSelected()
             var hints = []
             bulkButtons.forEach(function (button) {
@@ -124,12 +134,11 @@
                 bulkHint.hidden = hints.length === 0
             }
             if (countLabel) {
-                var shown = acrossPages ? bulkReasons.proposalTotal : count
-                countLabel.textContent = count ? shown + ' ' + (i18n.selected || '') : ''
+                countLabel.textContent = count ? count + ' ' + (i18n.selected || '') : ''
             }
             if (selectAll) {
-                selectAll.checked = pageFullySelected
-                selectAll.indeterminate = onPage > 0 && !pageFullySelected
+                selectAll.checked = acrossPages
+                selectAll.indeterminate = count > 0 && !acrossPages
             }
         }
 
@@ -252,10 +261,8 @@
                 })
                 .then(function (payload) {
                     if (payload.ok && payload.data.ok) {
-                        // The rows have been acted on, so they leave the selection.
                         if (acrossPages) {
                             store.clear()
-                            selectAllAcrossPages = false
                         } else {
                             codes.forEach(function (code) {
                                 store.remove(code)
@@ -361,24 +368,23 @@
 
         if (selectAll) {
             selectAll.addEventListener('change', function () {
-                selectAllAcrossPages = selectAll.checked
-                checkboxes().forEach(function (box) {
-                    box.checked = selectAll.checked
-                    store.toggle(box.value, selectAll.checked, metaFor(box))
-                })
+                if (selectAll.checked) {
+                    store.addAll(selectableIds(), metaLookup())
+                } else {
+                    store.clear()
+                }
                 refreshSelection()
             })
         }
 
         container.addEventListener('change', function (event) {
             if (event.target.matches('[data-proposal-checkbox]')) {
-                selectAllAcrossPages = false
                 store.toggle(event.target.value, event.target.checked, metaFor(event.target))
                 refreshSelection()
             }
         })
 
-        restoreSelection()
+        refreshMeta()
         refreshSelection()
     }
 

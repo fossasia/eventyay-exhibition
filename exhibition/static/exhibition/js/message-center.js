@@ -23,21 +23,21 @@
         return store;
     }
 
-    /*
-     * Every carried row is its own POST field, and Django rejects a request with
-     * more than DATA_UPLOAD_MAX_NUMBER_FIELDS of them, so the server renders how
-     * many a bulk op can take.
-     */
     function selectionLimit() {
         var warning = document.querySelector("[data-email-selection-limit]");
         var limit = warning ? parseInt(warning.dataset.emailSelectionLimit, 10) : NaN;
         return isNaN(limit) ? Infinity : limit;
     }
 
-    /*
-     * Re-tick the rows the user picked on other pages and show the total across
-     * every page, not just the rows currently rendered.
-     */
+    function selectableIds(table) {
+        return (
+            selectionStore().available() ||
+            rowBoxes(table).map(function (box) {
+                return box.value;
+            })
+        );
+    }
+
     function refreshSelection() {
         var table = selectionTable();
         if (!table) {
@@ -48,15 +48,13 @@
         boxes.forEach(function (box) {
             box.checked = selection.has(box.value);
         });
+        var total = selection.size();
         var all = table.querySelector("[data-select-all]");
         if (all) {
-            var onPage = boxes.filter(function (box) {
-                return box.checked;
-            }).length;
-            all.checked = boxes.length > 0 && onPage === boxes.length;
-            all.indeterminate = onPage > 0 && onPage < boxes.length;
+            var selectable = selectableIds(table).length;
+            all.checked = selectable > 0 && total === selectable;
+            all.indeterminate = total > 0 && total < selectable;
         }
-        var total = selection.size();
         var label = document.querySelector("[data-email-selected-count]");
         if (label) {
             label.textContent = total ? total + " " + (label.dataset.selectedLabel || "selected") : "";
@@ -67,22 +65,12 @@
         }
     }
 
-    // Hidden inputs a previous submit carried into the form. They outlive a
-    // blocked submit or a back/forward-cache restore, so they are always
-    // cleared before the next submit adds the current selection.
     function dropCarried(root) {
         Array.prototype.slice.call(root.querySelectorAll("[data-selection-carried]")).forEach(function (input) {
             input.remove();
         });
     }
 
-    /*
-     * A bulk operation that actually sent or discarded rows redirects back with
-     * ?bulk=done: those rows are gone, so the selection goes with them. Doing it
-     * here rather than at submit time means a cancelled discard confirmation, a
-     * failed request, or an op that matched nothing leaves the selection intact
-     * for the user to retry.
-     */
     function consumeBulkResult() {
         var params = new URLSearchParams(window.location.search);
         if (!params.has("bulk")) {
@@ -111,8 +99,6 @@
                 if (push) {
                     window.history.pushState({ emailList: true }, "", url);
                 }
-                // Rebuild the store against the URL we actually landed on, so a
-                // filter change drops the selection but paging keeps it.
                 store = null;
                 refreshSelection();
                 target.dispatchEvent(
@@ -138,8 +124,6 @@
         }
         dropCarried(form);
         var submitter = event.submitter;
-        // "Send all" and "Discard all" ignore the selection; only the
-        // selected-rows ops need it.
         if (!submitter || submitter.name !== "op" || (submitter.value !== "send" && submitter.value !== "discard")) {
             return;
         }
@@ -149,8 +133,6 @@
             refreshSelection();
             return;
         }
-        // Bulk ops act on the whole cross-page selection: rows picked on other
-        // pages have no checkbox here, so send them as hidden fields.
         var onPage = {};
         rowBoxes(form).forEach(function (box) {
             onPage[box.value] = true;
@@ -183,12 +165,12 @@
             return;
         }
         if (element.matches("[data-select-all]")) {
-            var table = element.closest("table");
             var selection = selectionStore();
-            rowBoxes(table).forEach(function (row) {
-                row.checked = element.checked;
-                selection.toggle(row.value, element.checked);
-            });
+            if (element.checked) {
+                selection.addAll(selectableIds(element.closest("table")));
+            } else {
+                selection.clear();
+            }
             refreshSelection();
         } else if (element.matches("[data-select-row]")) {
             selectionStore().toggle(element.value, element.checked);
@@ -209,8 +191,6 @@
         if (!event.persisted || !target) {
             return;
         }
-        // Restored from the back/forward cache: drop what the last submit
-        // carried and re-read the selection, which may have changed since.
         dropCarried(target);
         store = null;
         refreshSelection();
