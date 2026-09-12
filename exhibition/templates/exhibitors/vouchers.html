@@ -71,7 +71,7 @@
                 </table>
             </div>
         {% else %}
-            <p class="text-muted">{% trans "No vouchers have been assigned to this partner yet." %}</p>
+            <p class="text-muted">{% trans "No vouchers have been assigned to this organization yet." %}</p>
         {% endif %}
     </fieldset>
 
@@ -83,7 +83,7 @@
             <p class="help-block">
                 {% blocktrans trimmed %}
                     Codes come from the voucher pool chosen under Settings. The email always carries this
-                    partner's complete list of codes, so you can assign some now and send them together
+                    organization's complete list of codes, so you can assign some now and send them together
                     with more later. It is placed in the outbox for you to review before it goes out.
                 {% endblocktrans %}
             </p>
@@ -103,7 +103,7 @@
             {% if voucher_pending %}
                 <p class="text-warning">
                     <i class="fa fa-clock-o"></i>
-                    {% trans "A voucher email for this partner is waiting in the outbox." %}
+                    {% trans "A voucher email for this organization is waiting in the outbox." %}
                     <a href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
                         {% trans "Go to outbox" %}
                     </a>
@@ -112,12 +112,12 @@
                 <p class="text-success">
                     <i class="fa fa-check"></i>
                     {% blocktrans trimmed with sent=voucher_sent_at|date:"SHORT_DATETIME_FORMAT" %}
-                        Vouchers were last emailed to this partner on {{ sent }}.
+                        Vouchers were last emailed to this organization on {{ sent }}.
                     {% endblocktrans %}
                 </p>
             {% endif %}
             {% if not exhibitor.recipient_email %}
-                <p class="text-danger">{% trans "This partner has no email address on file, so vouchers cannot be emailed." %}</p>
+                <p class="text-danger">{% trans "This organization has no email address on file, so vouchers cannot be emailed." %}</p>
             {% endif %}
             {% bootstrap_field form.count layout="control" %}
         </fieldset>

@@ -14,7 +14,7 @@
 
         {% if sendable %}
             <p>
-                {% if partner_type == "sponsor" %}
+                {% if organization_type == "sponsor" %}
                     {% blocktrans trimmed count counter=sendable|length %}
                         A voucher email will be placed in the outbox for {{ counter }} sponsor.
                     {% plural %}
@@ -54,7 +54,7 @@
             </ul>
         {% else %}
             <div class="alert alert-warning" role="alert">
-                {% if partner_type == "sponsor" %}
+                {% if organization_type == "sponsor" %}
                     {% trans "None of the sponsors in this list can be emailed yet." %}
                 {% else %}
                     {% trans "None of the exhibitors in this list can be emailed yet." %}

@@ -27,9 +27,12 @@ def generate_call_secret():
     return secrets.token_urlsafe(24)
 
 
-def generate_proposal_code():
+def generate_request_code():
     alphabet = string.ascii_uppercase + string.digits
     return get_random_string(length=12, allowed_chars=alphabet)
+
+
+generate_proposal_code = generate_request_code
 
 
 def generate_booth_id(event=None):
@@ -84,13 +87,16 @@ def exhibitor_logo_path(instance, filename):
     return os.path.join("exhibitors", "logos", str(name), filename)
 
 
-def exhibitor_header_image_path(instance, filename):
+def exhibitor_banner_path(instance, filename):
     name = instance.name
     if isinstance(name, LazyI18nString):
         event = getattr(instance, "event", None)
         locale = getattr(event, "locale", None) if event is not None else None
         name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "headers", str(name), filename)
+    return os.path.join("exhibitors", "banners", str(name), filename)
+
+
+exhibitor_header_image_path = exhibitor_banner_path
 
 
 def exhibitor_slides_path(instance, filename):
@@ -102,29 +108,38 @@ def exhibitor_slides_path(instance, filename):
     return os.path.join("exhibitors", "slides", str(name), filename)
 
 
-def proposal_file_path(instance, filename, file_type):
+def request_file_path(instance, filename, file_type):
     code = instance.code or "new"
-    return os.path.join("exhibition-proposals", str(code), file_type, filename)
+    return os.path.join("exhibition-requests", str(code), file_type, filename)
 
 
-def proposal_logo_path(instance, filename):
-    return proposal_file_path(instance, filename, "logos")
+def request_logo_path(instance, filename):
+    return request_file_path(instance, filename, "logos")
 
 
-def proposal_header_image_path(instance, filename):
-    return proposal_file_path(instance, filename, "headers")
+proposal_logo_path = request_logo_path
+
+
+def request_banner_path(instance, filename):
+    return request_file_path(instance, filename, "banners")
+
+
+proposal_header_image_path = request_banner_path
 
 
 def exhibition_answer_path(instance, filename):
-    code = instance.proposal.code or "new"
-    return os.path.join("exhibition-proposals", str(code), "answers", str(instance.question_id), filename)
+    code = instance.exhibition_request.code or "new"
+    return os.path.join("exhibition-requests", str(code), "answers", str(instance.question_id), filename)
 
 
-def proposal_slides_path(instance, filename):
-    return proposal_file_path(instance, filename, "slides")
+def request_slides_path(instance, filename):
+    return request_file_path(instance, filename, "slides")
 
 
-PROPOSAL_DEFAULT_FIELDS = (
+proposal_slides_path = request_slides_path
+
+
+REQUEST_DEFAULT_FIELDS = (
     {
         "key": "name",
         "label": _("Organization name"),
@@ -141,8 +156,8 @@ PROPOSAL_DEFAULT_FIELDS = (
     {"key": "slides", "label": _("Promotional slides"), "active": False},
     {"key": "logo", "label": _("Logo"), "active": False},
     {
-        "key": "header_image",
-        "label": _("Header image"),
+        "key": "banner",
+        "label": _("Exhibition banner"),
         "active": False,
     },
     {"key": "booth_name", "label": _("Preferred booth name"), "active": False},
@@ -164,12 +179,12 @@ PROPOSAL_DEFAULT_FIELDS = (
 )
 
 
-PROPOSAL_DEFAULT_FIELD_KEYS = tuple(field["key"] for field in PROPOSAL_DEFAULT_FIELDS)
+REQUEST_DEFAULT_FIELD_KEYS = tuple(field["key"] for field in REQUEST_DEFAULT_FIELDS)
 
-PROPOSAL_FORMSET_FIELD_KEYS = ("social_links", "extra_links")
+REQUEST_FORMSET_FIELD_KEYS = ("social_links", "extra_links")
 
 
-def default_proposal_field_settings():
+def default_request_field_settings():
     return {
         field["key"]: {
             "active": field.get("active", True),
@@ -178,11 +193,14 @@ def default_proposal_field_settings():
             "label": None,
             "help_text": None,
         }
-        for index, field in enumerate(PROPOSAL_DEFAULT_FIELDS)
+        for index, field in enumerate(REQUEST_DEFAULT_FIELDS)
     }
 
 
-def storable_proposal_field_settings(normalized):
+default_proposal_field_settings = default_request_field_settings
+
+
+def storable_request_field_settings(normalized):
     """Strip the derived keys added by normalization so only raw overrides are persisted."""
     return {
         key: {
@@ -196,8 +214,8 @@ def storable_proposal_field_settings(normalized):
     }
 
 
-def get_default_proposal_field_definition(key):
-    return next(field for field in PROPOSAL_DEFAULT_FIELDS if field["key"] == key)
+def get_default_request_field_definition(key):
+    return next(field for field in REQUEST_DEFAULT_FIELDS if field["key"] == key)
 
 
 def default_allowed_fields():
@@ -258,7 +276,7 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     call_hide_after_deadline = models.BooleanField(default=False)
     call_private = models.BooleanField(default=False)
     call_secret = models.CharField(max_length=64, default=generate_call_secret)
-    proposal_field_settings = models.JSONField(default=default_proposal_field_settings)
+    request_field_settings = models.JSONField(default=default_request_field_settings)
 
     def is_field_allowed(self, identifier):
         return identifier in (self.allowed_fields or [])
@@ -275,10 +293,10 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
         self.log_action(LOG_CALL_SECRET_REGENERATED, user=requestor)
 
     @property
-    def normalized_proposal_field_settings(self):
-        stored_settings = self.proposal_field_settings or {}
-        normalized = default_proposal_field_settings()
-        for index, field in enumerate(PROPOSAL_DEFAULT_FIELDS):
+    def normalized_request_field_settings(self):
+        stored_settings = self.request_field_settings or {}
+        normalized = default_request_field_settings()
+        for index, field in enumerate(REQUEST_DEFAULT_FIELDS):
             key = field["key"]
             stored_field = stored_settings.get(key, {})
             normalized[key]["active"] = bool(stored_field.get("active", normalized[key]["active"]))
@@ -302,19 +320,19 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
         return normalized
 
     @property
-    def ordered_proposal_field_keys(self):
-        normalized = self.normalized_proposal_field_settings
-        default_index = {key: i for i, key in enumerate(PROPOSAL_DEFAULT_FIELD_KEYS)}
+    def ordered_request_field_keys(self):
+        normalized = self.normalized_request_field_settings
+        default_index = {key: i for i, key in enumerate(REQUEST_DEFAULT_FIELD_KEYS)}
         return sorted(
-            PROPOSAL_DEFAULT_FIELD_KEYS,
+            REQUEST_DEFAULT_FIELD_KEYS,
             key=lambda key: (normalized[key]["position"], default_index[key]),
         )
 
-    def proposal_field_is_active(self, key):
-        return self.normalized_proposal_field_settings[key]["active"]
+    def request_field_is_active(self, key):
+        return self.normalized_request_field_settings[key]["active"]
 
-    def proposal_field_is_required(self, key):
-        return self.normalized_proposal_field_settings[key]["required"]
+    def request_field_is_required(self, key):
+        return self.normalized_request_field_settings[key]["required"]
 
     class Meta:
         unique_together = ("event",)
@@ -356,9 +374,7 @@ class ExhibitorInfo(LoggedModel):
     )
     slides_url = models.URLField(verbose_name=_("Slides URL"), null=True, blank=True)
     logo = models.ImageField(upload_to=exhibitor_logo_path, null=True, blank=True)
-    logo_url = models.URLField(verbose_name=_("Logo URL"), null=True, blank=True)
-    header_image = models.ImageField(upload_to=exhibitor_header_image_path, null=True, blank=True)
-    header_image_url = models.URLField(verbose_name=_("Header image URL"), null=True, blank=True)
+    banner = models.ImageField(upload_to=exhibitor_banner_path, null=True, blank=True)
     key = models.CharField(
         max_length=8,
         default=generate_key,
@@ -369,7 +385,7 @@ class ExhibitorInfo(LoggedModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="partners",
+        related_name="organizations",
     )
     is_exhibitor = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
@@ -413,19 +429,21 @@ class ExhibitorInfo(LoggedModel):
 
     @property
     def recipient_email(self):
-        """Where mail for this partner goes.
+        """Where mail for this organization goes.
 
         Their own address when one was stored, otherwise the account that applied for them —
         the same fallback the lifecycle emails use, since the address is no longer editable on
-        the profile form and manually created partners never get one.
+        the profile form and manually created organizations never get one.
         """
         stored = (self.email or "").strip()
         if stored:
             return stored
-        proposals = sorted(self.source_proposals.all(), key=lambda proposal: proposal.pk, reverse=True)
-        if not proposals:
+        exhibition_requests = sorted(
+            self.source_requests.all(), key=lambda exhibition_request: exhibition_request.pk, reverse=True
+        )
+        if not exhibition_requests:
             return ""
-        latest = proposals[0]
+        latest = exhibition_requests[0]
         return (latest.email or "").strip() or (latest.user.email if latest.user_id else "")
 
     @property
@@ -438,19 +456,11 @@ class ExhibitorInfo(LoggedModel):
 
     @property
     def visible_logo_url(self):
-        if self.logo_url:
-            return self.logo_url
-        if self.logo:
-            return self.logo.url
-        return ""
+        return self.logo.url if self.logo else ""
 
     @property
-    def visible_header_image_url(self):
-        if self.header_image_url:
-            return self.header_image_url
-        if self.header_image:
-            return self.header_image.url
-        return ""
+    def visible_banner_url(self):
+        return self.banner.url if self.banner else ""
 
     @property
     def visible_slides_url(self):
@@ -489,7 +499,7 @@ class ExhibitorExtraLink(models.Model):
         return f"{self.label}: {self.url}"
 
 
-class ExhibitionProposalState(models.TextChoices):
+class ExhibitionRequestState(models.TextChoices):
     DRAFT = "draft", _("draft")
     SUBMITTED = "submitted", _("submitted")
     ACCEPTED = "accepted", _("accepted")
@@ -497,56 +507,56 @@ class ExhibitionProposalState(models.TextChoices):
     WITHDRAWN = "withdrawn", _("withdrawn")
 
 
-PROPOSAL_STATE_TRANSITIONS = {
-    ExhibitionProposalState.DRAFT: frozenset({ExhibitionProposalState.SUBMITTED}),
-    ExhibitionProposalState.SUBMITTED: frozenset(
+REQUEST_STATE_TRANSITIONS = {
+    ExhibitionRequestState.DRAFT: frozenset({ExhibitionRequestState.SUBMITTED}),
+    ExhibitionRequestState.SUBMITTED: frozenset(
         {
-            ExhibitionProposalState.ACCEPTED,
-            ExhibitionProposalState.REJECTED,
-            ExhibitionProposalState.WITHDRAWN,
+            ExhibitionRequestState.ACCEPTED,
+            ExhibitionRequestState.REJECTED,
+            ExhibitionRequestState.WITHDRAWN,
         }
     ),
-    ExhibitionProposalState.ACCEPTED: frozenset(
+    ExhibitionRequestState.ACCEPTED: frozenset(
         {
-            ExhibitionProposalState.SUBMITTED,
-            ExhibitionProposalState.REJECTED,
-            ExhibitionProposalState.WITHDRAWN,
+            ExhibitionRequestState.SUBMITTED,
+            ExhibitionRequestState.REJECTED,
+            ExhibitionRequestState.WITHDRAWN,
         }
     ),
-    ExhibitionProposalState.REJECTED: frozenset(
+    ExhibitionRequestState.REJECTED: frozenset(
         {
-            ExhibitionProposalState.SUBMITTED,
-            ExhibitionProposalState.ACCEPTED,
+            ExhibitionRequestState.SUBMITTED,
+            ExhibitionRequestState.ACCEPTED,
         }
     ),
-    ExhibitionProposalState.WITHDRAWN: frozenset({ExhibitionProposalState.SUBMITTED}),
+    ExhibitionRequestState.WITHDRAWN: frozenset({ExhibitionRequestState.SUBMITTED}),
 }
 
-PROPOSAL_REVIEW_ACTIONS = {
-    "approve": ExhibitionProposalState.ACCEPTED,
-    "reject": ExhibitionProposalState.REJECTED,
-    "withdraw": ExhibitionProposalState.WITHDRAWN,
-    "reopen": ExhibitionProposalState.SUBMITTED,
+REQUEST_REVIEW_ACTIONS = {
+    "approve": ExhibitionRequestState.ACCEPTED,
+    "reject": ExhibitionRequestState.REJECTED,
+    "withdraw": ExhibitionRequestState.WITHDRAWN,
+    "reopen": ExhibitionRequestState.SUBMITTED,
 }
 
-PROPOSAL_BULK_ACTIONS = ("approve", "reject")
+REQUEST_BULK_ACTIONS = ("approve", "reject")
 
 LOG_PREFIX = "eventyay.plugins.exhibition"
 
-PROPOSAL_LOG_ACTIONS = {
-    "approve": f"{LOG_PREFIX}.proposal.approved",
-    "reject": f"{LOG_PREFIX}.proposal.rejected",
-    "withdraw": f"{LOG_PREFIX}.proposal.withdrawn",
-    "reopen": f"{LOG_PREFIX}.proposal.reopened",
+REQUEST_LOG_ACTIONS = {
+    "approve": f"{LOG_PREFIX}.request.approved",
+    "reject": f"{LOG_PREFIX}.request.rejected",
+    "withdraw": f"{LOG_PREFIX}.request.withdrawn",
+    "reopen": f"{LOG_PREFIX}.request.reopened",
 }
 
-LOG_PROPOSAL_CHANGED = f"{LOG_PREFIX}.proposal.changed"
-LOG_PARTNER_CREATED = f"{LOG_PREFIX}.partner.created"
-LOG_PARTNER_REACTIVATED = f"{LOG_PREFIX}.partner.reactivated"
-LOG_PARTNER_ADDED = f"{LOG_PREFIX}.partner.added"
-LOG_PARTNER_CHANGED = f"{LOG_PREFIX}.partner.changed"
-LOG_PARTNER_DELETED = f"{LOG_PREFIX}.partner.deleted"
-LOG_PARTNER_SYNCED = f"{LOG_PREFIX}.partner.synced"
+LOG_REQUEST_CHANGED = f"{LOG_PREFIX}.request.changed"
+LOG_ORGANIZATION_CREATED = f"{LOG_PREFIX}.organization.created"
+LOG_ORGANIZATION_REACTIVATED = f"{LOG_PREFIX}.organization.reactivated"
+LOG_ORGANIZATION_ADDED = f"{LOG_PREFIX}.organization.added"
+LOG_ORGANIZATION_CHANGED = f"{LOG_PREFIX}.organization.changed"
+LOG_ORGANIZATION_DELETED = f"{LOG_PREFIX}.organization.deleted"
+LOG_ORGANIZATION_SYNCED = f"{LOG_PREFIX}.organization.synced"
 LOG_SETTINGS_CHANGED = f"{LOG_PREFIX}.settings.changed"
 LOG_CALL_SETTINGS_CHANGED = f"{LOG_PREFIX}.call.settings.changed"
 LOG_CALL_SECRET_REGENERATED = f"{LOG_PREFIX}.call.secret.regenerated"
@@ -566,7 +576,7 @@ SUBMITTER_PROFILE_FIELD_LABELS = {
     "video_url": _("Promotional Video URL"),
     "slides": _("Promotional Slides"),
     "logo": _("Logo"),
-    "header_image": _("Header Image"),
+    "banner": _("Exhibition banner"),
     "booth_name": _("Preferred booth name"),
     "notes": _("Message to the organizers"),
     "social_links": _("Social Media"),
@@ -574,33 +584,33 @@ SUBMITTER_PROFILE_FIELD_LABELS = {
 }
 
 
-class ExhibitionProposal(LoggedModel):
+class ExhibitionRequest(LoggedModel):
     code = models.CharField(
         max_length=12,
         unique=True,
-        default=generate_proposal_code,
+        default=generate_request_code,
     )
     event = models.ForeignKey(
         Event,
         on_delete=models.CASCADE,
-        related_name="exhibition_proposals",
+        related_name="exhibition_requests",
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="exhibition_proposals",
+        related_name="exhibition_requests",
     )
     approved_exhibitor = models.ForeignKey(
         ExhibitorInfo,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="source_proposals",
+        related_name="source_requests",
     )
     state = models.CharField(
         max_length=16,
-        choices=ExhibitionProposalState.choices,
-        default=ExhibitionProposalState.SUBMITTED,
+        choices=ExhibitionRequestState.choices,
+        default=ExhibitionRequestState.SUBMITTED,
         db_index=True,
     )
     name = I18nCharField(max_length=190, verbose_name=_("Name"))
@@ -615,23 +625,21 @@ class ExhibitionProposal(LoggedModel):
     contact_url = models.URLField(verbose_name=_("Contact URL"), null=True, blank=True)
     video_url = models.URLField(verbose_name=_("Video URL"), null=True, blank=True)
     slides = models.FileField(
-        upload_to=proposal_slides_path,
+        upload_to=request_slides_path,
         verbose_name=_("Slides"),
         null=True,
         blank=True,
     )
     slides_url = models.URLField(verbose_name=_("Slides URL"), null=True, blank=True)
-    logo = models.ImageField(upload_to=proposal_logo_path, null=True, blank=True)
-    logo_url = models.URLField(verbose_name=_("Logo URL"), null=True, blank=True)
-    header_image = models.ImageField(upload_to=proposal_header_image_path, null=True, blank=True)
-    header_image_url = models.URLField(verbose_name=_("Header image URL"), null=True, blank=True)
+    logo = models.ImageField(upload_to=request_logo_path, null=True, blank=True)
+    banner = models.ImageField(upload_to=request_banner_path, null=True, blank=True)
     is_sponsor = models.BooleanField(default=False)
     sponsor_group = models.ForeignKey(
         SponsorGroup,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="proposals",
+        related_name="exhibition_requests",
     )
     is_exhibitor = models.BooleanField(default=True)
     booth_id = models.CharField(
@@ -669,91 +677,91 @@ class ExhibitionProposal(LoggedModel):
     @property
     def editable(self):
         return self.state in {
-            ExhibitionProposalState.DRAFT,
-            ExhibitionProposalState.SUBMITTED,
-            ExhibitionProposalState.ACCEPTED,
+            ExhibitionRequestState.DRAFT,
+            ExhibitionRequestState.SUBMITTED,
+            ExhibitionRequestState.ACCEPTED,
         }
 
     def can_transition_to(self, target_state):
-        return target_state in PROPOSAL_STATE_TRANSITIONS.get(self.state, frozenset())
+        return target_state in REQUEST_STATE_TRANSITIONS.get(self.state, frozenset())
 
     def available_review_actions(self):
-        return [action for action, target in PROPOSAL_REVIEW_ACTIONS.items() if self.can_transition_to(target)]
+        return [action for action, target in REQUEST_REVIEW_ACTIONS.items() if self.can_transition_to(target)]
 
     def available_bulk_actions(self):
-        return [action for action in PROPOSAL_BULK_ACTIONS if self.can_transition_to(PROPOSAL_REVIEW_ACTIONS[action])]
+        return [action for action in REQUEST_BULK_ACTIONS if self.can_transition_to(REQUEST_REVIEW_ACTIONS[action])]
 
-    def set_partner_active(self, active, requestor=None):
+    def set_organization_active(self, active, requestor=None):
         if self.approved_exhibitor_id and self.approved_exhibitor.active != active:
             self.approved_exhibitor.active = active
             self.approved_exhibitor.save(update_fields=["active"])
             self.approved_exhibitor.log_action(
-                LOG_PARTNER_CHANGED,
-                data={"active": active, "reason": "proposal_state_change", "proposal": self.code},
+                LOG_ORGANIZATION_CHANGED,
+                data={"active": active, "reason": "request_state_change", "exhibition_request": self.code},
                 user=requestor,
             )
 
     def log_transition(self, action, previous, requestor=None):
         """Record who moved the request between states, and in which direction."""
         self.log_action(
-            PROPOSAL_LOG_ACTIONS[action],
+            REQUEST_LOG_ACTIONS[action],
             data={"from": previous, "to": self.state, "code": self.code},
             user=requestor,
         )
 
     def approve(self, requestor=None):
-        """Accept the request, create or reactivate its partner profile and queue the acceptance email."""
-        from .mail import PROPOSAL_ACCEPTED, queue_proposal_email
-        from .utils import create_exhibitor_from_proposal
+        """Accept the request, create or reactivate its organization profile and queue the acceptance email."""
+        from .mail import REQUEST_ACCEPTED, queue_request_email
+        from .utils import create_exhibitor_from_request
 
         previous = self.state
-        exhibitor = create_exhibitor_from_proposal(self, requestor=requestor)
+        exhibitor = create_exhibitor_from_request(self, requestor=requestor)
         self.log_transition("approve", previous, requestor=requestor)
-        queue_proposal_email(self.event, self, PROPOSAL_ACCEPTED, requestor=requestor)
+        queue_request_email(self.event, self, REQUEST_ACCEPTED, requestor=requestor)
         return exhibitor
 
     def reject(self, requestor=None):
-        """Reject the request, hide any partner profile and queue the rejection email."""
-        from .mail import PROPOSAL_REJECTED, queue_proposal_email
+        """Reject the request, hide any organization profile and queue the rejection email."""
+        from .mail import REQUEST_REJECTED, queue_request_email
 
         previous = self.state
-        self.state = ExhibitionProposalState.REJECTED
+        self.state = ExhibitionRequestState.REJECTED
         self.save(update_fields=["state", "updated"])
-        self.set_partner_active(False, requestor=requestor)
+        self.set_organization_active(False, requestor=requestor)
         self.log_transition("reject", previous, requestor=requestor)
-        queue_proposal_email(self.event, self, PROPOSAL_REJECTED, requestor=requestor)
+        queue_request_email(self.event, self, REQUEST_REJECTED, requestor=requestor)
 
     @property
     def can_be_withdrawn(self):
-        return self.can_transition_to(ExhibitionProposalState.WITHDRAWN)
+        return self.can_transition_to(ExhibitionRequestState.WITHDRAWN)
 
     @property
     def can_be_reinstated(self):
-        return self.state == ExhibitionProposalState.WITHDRAWN
+        return self.state == ExhibitionRequestState.WITHDRAWN
 
     def withdraw(self, requestor=None):
         previous = self.state
-        self.state = ExhibitionProposalState.WITHDRAWN
+        self.state = ExhibitionRequestState.WITHDRAWN
         self.save(update_fields=["state", "updated"])
-        self.set_partner_active(False, requestor=requestor)
+        self.set_organization_active(False, requestor=requestor)
         self.log_transition("withdraw", previous, requestor=requestor)
 
     def reopen(self, requestor=None):
         """Move the request back to submitted for a fresh decision; sends no decision email."""
         previous = self.state
-        self.state = ExhibitionProposalState.SUBMITTED
+        self.state = ExhibitionRequestState.SUBMITTED
         self.submitted = self.submitted or timezone.now()
         self.save(update_fields=["state", "submitted", "updated"])
-        self.set_partner_active(False, requestor=requestor)
+        self.set_organization_active(False, requestor=requestor)
         self.log_transition("reopen", previous, requestor=requestor)
 
     @property
     def requires_open_call_to_edit(self):
-        return self.state != ExhibitionProposalState.ACCEPTED
+        return self.state != ExhibitionRequestState.ACCEPTED
 
     @property
     def edited_after_acceptance(self):
-        return self.state == ExhibitionProposalState.ACCEPTED and self.profile_edited_at is not None
+        return self.state == ExhibitionRequestState.ACCEPTED and self.profile_edited_at is not None
 
     def submitter_profile_values(self):
         """Serialise the submitter-owned profile fields into a comparable {key: text} mapping."""
@@ -765,7 +773,7 @@ class ExhibitionProposal(LoggedModel):
             "video_url": self.video_url or "",
             "slides": self.visible_slides_url,
             "logo": self.visible_logo_url,
-            "header_image": self.visible_header_image_url,
+            "banner": self.visible_banner_url,
             "booth_name": self.localized_booth_name,
             "notes": self.notes or "",
             "social_links": "\n".join(f"{link.get_network_display()}: {link.url}" for link in self.social_links.all()),
@@ -834,19 +842,11 @@ class ExhibitionProposal(LoggedModel):
 
     @property
     def visible_logo_url(self):
-        if self.logo_url:
-            return self.logo_url
-        if self.logo:
-            return self.logo.url
-        return ""
+        return self.logo.url if self.logo else ""
 
     @property
-    def visible_header_image_url(self):
-        if self.header_image_url:
-            return self.header_image_url
-        if self.header_image:
-            return self.header_image.url
-        return ""
+    def visible_banner_url(self):
+        return self.banner.url if self.banner else ""
 
     @property
     def visible_slides_url(self):
@@ -857,8 +857,8 @@ class ExhibitionProposal(LoggedModel):
         return ""
 
 
-class ExhibitionProposalSocialLink(models.Model):
-    proposal = models.ForeignKey(ExhibitionProposal, on_delete=models.CASCADE, related_name="social_links")
+class ExhibitionRequestSocialLink(models.Model):
+    exhibition_request = models.ForeignKey(ExhibitionRequest, on_delete=models.CASCADE, related_name="social_links")
     network = models.CharField(max_length=32, choices=SOCIAL_LINK_CHOICES)
     url = models.URLField(verbose_name=_("URL"))
 
@@ -873,8 +873,8 @@ class ExhibitionProposalSocialLink(models.Model):
         return f"{self.get_network_display()}: {self.url}"
 
 
-class ExhibitionProposalExtraLink(models.Model):
-    proposal = models.ForeignKey(ExhibitionProposal, on_delete=models.CASCADE, related_name="extra_links")
+class ExhibitionRequestExtraLink(models.Model):
+    exhibition_request = models.ForeignKey(ExhibitionRequest, on_delete=models.CASCADE, related_name="extra_links")
     label = models.CharField(max_length=120, verbose_name=_("Label"))
     url = models.URLField(verbose_name=_("URL"))
 
@@ -967,8 +967,8 @@ class ExhibitionAnswer(models.Model):
         on_delete=models.CASCADE,
         related_name="answers",
     )
-    proposal = models.ForeignKey(
-        ExhibitionProposal,
+    exhibition_request = models.ForeignKey(
+        ExhibitionRequest,
         on_delete=models.CASCADE,
         related_name="answers",
     )
@@ -977,7 +977,7 @@ class ExhibitionAnswer(models.Model):
     options = models.ManyToManyField(ExhibitionQuestionOption, related_name="answers")
 
     class Meta:
-        unique_together = ("question", "proposal")
+        unique_together = ("question", "exhibition_request")
 
     @property
     def answer_string(self):
@@ -1064,8 +1064,8 @@ class ExhibitionEmailQueue(LoggedModel):
         on_delete=models.CASCADE,
         related_name="exhibition_email_queue",
     )
-    proposal = models.ForeignKey(
-        ExhibitionProposal,
+    exhibition_request = models.ForeignKey(
+        ExhibitionRequest,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

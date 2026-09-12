@@ -17,16 +17,16 @@
 
 {% block exhibitors_content %}
     <p>
-        <a class="btn btn-default" href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}">
+        <a class="btn btn-default" href="{% url 'plugins:exhibition:request.list' organizer=request.event.organizer.slug event=request.event.slug %}">
             <i class="fa fa-arrow-left"></i> {% trans "Back to exhibition requests" %}
         </a>
     </p>
 
-    {% if proposal.edited_after_acceptance %}
+    {% if exhibition_request.edited_after_acceptance %}
         <div class="panel panel-warning" id="post-acceptance-changes">
             <div class="panel-heading">
                 <h3 class="panel-title">
-                    {% blocktrans with when=proposal.profile_edited_at|date:"SHORT_DATETIME_FORMAT" %}Changes made by the applicant after acceptance ({{ when }}){% endblocktrans %}
+                    {% blocktrans with when=exhibition_request.profile_edited_at|date:"SHORT_DATETIME_FORMAT" %}Changes made by the applicant after acceptance ({{ when }}){% endblocktrans %}
                 </h3>
             </div>
             <div class="panel-body">
@@ -51,7 +51,7 @@
                             </tbody>
                         </table>
                     </div>
-                {% elif proposal.accepted_profile_snapshot %}
+                {% elif exhibition_request.accepted_profile_snapshot %}
                     <p class="text-muted">{% trans "The applicant edited the profile, but the tracked fields are unchanged." %}</p>
                 {% else %}
                     <p class="text-muted">{% trans "This profile was edited before change tracking was available, so the original values are not recorded." %}</p>
@@ -62,16 +62,16 @@
 
     <div class="panel panel-default">
         <div class="panel-heading">
-            <h3 class="panel-title">{{ proposal.name|event_localize }}</h3>
+            <h3 class="panel-title">{{ exhibition_request.name|event_localize }}</h3>
         </div>
         <div class="panel-body">
             <dl class="dl-horizontal">
                 <dt>{% trans "Submitter" %}</dt>
                 <dd>
                     {% if hide_applicant_emails %}
-                        {{ proposal.user.fullname|default:"—" }}
+                        {{ exhibition_request.user.fullname|default:"—" }}
                     {% else %}
-                        {{ proposal.user.get_display_name|default:proposal.user.email }}
+                        {{ exhibition_request.user.get_display_name|default:exhibition_request.user.email }}
                     {% endif %}
                 </dd>
                 <dt>{% trans "Email" %}</dt>
@@ -79,21 +79,21 @@
                     {% if hide_applicant_emails %}
                         <span class="text-muted">{% trans "Hidden" %}</span>
                     {% else %}
-                        {{ proposal.email|default:"-" }}
+                        {{ exhibition_request.email|default:"-" }}
                     {% endif %}
                 </dd>
                 <dt>{% trans "State" %}</dt>
-                <dd>{{ proposal.get_state_display }}</dd>
+                <dd>{{ exhibition_request.get_state_display }}</dd>
                 {% if request.event.is_multilingual %}
                     <dt>{% trans "Language" %}</dt>
-                    <dd>{{ proposal.content_locale_display }}</dd>
+                    <dd>{{ exhibition_request.content_locale_display }}</dd>
                 {% endif %}
                 <dt>{% trans "Type" %}</dt>
                 <dd>
-                    {% with partner=proposal.approved_exhibitor|default:proposal %}
-                        {% if partner.is_exhibitor and partner.is_sponsor %}
+                    {% with organization=exhibition_request.approved_exhibitor|default:exhibition_request %}
+                        {% if organization.is_exhibitor and organization.is_sponsor %}
                             {% trans "Exhibitor and sponsor" %}
-                        {% elif partner.is_sponsor %}
+                        {% elif organization.is_sponsor %}
                             {% trans "Sponsor" %}
                         {% else %}
                             {% trans "Exhibitor" %}
@@ -101,45 +101,45 @@
                     {% endwith %}
                 </dd>
                 <dt>{% trans "URL" %}</dt>
-                <dd>{% if proposal.url %}<a href="{{ proposal.url }}">{{ proposal.url }}</a>{% else %}-{% endif %}</dd>
+                <dd>{% if exhibition_request.url %}<a href="{{ exhibition_request.url }}">{{ exhibition_request.url }}</a>{% else %}-{% endif %}</dd>
                 <dt>{% trans "Contact URL" %}</dt>
-                <dd>{% if proposal.contact_url %}<a href="{{ proposal.contact_url }}">{{ proposal.contact_url }}</a>{% else %}-{% endif %}</dd>
+                <dd>{% if exhibition_request.contact_url %}<a href="{{ exhibition_request.contact_url }}">{{ exhibition_request.contact_url }}</a>{% else %}-{% endif %}</dd>
                 <dt>{% trans "Video URL" %}</dt>
-                <dd>{% if proposal.video_url %}<a href="{{ proposal.video_url }}">{{ proposal.video_url }}</a>{% else %}-{% endif %}</dd>
+                <dd>{% if exhibition_request.video_url %}<a href="{{ exhibition_request.video_url }}">{{ exhibition_request.video_url }}</a>{% else %}-{% endif %}</dd>
                 <dt>{% trans "Slides" %}</dt>
-                <dd>{% if proposal.visible_slides_url %}<a href="{{ proposal.visible_slides_url }}">{{ proposal.visible_slides_url }}</a>{% else %}-{% endif %}</dd>
+                <dd>{% if exhibition_request.visible_slides_url %}<a href="{{ exhibition_request.visible_slides_url }}">{{ exhibition_request.visible_slides_url }}</a>{% else %}-{% endif %}</dd>
                 <dt>{% trans "Logo" %}</dt>
-                <dd>{% if proposal.visible_logo_url %}<a href="{{ proposal.visible_logo_url }}">{{ proposal.visible_logo_url }}</a>{% else %}-{% endif %}</dd>
-                <dt>{% trans "Header image" %}</dt>
-                <dd>{% if proposal.visible_header_image_url %}<a href="{{ proposal.visible_header_image_url }}">{{ proposal.visible_header_image_url }}</a>{% else %}-{% endif %}</dd>
+                <dd>{% if exhibition_request.visible_logo_url %}<a href="{{ exhibition_request.visible_logo_url }}">{{ exhibition_request.visible_logo_url }}</a>{% else %}-{% endif %}</dd>
+                <dt>{% trans "Exhibition banner" %}</dt>
+                <dd>{% if exhibition_request.visible_banner_url %}<a href="{{ exhibition_request.visible_banner_url }}">{{ exhibition_request.visible_banner_url }}</a>{% else %}-{% endif %}</dd>
             </dl>
-            {% if proposal.description %}
+            {% if exhibition_request.description %}
                 <h4>{% trans "Description" %}</h4>
-                <p>{{ proposal.description|event_localize|linebreaksbr }}</p>
+                <p>{{ exhibition_request.description|event_localize|linebreaksbr }}</p>
             {% endif %}
-            {% if proposal.notes %}
+            {% if exhibition_request.notes %}
                 <h4>{% trans "Message to organizers" %}</h4>
-                <p>{{ proposal.notes|linebreaksbr }}</p>
+                <p>{{ exhibition_request.notes|linebreaksbr }}</p>
             {% endif %}
         </div>
     </div>
 
-    {% if proposal.social_links.all or proposal.extra_links.all %}
+    {% if exhibition_request.social_links.all or exhibition_request.extra_links.all %}
         <div class="panel panel-default">
             <div class="panel-heading"><h3 class="panel-title">{% trans "Links" %}</h3></div>
             <div class="panel-body">
-                {% if proposal.social_links.all %}
+                {% if exhibition_request.social_links.all %}
                     <h4>{% trans "Social media" %}</h4>
                     <ul>
-                        {% for link in proposal.social_links.all %}
+                        {% for link in exhibition_request.social_links.all %}
                             <li>{{ link.get_network_display }}: <a href="{{ link.url }}">{{ link.url }}</a></li>
                         {% endfor %}
                     </ul>
                 {% endif %}
-                {% if proposal.extra_links.all %}
+                {% if exhibition_request.extra_links.all %}
                     <h4>{% trans "Extra links" %}</h4>
                     <ul>
-                        {% for link in proposal.extra_links.all %}
+                        {% for link in exhibition_request.extra_links.all %}
                             <li>{{ link.label }}: <a href="{{ link.url }}">{{ link.url }}</a></li>
                         {% endfor %}
                     </ul>
@@ -195,8 +195,8 @@
                     {% trans "Reject" %}
                 </button>
             {% endif %}
-            {% if can_edit_exhibitor and proposal.state == "accepted" and proposal.approved_exhibitor_id %}
-                <a class="btn btn-primary" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=proposal.approved_exhibitor_id %}">
+            {% if can_edit_exhibitor and exhibition_request.state == "accepted" and exhibition_request.approved_exhibitor_id %}
+                <a class="btn btn-primary" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=exhibition_request.approved_exhibitor_id %}">
                     {% trans "Open profile" %}
                 </a>
             {% endif %}
@@ -207,7 +207,7 @@
             <div class="panel-heading">
                 <h3 class="panel-title">{% trans "History" %}</h3>
             </div>
-            {% include "pretixcontrol/includes/logs.html" with obj=proposal %}
+            {% include "pretixcontrol/includes/logs.html" with obj=exhibition_request %}
         </div>
     {% endif %}
 {% endblock %}

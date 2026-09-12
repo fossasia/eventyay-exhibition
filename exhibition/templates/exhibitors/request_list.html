@@ -6,7 +6,7 @@
 
 {% block custom_header %}
     {{ block.super }}
-    <link rel="stylesheet" href="{% static 'exhibition/css/proposal-actions.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/request-actions.css' %}">
     <link rel="stylesheet" href="{% static 'exhibition/css/list-controls.css' %}">
     <script defer src="{% static 'exhibition/js/list-filters.js' %}"></script>
 {% endblock %}
@@ -22,38 +22,38 @@
     {% trans "Updated" as label_updated %}
     {% include "exhibitors/_filter_form.html" %}
     <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
-    {% if proposals %}
-        <div class="proposal-action-feedback" data-proposal-feedback></div>
+    {% if exhibition_requests %}
+        <div class="request-action-feedback" data-request-feedback></div>
         <div class="table-responsive"
-             data-proposal-actions-url="{% url 'plugins:exhibition:proposal.actions' organizer=request.event.organizer.slug event=request.event.slug %}"
-             data-proposal-list>
+             data-request-actions-url="{% url 'plugins:exhibition:request.actions' organizer=request.event.organizer.slug event=request.event.slug %}"
+             data-request-list>
             {% if can_manage %}
-                <div class="proposal-bulk-bar"
-                     data-proposal-total="{{ page_obj.paginator.count }}"
-                     data-proposal-reason-none="{% trans 'Select at least one request.' %}"
-                     data-proposal-reason-approve="{% trans 'None of the selected requests can be approved.' %}"
-                     data-proposal-reason-reject="{% trans 'None of the selected requests can be rejected.' %}"
-                     data-proposal-skip-approve="{% trans '{count} selected requests cannot be approved and will be skipped.' %}"
-                     data-proposal-skip-reject="{% trans '{count} selected requests cannot be rejected and will be skipped.' %}">
-                    <span class="proposal-bulk-count text-muted" data-proposal-selected-count></span>
-                    <span class="proposal-bulk-buttons">
-                        <button type="button" class="btn btn-success btn-sm proposal-action-btn proposal-action-approve" data-proposal-bulk="approve" disabled>
+                <div class="request-bulk-bar"
+                     data-request-total="{{ page_obj.paginator.count }}"
+                     data-request-reason-none="{% trans 'Select at least one request.' %}"
+                     data-request-reason-approve="{% trans 'None of the selected requests can be approved.' %}"
+                     data-request-reason-reject="{% trans 'None of the selected requests can be rejected.' %}"
+                     data-request-skip-approve="{% trans '{count} selected requests cannot be approved and will be skipped.' %}"
+                     data-request-skip-reject="{% trans '{count} selected requests cannot be rejected and will be skipped.' %}">
+                    <span class="request-bulk-count text-muted" data-request-selected-count></span>
+                    <span class="request-bulk-buttons">
+                        <button type="button" class="btn btn-success btn-sm request-action-btn request-action-approve" data-request-bulk="approve" disabled>
                             <i class="fa fa-check"></i> {% trans "Approve selected" %}
                         </button>
-                        <button type="button" class="btn btn-danger btn-sm proposal-action-btn proposal-action-reject" data-proposal-bulk="reject" disabled>
+                        <button type="button" class="btn btn-danger btn-sm request-action-btn request-action-reject" data-request-bulk="reject" disabled>
                             <i class="fa fa-times"></i> {% trans "Reject selected" %}
                         </button>
                     </span>
                 </div>
-                <p class="proposal-bulk-hint text-muted" data-proposal-bulk-hint hidden></p>
+                <p class="request-bulk-hint text-muted" data-request-bulk-hint hidden></p>
             {% endif %}
             <table class="table table-hover">
                 <thead>
                 <tr>
                     {% if can_manage %}
-                        <th class="proposal-select-col">
+                        <th class="request-select-col">
                             <label class="batch-select-label" aria-label="{% trans 'Select all matching requests' %}">
-                                <input type="checkbox" data-proposal-select-all>
+                                <input type="checkbox" data-request-select-all>
                             </label>
                         </th>
                     {% endif %}
@@ -66,76 +66,76 @@
                 </tr>
                 </thead>
                 <tbody>
-                {% for proposal in proposals %}
-                    <tr data-proposal-row="{{ proposal.code }}">
+                {% for exhibition_request in exhibition_requests %}
+                    <tr data-request-row="{{ exhibition_request.code }}">
                         {% if can_manage %}
-                            <td class="proposal-select-col text-center">
-                                <input type="checkbox" class="proposal-select" value="{{ proposal.code }}"
-                                       data-proposal-checkbox data-proposal-bulk-actions="{{ proposal.bulk_actions|join:' ' }}"
+                            <td class="request-select-col text-center">
+                                <input type="checkbox" class="request-select" value="{{ exhibition_request.code }}"
+                                       data-request-checkbox data-request-bulk-actions="{{ exhibition_request.bulk_actions|join:' ' }}"
                                        aria-label="{% trans 'Select request' %}">
                             </td>
                         {% endif %}
                         <td>
                             <strong>
-                                <a href="{% url 'plugins:exhibition:proposal.detail' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
-                                    {{ proposal.name }}
+                                <a href="{% url 'plugins:exhibition:request.detail' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
+                                    {{ exhibition_request.name }}
                                 </a>
                             </strong>
                         </td>
                         <td>
                             {% if hide_applicant_emails %}
-                                {{ proposal.user.fullname|default:"—" }}
+                                {{ exhibition_request.user.fullname|default:"—" }}
                             {% else %}
-                                {{ proposal.user.get_display_name|default:proposal.user.email }}
+                                {{ exhibition_request.user.get_display_name|default:exhibition_request.user.email }}
                             {% endif %}
                         </td>
                         <td>
-                            {% with partner=proposal.approved_exhibitor|default:proposal %}
-                                {% if partner.is_exhibitor and partner.is_sponsor %}
+                            {% with organization=exhibition_request.approved_exhibitor|default:exhibition_request %}
+                                {% if organization.is_exhibitor and organization.is_sponsor %}
                                     {% trans "Exhibitor and sponsor" %}
-                                {% elif partner.is_sponsor %}
+                                {% elif organization.is_sponsor %}
                                     {% trans "Sponsor" %}
                                 {% else %}
                                     {% trans "Exhibitor" %}
                                 {% endif %}
                             {% endwith %}
                         </td>
-                        <td class="proposal-state-cell">
-                            <span data-proposal-state>{{ proposal.get_state_display }}</span>
-                            {% if proposal.edited_after_acceptance %}
+                        <td class="request-state-cell">
+                            <span data-request-state>{{ exhibition_request.get_state_display }}</span>
+                            {% if exhibition_request.edited_after_acceptance %}
                                 {% trans "Edited after acceptance, see detail view for changes." as edited_hint %}
-                                <a class="proposal-edited-dot"
-                                   href="{% url 'plugins:exhibition:proposal.detail' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}#post-acceptance-changes"
+                                <a class="request-edited-dot"
+                                   href="{% url 'plugins:exhibition:request.detail' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}#post-acceptance-changes"
                                    title="{{ edited_hint }}"
                                    aria-label="{{ edited_hint }}"
                                    data-toggle="tooltip"></a>
                             {% endif %}
                         </td>
-                        <td>{{ proposal.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
-                        <td class="text-right proposal-row-actions" data-proposal-actions-cell>
+                        <td>{{ exhibition_request.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
+                        <td class="text-right request-row-actions" data-request-actions-cell>
                             {% if can_manage %}
-                                {% if "approve" in proposal.review_actions %}
-                                    <button type="button" class="btn btn-success btn-sm proposal-action-btn proposal-action-approve" data-proposal-action="approve" data-proposal-code="{{ proposal.code }}" title="{% trans 'Approve' %}" data-toggle="tooltip">
+                                {% if "approve" in exhibition_request.review_actions %}
+                                    <button type="button" class="btn btn-success btn-sm request-action-btn request-action-approve" data-request-action="approve" data-request-code="{{ exhibition_request.code }}" title="{% trans 'Approve' %}" data-toggle="tooltip">
                                         <i class="fa fa-check"></i>
                                     </button>
                                 {% endif %}
-                                {% if "reject" in proposal.review_actions %}
-                                    <button type="button" class="btn btn-danger btn-sm proposal-action-btn proposal-action-reject" data-proposal-action="reject" data-proposal-code="{{ proposal.code }}" title="{% trans 'Reject' %}" data-toggle="tooltip">
+                                {% if "reject" in exhibition_request.review_actions %}
+                                    <button type="button" class="btn btn-danger btn-sm request-action-btn request-action-reject" data-request-action="reject" data-request-code="{{ exhibition_request.code }}" title="{% trans 'Reject' %}" data-toggle="tooltip">
                                         <i class="fa fa-times"></i>
                                     </button>
                                 {% endif %}
-                                {% if "withdraw" in proposal.review_actions %}
-                                    <button type="button" class="btn btn-sm proposal-action-btn proposal-action-withdraw" data-proposal-action="withdraw" data-proposal-code="{{ proposal.code }}" title="{% trans 'Withdraw' %}" data-toggle="tooltip">
+                                {% if "withdraw" in exhibition_request.review_actions %}
+                                    <button type="button" class="btn btn-sm request-action-btn request-action-withdraw" data-request-action="withdraw" data-request-code="{{ exhibition_request.code }}" title="{% trans 'Withdraw' %}" data-toggle="tooltip">
                                         <i class="fa fa-undo"></i>
                                     </button>
                                 {% endif %}
-                                {% if "reopen" in proposal.review_actions %}
-                                    <button type="button" class="btn btn-sm proposal-action-btn proposal-action-reopen" data-proposal-action="reopen" data-proposal-code="{{ proposal.code }}" title="{% trans 'Reopen for review' %}" data-toggle="tooltip">
+                                {% if "reopen" in exhibition_request.review_actions %}
+                                    <button type="button" class="btn btn-sm request-action-btn request-action-reopen" data-request-action="reopen" data-request-code="{{ exhibition_request.code }}" title="{% trans 'Reopen for review' %}" data-toggle="tooltip">
                                         <i class="fa fa-inbox"></i>
                                     </button>
                                 {% endif %}
                             {% endif %}
-                            <a class="btn btn-default btn-sm" href="{% url 'plugins:exhibition:proposal.detail' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}" title="{% trans 'View' %}" data-toggle="tooltip">
+                            <a class="btn btn-default btn-sm" href="{% url 'plugins:exhibition:request.detail' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}" title="{% trans 'View' %}" data-toggle="tooltip">
                                 <i class="fa fa-eye"></i>
                             </a>
                         </td>
@@ -156,8 +156,8 @@
     {% include "pretixcontrol/pagination.html" %}
     </div>
     {% if can_manage %}
-        <div data-proposal-i18n
-             data-confirm-approve="{% trans 'Approve the selected requests and create their partner profiles?' %}"
+        <div data-request-i18n
+             data-confirm-approve="{% trans 'Approve the selected requests and create their organization profiles?' %}"
              data-confirm-reject="{% trans 'Reject the selected requests?' %}"
              data-confirm-reject-one="{% trans 'Reject this request?' %}"
              data-confirm-withdraw-one="{% trans 'Withdraw this request?' %}"
@@ -173,6 +173,6 @@
              data-confirm-title="{% trans 'Please confirm' %}"
              data-confirm-label="{% trans 'Confirm' %}"
              data-cancel-label="{% trans 'Cancel' %}"></div>
-        <script defer src="{% static 'exhibition/js/proposal-actions.js' %}"></script>
+        <script defer src="{% static 'exhibition/js/request-actions.js' %}"></script>
     {% endif %}
 {% endblock %}

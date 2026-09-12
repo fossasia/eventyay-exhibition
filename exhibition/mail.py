@@ -17,13 +17,13 @@ from i18nfield.strings import LazyI18nString
 
 logger = logging.getLogger(__name__)
 
-PROPOSAL_NEW = "proposal_new"
-PROPOSAL_ACCEPTED = "proposal_accepted"
-PROPOSAL_REJECTED = "proposal_rejected"
+REQUEST_NEW = "request_new"
+REQUEST_ACCEPTED = "request_accepted"
+REQUEST_REJECTED = "request_rejected"
 EXHIBITOR_ACCESS = "exhibitor_access"
 VOUCHERS = "vouchers"
 
-LIFECYCLE_ROLES = (PROPOSAL_NEW, PROPOSAL_ACCEPTED, PROPOSAL_REJECTED, EXHIBITOR_ACCESS, VOUCHERS)
+LIFECYCLE_ROLES = (REQUEST_NEW, REQUEST_ACCEPTED, REQUEST_REJECTED, EXHIBITOR_ACCESS, VOUCHERS)
 
 PLACEHOLDER_DOCS = (
     ("{event_name}", _lazy("The event's name")),
@@ -55,7 +55,7 @@ def body_settings_key(role):
 
 
 DEFAULT_TEMPLATE_SOURCES = {
-    PROPOSAL_NEW: (
+    REQUEST_NEW: (
         gettext_noop("We received your request for {event_name}"),
         gettext_noop(
             "Hello,\n\n"
@@ -67,7 +67,7 @@ DEFAULT_TEMPLATE_SOURCES = {
             "The {event_name} team"
         ),
     ),
-    PROPOSAL_ACCEPTED: (
+    REQUEST_ACCEPTED: (
         gettext_noop("Your request for {event_name} has been accepted"),
         gettext_noop(
             "Hello,\n\n"
@@ -78,7 +78,7 @@ DEFAULT_TEMPLATE_SOURCES = {
             "The {event_name} team"
         ),
     ),
-    PROPOSAL_REJECTED: (
+    REQUEST_REJECTED: (
         gettext_noop("Update on your request for {event_name}"),
         gettext_noop(
             "Hello,\n\n"
@@ -157,13 +157,13 @@ class _SafeDict(dict):
 
 _PREVIEW_URL_RE = re.compile(r"^(https?://|www\.)[^\s]+$")
 
-PROPOSAL_PLACEHOLDER_CONTEXT = ["event", "proposal"]
+REQUEST_PLACEHOLDER_CONTEXT = ["event", "exhibition_request"]
 EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", "exhibitor"]
 
 ROLE_PLACEHOLDER_CONTEXT = {
-    PROPOSAL_NEW: PROPOSAL_PLACEHOLDER_CONTEXT,
-    PROPOSAL_ACCEPTED: PROPOSAL_PLACEHOLDER_CONTEXT,
-    PROPOSAL_REJECTED: PROPOSAL_PLACEHOLDER_CONTEXT,
+    REQUEST_NEW: REQUEST_PLACEHOLDER_CONTEXT,
+    REQUEST_ACCEPTED: REQUEST_PLACEHOLDER_CONTEXT,
+    REQUEST_REJECTED: REQUEST_PLACEHOLDER_CONTEXT,
     EXHIBITOR_ACCESS: EXHIBITOR_PLACEHOLDER_CONTEXT,
     VOUCHERS: EXHIBITOR_PLACEHOLDER_CONTEXT,
 }
@@ -181,7 +181,7 @@ def role_placeholder_names(event, role):
     return placeholder_names(event, ROLE_PLACEHOLDER_CONTEXT[role])
 
 
-def build_preview_placeholders(event, context=PROPOSAL_PLACEHOLDER_CONTEXT):
+def build_preview_placeholders(event, context=REQUEST_PLACEHOLDER_CONTEXT):
     """Sample placeholder values for previews, wrapped like the tickets preview."""
     from eventyay.base.email import get_available_placeholders
     from eventyay.base.templatetags.rich_text import is_placeholder_html_sample
@@ -219,10 +219,10 @@ def _render(text, context, locale):
         return localized
 
 
-def build_proposal_context(event, proposal):
+def build_request_context(event, exhibition_request):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, proposal=proposal)
+    context = get_email_context(event=event, exhibition_request=exhibition_request)
     context.setdefault("event_name", str(event.name))
     return context
 
@@ -235,13 +235,13 @@ def build_exhibitor_context(event, exhibitor):
     return context
 
 
-def proposal_public_url(proposal):
+def request_public_url(exhibition_request):
     path = reverse(
-        "plugins:exhibition:proposal.user_edit",
+        "plugins:exhibition:request.user_edit",
         kwargs={
-            "organizer": proposal.event.organizer.slug,
-            "event": proposal.event.slug,
-            "code": proposal.code,
+            "organizer": exhibition_request.event.organizer.slug,
+            "event": exhibition_request.event.slug,
+            "code": exhibition_request.code,
         },
     )
     return urljoin(django_settings.SITE_URL, path)
@@ -363,22 +363,24 @@ def sample_voucher_list(event=None):
     )
 
 
-def queue_proposal_email(event, proposal, role, *, send_now=False, requestor=None):
+def queue_request_email(event, exhibition_request, role, *, send_now=False, requestor=None):
     """Queue a lifecycle email; ``send_now`` sends it instead of leaving it in the outbox."""
     from .models import ExhibitionEmailQueue
 
-    to_email = (proposal.email or "").strip() or (proposal.user.email if proposal.user_id else "")
+    to_email = (exhibition_request.email or "").strip() or (
+        exhibition_request.user.email if exhibition_request.user_id else ""
+    )
     if not to_email:
         return None
 
-    user = proposal.user if proposal.user_id else None
+    user = exhibition_request.user if exhibition_request.user_id else None
     locale = recipient_locale(event, user)
     subject_tpl, body_tpl = get_email_template(event, role)
-    context = build_proposal_context(event, proposal)
+    context = build_request_context(event, exhibition_request)
 
     queued = ExhibitionEmailQueue.objects.create(
         event=event,
-        proposal=proposal,
+        exhibition_request=exhibition_request,
         role=role,
         to_email=to_email,
         subject=_render(subject_tpl, context, locale),
@@ -390,42 +392,46 @@ def queue_proposal_email(event, proposal, role, *, send_now=False, requestor=Non
     return queued
 
 
-def compose_recipients(event, states=None, partner_type=None, sponsor_group=None):
-    from .models import ExhibitionProposal, ExhibitionProposalState
+def compose_recipients(event, states=None, organization_type=None, sponsor_group=None):
+    from .models import ExhibitionRequest, ExhibitionRequestState
 
-    queryset = ExhibitionProposal.objects.filter(event=event).exclude(state=ExhibitionProposalState.DRAFT)
+    queryset = ExhibitionRequest.objects.filter(event=event).exclude(state=ExhibitionRequestState.DRAFT)
     if states:
         queryset = queryset.filter(state__in=states)
-    if partner_type == "exhibitor":
+    if organization_type == "exhibitor":
         queryset = queryset.filter(is_exhibitor=True)
-    elif partner_type == "sponsor":
+    elif organization_type == "sponsor":
         queryset = queryset.filter(is_sponsor=True)
     if sponsor_group is not None:
         queryset = queryset.filter(sponsor_group=sponsor_group)
     return queryset.select_related("user", "sponsor_group").order_by("-updated")
 
 
-def queue_compose_emails(event, proposals, subject, body, *, scheduled_at=None, send_now=False, requestor=None):
+def queue_compose_emails(
+    event, exhibition_requests, subject, body, *, scheduled_at=None, send_now=False, requestor=None
+):
     """Fan a composed message out into per-recipient queued rows sharing a batch."""
     from .models import ExhibitionEmailQueue
 
     batch = uuid.uuid4()
     created = []
     seen_emails = set()
-    for proposal in proposals:
-        to_email = (proposal.email or "").strip() or (proposal.user.email if proposal.user_id else "")
+    for exhibition_request in exhibition_requests:
+        to_email = (exhibition_request.email or "").strip() or (
+            exhibition_request.user.email if exhibition_request.user_id else ""
+        )
         to_email = to_email.strip()
         if not to_email or to_email.lower() in seen_emails:
             continue
         seen_emails.add(to_email.lower())
 
-        user = proposal.user if proposal.user_id else None
+        user = exhibition_request.user if exhibition_request.user_id else None
         locale = recipient_locale(event, user)
-        context = build_proposal_context(event, proposal)
+        context = build_request_context(event, exhibition_request)
 
         queued = ExhibitionEmailQueue.objects.create(
             event=event,
-            proposal=proposal,
+            exhibition_request=exhibition_request,
             batch=batch,
             to_email=to_email,
             subject=_render(subject, context, locale),

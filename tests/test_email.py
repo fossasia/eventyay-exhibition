@@ -20,8 +20,8 @@ from exhibition.forms import (
 )
 from exhibition.models import (
     ExhibitionEmailQueue,
-    ExhibitionProposal,
-    ExhibitionProposalState,
+    ExhibitionRequest,
+    ExhibitionRequestState,
     ExhibitorInfo,
     SponsorGroup,
 )
@@ -64,13 +64,13 @@ def applicant(db):
 
 
 @pytest.fixture
-def proposal(mail_event, applicant):
+def exhibition_request(mail_event, applicant):
     with scopes_disabled():
-        return ExhibitionProposal.objects.create(
+        return ExhibitionRequest.objects.create(
             event=mail_event,
             user=applicant,
             name="Acme Corp",
-            state=ExhibitionProposalState.SUBMITTED,
+            state=ExhibitionRequestState.SUBMITTED,
         )
 
 
@@ -87,22 +87,22 @@ def exhibitor(mail_event):
 
 @pytest.mark.django_db
 def test_get_email_template_falls_back_to_defaults(mail_event):
-    subject, body = mail_helpers.get_email_template(mail_event, mail_helpers.PROPOSAL_NEW)
+    subject, body = mail_helpers.get_email_template(mail_event, mail_helpers.REQUEST_NEW)
     assert "{event_name}" in str(subject)
     assert "{request_name}" in str(body)
 
 
 @pytest.mark.django_db
 def test_get_email_template_uses_saved_override(mail_event):
-    mail_event.settings.set(mail_helpers.subject_settings_key(mail_helpers.PROPOSAL_NEW), "Custom subject")
-    subject, _body = mail_helpers.get_email_template(mail_event, mail_helpers.PROPOSAL_NEW)
+    mail_event.settings.set(mail_helpers.subject_settings_key(mail_helpers.REQUEST_NEW), "Custom subject")
+    subject, _body = mail_helpers.get_email_template(mail_event, mail_helpers.REQUEST_NEW)
     assert str(subject) == "Custom subject"
 
 
 @pytest.mark.django_db
 def test_templates_form_saves_to_event_settings(mail_event):
-    subject_key = mail_helpers.subject_settings_key(mail_helpers.PROPOSAL_NEW)
-    body_key = mail_helpers.body_settings_key(mail_helpers.PROPOSAL_NEW)
+    subject_key = mail_helpers.subject_settings_key(mail_helpers.REQUEST_NEW)
+    body_key = mail_helpers.body_settings_key(mail_helpers.REQUEST_NEW)
     form = ExhibitionMailTemplatesForm(
         data={
             f"{subject_key}_{_locale_index(mail_event, subject_key, 'en')}": "Saved subject",
@@ -113,7 +113,7 @@ def test_templates_form_saves_to_event_settings(mail_event):
     assert form.is_valid(), form.errors
     form.save()
 
-    subject, body = mail_helpers.get_email_template(mail_event, mail_helpers.PROPOSAL_NEW)
+    subject, body = mail_helpers.get_email_template(mail_event, mail_helpers.REQUEST_NEW)
     assert str(subject) == "Saved subject"
     assert str(body) == "Saved body"
 
@@ -121,10 +121,10 @@ def test_templates_form_saves_to_event_settings(mail_event):
 @pytest.mark.django_db
 def test_default_template_initial_blanks_locales_without_translation():
     """A locale with no catalog entry stays empty instead of inheriting the English msgid."""
-    source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.PROPOSAL_NEW]
+    source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.REQUEST_NEW]
 
     with patch("exhibition.mail.gettext", side_effect=lambda msgid: msgid):
-        subject, body = mail_helpers.default_template_initial(mail_helpers.PROPOSAL_NEW, ["en", "th"])
+        subject, body = mail_helpers.default_template_initial(mail_helpers.REQUEST_NEW, ["en", "th"])
 
     assert subject.data["en"] == source_subject
     assert body.data["en"] == source_body
@@ -138,9 +138,9 @@ def test_default_template_initial_uses_available_translation():
         return f"TH:{msgid}" if get_language() == "th" else msgid
 
     with patch("exhibition.mail.gettext", side_effect=fake_gettext):
-        subject, body = mail_helpers.default_template_initial(mail_helpers.PROPOSAL_NEW, ["en", "th"])
+        subject, body = mail_helpers.default_template_initial(mail_helpers.REQUEST_NEW, ["en", "th"])
 
-    source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.PROPOSAL_NEW]
+    source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.REQUEST_NEW]
     assert subject.data["th"] == f"TH:{source_subject}"
     assert body.data["th"] == f"TH:{source_body}"
     assert subject.data["en"] == source_subject
@@ -161,8 +161,8 @@ def test_templates_form_does_not_prefill_untranslated_locale(mail_event):
 
 
 @pytest.mark.django_db
-def test_queue_proposal_email_resolves_placeholders(mail_event, proposal):
-    queued = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_NEW)
+def test_queue_request_email_resolves_placeholders(mail_event, exhibition_request):
+    queued = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_NEW)
 
     assert queued is not None
     assert queued.to_email == "applicant@example.com"
@@ -173,15 +173,17 @@ def test_queue_proposal_email_resolves_placeholders(mail_event, proposal):
 
 
 @pytest.mark.django_db
-def test_queue_proposal_email_is_unsent_by_default(mail_event, proposal):
-    queued = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_ACCEPTED)
+def test_queue_request_email_is_unsent_by_default(mail_event, exhibition_request):
+    queued = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_ACCEPTED)
     assert queued.sent_at is None
 
 
 @pytest.mark.django_db
-def test_queue_proposal_email_send_now_sends_immediately(mail_event, proposal):
+def test_queue_request_email_send_now_sends_immediately(mail_event, exhibition_request):
     with patch("eventyay.base.services.mail.mail") as mocked_mail:
-        queued = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_NEW, send_now=True)
+        queued = mail_helpers.queue_request_email(
+            mail_event, exhibition_request, mail_helpers.REQUEST_NEW, send_now=True
+        )
 
     assert queued.sent_at is not None
     assert mocked_mail.call_count == 1
@@ -189,27 +191,27 @@ def test_queue_proposal_email_send_now_sends_immediately(mail_event, proposal):
 
 
 @pytest.mark.django_db
-def test_queue_proposal_email_prefers_proposal_email_over_user_email(mail_event, proposal):
-    proposal.email = "contact@example.com"
+def test_queue_request_email_prefers_request_email_over_user_email(mail_event, exhibition_request):
+    exhibition_request.email = "contact@example.com"
     with scopes_disabled():
-        proposal.save(update_fields=["email"])
+        exhibition_request.save(update_fields=["email"])
 
-    queued = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_REJECTED)
+    queued = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_REJECTED)
     assert queued.to_email == "contact@example.com"
 
 
 @pytest.mark.django_db
-def test_queue_proposal_email_returns_none_without_recipient(mail_event, applicant, proposal):
+def test_queue_request_email_returns_none_without_recipient(mail_event, applicant, exhibition_request):
     applicant.email = ""
     applicant.save(update_fields=["email"])
-    proposal.user.refresh_from_db()
+    exhibition_request.user.refresh_from_db()
 
-    assert mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_NEW) is None
+    assert mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_NEW) is None
 
 
 @pytest.mark.django_db
-def test_send_marks_sent_and_calls_core_mail(mail_event, proposal):
-    queued = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_ACCEPTED)
+def test_send_marks_sent_and_calls_core_mail(mail_event, exhibition_request):
+    queued = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_ACCEPTED)
 
     with patch("eventyay.base.services.mail.mail") as mocked_mail:
         queued.send()
@@ -222,8 +224,8 @@ def test_send_marks_sent_and_calls_core_mail(mail_event, proposal):
 
 
 @pytest.mark.django_db
-def test_send_twice_is_a_noop(mail_event, proposal):
-    queued = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_ACCEPTED)
+def test_send_twice_is_a_noop(mail_event, exhibition_request):
+    queued = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_ACCEPTED)
 
     with patch("eventyay.base.services.mail.mail") as mocked_mail:
         queued.send()
@@ -235,9 +237,9 @@ def test_send_twice_is_a_noop(mail_event, proposal):
 
 
 @pytest.mark.django_db
-def test_outbox_and_sent_querysets_do_not_overlap(mail_event, proposal):
-    unsent = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_ACCEPTED)
-    sent = mail_helpers.queue_proposal_email(mail_event, proposal, mail_helpers.PROPOSAL_REJECTED)
+def test_outbox_and_sent_querysets_do_not_overlap(mail_event, exhibition_request):
+    unsent = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_ACCEPTED)
+    sent = mail_helpers.queue_request_email(mail_event, exhibition_request, mail_helpers.REQUEST_REJECTED)
     with patch("eventyay.base.services.mail.mail"):
         sent.send()
 
@@ -299,7 +301,7 @@ def _preview(event, role, body_by_locale):
 @pytest.mark.django_db
 def test_preview_renders_markdown_and_highlights_placeholders(mail_event):
     mail_event.settings.locales = ["en"]
-    response = _preview(mail_event, mail_helpers.PROPOSAL_NEW, {"en": "Hi {request_name}"})
+    response = _preview(mail_event, mail_helpers.REQUEST_NEW, {"en": "Hi {request_name}"})
 
     assert response.status_code == 200
     previews = json.loads(response.content)["previews"]
@@ -313,7 +315,7 @@ def test_preview_renders_each_active_locale(mail_event):
     mail_event.settings.locales = ["en", "de"]
     response = _preview(
         mail_event,
-        mail_helpers.PROPOSAL_ACCEPTED,
+        mail_helpers.REQUEST_ACCEPTED,
         {"en": "Hello", "de": "Hallo"},
     )
 
@@ -326,7 +328,7 @@ def test_preview_renders_each_active_locale(mail_event):
 @pytest.mark.django_db
 def test_preview_sanitises_html(mail_event):
     mail_event.settings.locales = ["en"]
-    response = _preview(mail_event, mail_helpers.PROPOSAL_NEW, {"en": "<script>alert(1)</script>"})
+    response = _preview(mail_event, mail_helpers.REQUEST_NEW, {"en": "<script>alert(1)</script>"})
 
     previews = json.loads(response.content)["previews"]
     assert "<script>" not in previews["en"]
@@ -341,11 +343,11 @@ def test_preview_rejects_unknown_role(mail_event):
     assert response.status_code == 400
 
 
-def _proposal(event, name, state, *, email="", user=None, is_exhibitor=True, is_sponsor=False, sponsor_group=None):
+def _request(event, name, state, *, email="", user=None, is_exhibitor=True, is_sponsor=False, sponsor_group=None):
     if user is None:
         user = User.objects.create_user(email=f"{name.lower().replace(' ', '')}-user@example.com", password="pw")
     with scopes_disabled():
-        return ExhibitionProposal.objects.create(
+        return ExhibitionRequest.objects.create(
             event=event,
             user=user,
             name=name,
@@ -359,20 +361,20 @@ def _proposal(event, name, state, *, email="", user=None, is_exhibitor=True, is_
 
 @pytest.mark.django_db
 def test_compose_recipients_filters_by_state(mail_event):
-    accepted = _proposal(mail_event, "A", ExhibitionProposalState.ACCEPTED, email="a@example.com")
-    _proposal(mail_event, "R", ExhibitionProposalState.REJECTED, email="r@example.com")
-    _proposal(mail_event, "D", ExhibitionProposalState.DRAFT, email="d@example.com")
+    accepted = _request(mail_event, "A", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    _request(mail_event, "R", ExhibitionRequestState.REJECTED, email="r@example.com")
+    _request(mail_event, "D", ExhibitionRequestState.DRAFT, email="d@example.com")
 
     with scopes_disabled():
-        result = list(mail_helpers.compose_recipients(mail_event, states=[ExhibitionProposalState.ACCEPTED]))
+        result = list(mail_helpers.compose_recipients(mail_event, states=[ExhibitionRequestState.ACCEPTED]))
 
     assert result == [accepted]
 
 
 @pytest.mark.django_db
 def test_compose_recipients_excludes_drafts_when_no_state_filter(mail_event):
-    _proposal(mail_event, "D", ExhibitionProposalState.DRAFT, email="d@example.com")
-    submitted = _proposal(mail_event, "S", ExhibitionProposalState.SUBMITTED, email="s@example.com")
+    _request(mail_event, "D", ExhibitionRequestState.DRAFT, email="d@example.com")
+    submitted = _request(mail_event, "S", ExhibitionRequestState.SUBMITTED, email="s@example.com")
 
     with scopes_disabled():
         result = list(mail_helpers.compose_recipients(mail_event))
@@ -384,19 +386,19 @@ def test_compose_recipients_excludes_drafts_when_no_state_filter(mail_event):
 def test_compose_recipients_filters_by_type_and_group(mail_event):
     with scopes_disabled():
         group = SponsorGroup.objects.create(event=mail_event, name="Gold")
-    sponsor = _proposal(
+    sponsor = _request(
         mail_event,
         "Sp",
-        ExhibitionProposalState.ACCEPTED,
+        ExhibitionRequestState.ACCEPTED,
         email="sp@example.com",
         is_exhibitor=False,
         is_sponsor=True,
         sponsor_group=group,
     )
-    _proposal(mail_event, "Ex", ExhibitionProposalState.ACCEPTED, email="ex@example.com")
+    _request(mail_event, "Ex", ExhibitionRequestState.ACCEPTED, email="ex@example.com")
 
     with scopes_disabled():
-        by_type = list(mail_helpers.compose_recipients(mail_event, partner_type="sponsor"))
+        by_type = list(mail_helpers.compose_recipients(mail_event, organization_type="sponsor"))
         by_group = list(mail_helpers.compose_recipients(mail_event, sponsor_group=group))
 
     assert by_type == [sponsor]
@@ -405,9 +407,9 @@ def test_compose_recipients_filters_by_type_and_group(mail_event):
 
 @pytest.mark.django_db
 def test_queue_compose_emails_fans_out_and_dedupes(mail_event):
-    _proposal(mail_event, "One", ExhibitionProposalState.ACCEPTED, email="one@example.com")
-    _proposal(mail_event, "Two", ExhibitionProposalState.ACCEPTED, email="two@example.com")
-    _proposal(mail_event, "Dup", ExhibitionProposalState.ACCEPTED, email="One@Example.com")
+    _request(mail_event, "One", ExhibitionRequestState.ACCEPTED, email="one@example.com")
+    _request(mail_event, "Two", ExhibitionRequestState.ACCEPTED, email="two@example.com")
+    _request(mail_event, "Dup", ExhibitionRequestState.ACCEPTED, email="One@Example.com")
 
     with scopes_disabled():
         recipients = list(mail_helpers.compose_recipients(mail_event))
@@ -421,11 +423,11 @@ def test_queue_compose_emails_fans_out_and_dedupes(mail_event):
 
 @pytest.mark.django_db
 def test_queue_compose_emails_resolves_placeholders(mail_event):
-    proposal = _proposal(mail_event, "Acme Corp", ExhibitionProposalState.ACCEPTED, email="a@example.com")
+    exhibition_request = _request(mail_event, "Acme Corp", ExhibitionRequestState.ACCEPTED, email="a@example.com")
 
     with scopes_disabled():
         created = mail_helpers.queue_compose_emails(
-            mail_event, [proposal], "For {request_name}", "Hello from {event_name}"
+            mail_event, [exhibition_request], "For {request_name}", "Hello from {event_name}"
         )
 
     assert created[0].subject == "For Acme Corp"
@@ -434,11 +436,11 @@ def test_queue_compose_emails_resolves_placeholders(mail_event):
 
 @pytest.mark.django_db
 def test_queue_compose_emails_send_now(mail_event):
-    proposal = _proposal(mail_event, "Acme", ExhibitionProposalState.ACCEPTED, email="a@example.com")
+    exhibition_request = _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
 
     with patch("eventyay.base.services.mail.mail") as mocked_mail:
         with scopes_disabled():
-            created = mail_helpers.queue_compose_emails(mail_event, [proposal], "S", "B", send_now=True)
+            created = mail_helpers.queue_compose_emails(mail_event, [exhibition_request], "S", "B", send_now=True)
 
     assert created[0].sent_at is not None
     assert mocked_mail.call_count == 1
@@ -446,7 +448,7 @@ def test_queue_compose_emails_send_now(mail_event):
 
 @pytest.mark.django_db
 def test_compose_form_requires_subject_and_body(mail_event):
-    form = ExhibitionComposeForm(data={"states": [ExhibitionProposalState.ACCEPTED]}, event=mail_event)
+    form = ExhibitionComposeForm(data={"states": [ExhibitionRequestState.ACCEPTED]}, event=mail_event)
     assert not form.is_valid()
     assert "subject" in form.errors
     assert "body" in form.errors
@@ -467,7 +469,7 @@ def test_compose_form_requires_subject_and_body(mail_event):
 def test_compose_form_rejects_empty_html_body(mail_event, empty_body):
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionProposalState.ACCEPTED],
+            "states": [ExhibitionRequestState.ACCEPTED],
             **_compose_data(mail_event, subject="Hi", body=empty_body),
         },
         event=mail_event,
@@ -488,7 +490,7 @@ def test_compose_form_rejects_empty_html_body(mail_event, empty_body):
 def test_compose_form_accepts_valid_body(mail_event, valid_body):
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionProposalState.ACCEPTED],
+            "states": [ExhibitionRequestState.ACCEPTED],
             **_compose_data(mail_event, subject="Hi", body=valid_body),
         },
         event=mail_event,
@@ -544,11 +546,11 @@ def test_email_queue_edit_form_accepts_valid_body(mail_event, valid_body):
 
 @pytest.mark.django_db
 def test_compose_view_saves_to_outbox(mail_event):
-    _proposal(mail_event, "Acme", ExhibitionProposalState.ACCEPTED, email="a@example.com")
+    _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionProposalState.ACCEPTED],
-            "partner_type": "",
+            "states": [ExhibitionRequestState.ACCEPTED],
+            "organization_type": "",
             **_compose_data(mail_event, subject="Hi", body="Body"),
         },
         event=mail_event,
@@ -571,11 +573,11 @@ def test_compose_view_saves_to_outbox(mail_event):
 
 @pytest.mark.django_db
 def test_queue_compose_emails_stores_scheduled_at(mail_event):
-    proposal = _proposal(mail_event, "Acme", ExhibitionProposalState.ACCEPTED, email="a@example.com")
+    exhibition_request = _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
     when = timezone.now() + timedelta(days=1)
 
     with scopes_disabled():
-        created = mail_helpers.queue_compose_emails(mail_event, [proposal], "S", "B", scheduled_at=when)
+        created = mail_helpers.queue_compose_emails(mail_event, [exhibition_request], "S", "B", scheduled_at=when)
 
     assert created[0].scheduled_at == when
     assert created[0].sent_at is None
@@ -585,7 +587,7 @@ def test_queue_compose_emails_stores_scheduled_at(mail_event):
 def test_compose_form_rejects_past_scheduled_at(mail_event):
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionProposalState.ACCEPTED],
+            "states": [ExhibitionRequestState.ACCEPTED],
             "scheduled_at": (timezone.now() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
             **_compose_data(mail_event, subject="Hi", body="Body"),
         },
@@ -597,12 +599,12 @@ def test_compose_form_rejects_past_scheduled_at(mail_event):
 
 @pytest.mark.django_db
 def test_compose_view_schedules_emails(mail_event):
-    _proposal(mail_event, "Acme", ExhibitionProposalState.ACCEPTED, email="a@example.com")
+    _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
     when = timezone.now() + timedelta(days=1)
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionProposalState.ACCEPTED],
-            "partner_type": "",
+            "states": [ExhibitionRequestState.ACCEPTED],
+            "organization_type": "",
             "scheduled_at": when.strftime("%Y-%m-%dT%H:%M"),
             **_compose_data(mail_event, subject="Hi", body="Body"),
         },
@@ -630,13 +632,13 @@ def test_compose_view_schedules_emails(mail_event):
 
 
 @pytest.mark.django_db
-def test_scheduled_task_sends_when_due(mail_event, proposal):
+def test_scheduled_task_sends_when_due(mail_event, exhibition_request):
     from exhibition.tasks import send_scheduled_email
 
     with scopes_disabled():
         queued = ExhibitionEmailQueue.objects.create(
             event=mail_event,
-            proposal=proposal,
+            exhibition_request=exhibition_request,
             to_email="a@example.com",
             subject="S",
             body="B",
@@ -655,11 +657,11 @@ def test_scheduled_task_sends_when_due(mail_event, proposal):
 
 @pytest.mark.django_db
 def test_group_email_entries_collapses_batches(mail_event):
-    p1 = _proposal(mail_event, "One", ExhibitionProposalState.ACCEPTED, email="one@example.com")
-    p2 = _proposal(mail_event, "Two", ExhibitionProposalState.ACCEPTED, email="two@example.com")
+    p1 = _request(mail_event, "One", ExhibitionRequestState.ACCEPTED, email="one@example.com")
+    p2 = _request(mail_event, "Two", ExhibitionRequestState.ACCEPTED, email="two@example.com")
     with scopes_disabled():
         mail_helpers.queue_compose_emails(mail_event, [p1, p2], "Hi", "Body")
-        lifecycle = mail_helpers.queue_proposal_email(mail_event, p1, mail_helpers.PROPOSAL_ACCEPTED)
+        lifecycle = mail_helpers.queue_request_email(mail_event, p1, mail_helpers.REQUEST_ACCEPTED)
         emails = list(ExhibitionEmailQueue.objects.filter(event=mail_event).order_by("-created"))
 
     entries = group_email_entries(emails)
@@ -674,8 +676,8 @@ def test_group_email_entries_collapses_batches(mail_event):
 
 @pytest.mark.django_db
 def test_send_view_sends_whole_batch(mail_event):
-    p1 = _proposal(mail_event, "One", ExhibitionProposalState.ACCEPTED, email="one@example.com")
-    p2 = _proposal(mail_event, "Two", ExhibitionProposalState.ACCEPTED, email="two@example.com")
+    p1 = _request(mail_event, "One", ExhibitionRequestState.ACCEPTED, email="one@example.com")
+    p2 = _request(mail_event, "Two", ExhibitionRequestState.ACCEPTED, email="two@example.com")
     with scopes_disabled():
         created = mail_helpers.queue_compose_emails(mail_event, [p1, p2], "Hi", "Body")
 
@@ -695,8 +697,8 @@ def test_send_view_sends_whole_batch(mail_event):
 
 @pytest.mark.django_db
 def test_delete_view_discards_whole_batch(mail_event):
-    p1 = _proposal(mail_event, "One", ExhibitionProposalState.ACCEPTED, email="one@example.com")
-    p2 = _proposal(mail_event, "Two", ExhibitionProposalState.ACCEPTED, email="two@example.com")
+    p1 = _request(mail_event, "One", ExhibitionRequestState.ACCEPTED, email="one@example.com")
+    p2 = _request(mail_event, "Two", ExhibitionRequestState.ACCEPTED, email="two@example.com")
     with scopes_disabled():
         created = mail_helpers.queue_compose_emails(mail_event, [p1, p2], "Hi", "Body")
 

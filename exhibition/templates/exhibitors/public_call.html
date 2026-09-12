@@ -30,12 +30,12 @@
     {% endif %}
     <div class="url-links">
         {% if request.user.is_authenticated %}
-            <a class="btn btn-info btn-lg btn-block" href="{% url 'plugins:exhibition:proposal.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-info btn-lg btn-block" href="{% url 'plugins:exhibition:request.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
                 {% trans "View your requests" %}
             </a>
         {% endif %}
         <a class="btn btn-success btn-lg btn-block {% if not settings.call_is_open %}disabled{% endif %}"
-           href="{% url 'plugins:exhibition:proposal.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+           href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
             {% if settings.call_is_open %}
                 {% trans "Submit a request" %}
             {% else %}

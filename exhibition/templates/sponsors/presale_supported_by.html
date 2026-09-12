@@ -6,18 +6,18 @@
         <div class="exhibition-supported-by-group">
             <h4>{{ group.localized_name }}</h4>
             <div class="exhibition-supported-by-grid">
-                {% for partner in group.front_page_partners %}
-                    {% if partner.visible_logo_url %}
+                {% for organization in group.front_page_organizations %}
+                    {% if organization.visible_logo_url %}
                         <div class="exhibition-supported-by-card">
-                            {% if partner.url %}
-                                <a href="{{ partner.url }}" target="_blank" rel="noopener noreferrer" class="exhibition-supported-by-link">
+                            {% if organization.url %}
+                                <a href="{{ organization.url }}" target="_blank" rel="noopener noreferrer" class="exhibition-supported-by-link">
                             {% endif %}
                                     <div class="thumbnail">
                                         <div class="exhibition-supported-by-logo">
-                                            <img src="{{ partner.visible_logo_url }}" alt="{{ partner.name|event_localize }}" loading="lazy">
+                                            <img src="{{ organization.visible_logo_url }}" alt="{{ organization.name|event_localize }}" loading="lazy">
                                         </div>
                                     </div>
-                            {% if partner.url %}
+                            {% if organization.url %}
                                 </a>
                             {% endif %}
                         </div>

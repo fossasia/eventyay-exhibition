@@ -11,9 +11,9 @@ from eventyay.base.models import Question
 from rest_framework import serializers
 
 from exhibition.api import ExhibitorInfoSerializer, LeadCreateView
-from exhibition.forms import ExhibitionProposalForm, ExhibitorInfoForm, SponsorGroupForm
+from exhibition.forms import ExhibitionRequestForm, ExhibitorInfoForm, SponsorGroupForm
 from exhibition.models import (
-    PROPOSAL_DEFAULT_FIELD_KEYS,
+    REQUEST_DEFAULT_FIELD_KEYS,
     ExhibitorInfo,
     ExhibitorSettings,
     SponsorGroup,
@@ -276,36 +276,36 @@ def test_call_text_preview_ignores_inactive_locales_and_blank_text(event):
 def test_save_field_order_persists_new_order(event):
     settings = make_exhibitor_settings(event)
     view = ExhibitionQuestionListView()
-    view.save_field_order(settings, "social_links,logo,header_image,name")
+    view.save_field_order(settings, "social_links,logo,banner,name")
 
     settings.refresh_from_db()
-    assert settings.ordered_proposal_field_keys[:4] == ["social_links", "logo", "header_image", "name"]
-    assert set(settings.ordered_proposal_field_keys) == set(PROPOSAL_DEFAULT_FIELD_KEYS)
+    assert settings.ordered_request_field_keys[:4] == ["social_links", "logo", "banner", "name"]
+    assert set(settings.ordered_request_field_keys) == set(REQUEST_DEFAULT_FIELD_KEYS)
 
 
 @pytest.mark.django_db
-def test_proposal_form_reflects_saved_field_order(event):
+def test_request_form_reflects_saved_field_order(event):
     settings = make_exhibitor_settings(event)
     view = ExhibitionQuestionListView()
     view.save_field_order(settings, "description,name")
 
-    form = ExhibitionProposalForm(event=event)
+    form = ExhibitionRequestForm(event=event)
     field_names = list(form.fields.keys())
     assert field_names.index("description") < field_names.index("name")
 
 
 @pytest.mark.django_db
-def test_proposal_items_interleaves_reordered_formset_field(event):
+def test_request_items_interleaves_reordered_formset_field(event):
     settings = make_exhibitor_settings(event)
-    stored = settings.proposal_field_settings
+    stored = settings.request_field_settings
     stored["social_links"]["active"] = True
-    settings.save(update_fields=["proposal_field_settings"])
+    settings.save(update_fields=["request_field_settings"])
 
     view = ExhibitionQuestionListView()
     view.save_field_order(settings, "social_links,name")
 
-    form = ExhibitionProposalForm(event=event)
-    items = form.proposal_items
+    form = ExhibitionRequestForm(event=event)
+    items = form.request_items
     assert items[0]["kind"] == "social_links"
     assert items[1]["kind"] == "field"
     assert items[1]["key"] == "name"
@@ -324,7 +324,7 @@ def test_required_dropdown_value_persists_as_boolean(event):
     view.post(request)
 
     settings.refresh_from_db()
-    assert settings.normalized_proposal_field_settings["url"]["required"] is True
+    assert settings.normalized_request_field_settings["url"]["required"] is True
 
 
 def _default_field_request(event, method="post", data=None):
@@ -350,21 +350,21 @@ def test_default_field_edit_overrides_label_and_help_text(event):
     view.form_valid(form)
 
     settings.refresh_from_db()
-    normalized = settings.normalized_proposal_field_settings
+    normalized = settings.normalized_request_field_settings
     assert normalized["name"]["label"] == "University name"
     assert normalized["name"]["help_text"] == "Use the official name."
 
-    proposal_form = ExhibitionProposalForm(event=event)
-    assert str(proposal_form.fields["name"].label) == "University name"
-    assert str(proposal_form.fields["name"].help_text) == "Use the official name."
+    request_form = ExhibitionRequestForm(event=event)
+    assert str(request_form.fields["name"].label) == "University name"
+    assert str(request_form.fields["name"].help_text) == "Use the official name."
 
 
 @pytest.mark.django_db
 def test_default_field_reset_restores_builtin_label(event):
     settings = make_exhibitor_settings(event)
-    stored = settings.proposal_field_settings
+    stored = settings.request_field_settings
     stored["name"]["label"] = "University name"
-    settings.save(update_fields=["proposal_field_settings"])
+    settings.save(update_fields=["request_field_settings"])
 
     view = ExhibitionDefaultFieldResetView()
     view.request = _default_field_request(event)
@@ -372,7 +372,7 @@ def test_default_field_reset_restores_builtin_label(event):
     view.post(view.request, key="name")
 
     settings.refresh_from_db()
-    normalized = settings.normalized_proposal_field_settings
+    normalized = settings.normalized_request_field_settings
     assert normalized["name"]["custom_label"] is None
     assert str(normalized["name"]["label"]) == "Organization name"
 
@@ -385,13 +385,13 @@ def test_saving_settings_does_not_freeze_default_labels_as_overrides(event):
     view.post(view.request)
 
     settings.refresh_from_db()
-    assert settings.proposal_field_settings["url"]["label"] is None
-    assert settings.normalized_proposal_field_settings["url"]["custom_label"] is None
+    assert settings.request_field_settings["url"]["label"] is None
+    assert settings.normalized_request_field_settings["url"]["custom_label"] is None
 
 
 @pytest.mark.django_db
 def test_sponsor_form_hides_exhibitor_fields(event):
-    form = ExhibitorInfoForm(event=event, partner_type="sponsor")
+    form = ExhibitorInfoForm(event=event, organization_type="sponsor")
     assert "sponsor_group" in form.fields
     assert "is_exhibitor" in form.fields
     for name in ("booth_id", "booth_name", "lead_scanning_enabled", "is_sponsor"):
@@ -400,7 +400,7 @@ def test_sponsor_form_hides_exhibitor_fields(event):
 
 @pytest.mark.django_db
 def test_exhibitor_form_hides_sponsor_fields(event):
-    form = ExhibitorInfoForm(event=event, partner_type="exhibitor")
+    form = ExhibitorInfoForm(event=event, organization_type="exhibitor")
     assert "booth_id" in form.fields
     assert "is_sponsor" in form.fields
     for name in ("sponsor_group", "is_exhibitor"):
@@ -409,7 +409,7 @@ def test_exhibitor_form_hides_sponsor_fields(event):
 
 @pytest.mark.django_db
 def test_scoped_forms_set_type_flags(event):
-    sponsor_form = ExhibitorInfoForm(data={"name_0": "Acme Sponsor"}, event=event, partner_type="sponsor")
+    sponsor_form = ExhibitorInfoForm(data={"name_0": "Acme Sponsor"}, event=event, organization_type="sponsor")
     assert sponsor_form.is_valid(), sponsor_form.errors
     sponsor = sponsor_form.save(commit=False)
     sponsor.event = event
@@ -417,7 +417,7 @@ def test_scoped_forms_set_type_flags(event):
     assert sponsor.is_sponsor is True
     assert sponsor.is_exhibitor is False
 
-    exhibitor_form = ExhibitorInfoForm(data={"name_0": "Acme Exhibitor"}, event=event, partner_type="exhibitor")
+    exhibitor_form = ExhibitorInfoForm(data={"name_0": "Acme Exhibitor"}, event=event, organization_type="exhibitor")
     assert exhibitor_form.is_valid(), exhibitor_form.errors
     exhibitor = exhibitor_form.save(commit=False)
     exhibitor.event = event
@@ -427,15 +427,15 @@ def test_scoped_forms_set_type_flags(event):
 
 
 @pytest.mark.django_db
-def test_partner_lists_filter_by_type_and_show_both(event):
+def test_organization_lists_filter_by_type_and_show_both(event):
     sponsor = ExhibitorInfo.objects.create(event=event, name="S", is_sponsor=True, is_exhibitor=False)
     exhibitor = ExhibitorInfo.objects.create(event=event, name="E", is_sponsor=False, is_exhibitor=True)
     both = ExhibitorInfo.objects.create(event=event, name="B", is_sponsor=True, is_exhibitor=True)
 
     factory = RequestFactory()
 
-    def ids_for(partner_type):
-        view = ExhibitorListView(partner_type=partner_type)
+    def ids_for(organization_type):
+        view = ExhibitorListView(organization_type=organization_type)
         request = factory.get("/")
         request.event = event
         view.request = request

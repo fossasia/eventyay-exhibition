@@ -135,6 +135,8 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     sponsor_group_level = SponsorGroupLevelField(required=False, allow_null=True, min_value=1)
     social_links = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
     extra_links = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
+    logo_url = serializers.CharField(source="visible_logo_url", read_only=True)
+    banner_url = serializers.CharField(source="visible_banner_url", read_only=True)
 
     class Meta:
         model = ExhibitorInfo
@@ -148,7 +150,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             "video_url",
             "slides_url",
             "logo_url",
-            "header_image_url",
+            "banner_url",
             "key",
             "is_sponsor",
             "sponsor_group",
@@ -168,8 +170,6 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["logo_url"] = instance.visible_logo_url
-        data["header_image_url"] = instance.visible_header_image_url
         data["slides_url"] = instance.visible_slides_url
         data["social_links"] = [{"network": link.network, "url": link.url} for link in instance.social_links.all()]
         data["extra_links"] = [{"label": link.label, "url": link.url} for link in instance.extra_links.all()]
@@ -204,8 +204,6 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             "url",
             "contact_url",
             "video_url",
-            "logo_url",
-            "header_image_url",
             "slides_url",
         ):
             if data.get(field):

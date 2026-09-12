@@ -1,6 +1,6 @@
 (function () {
     function init() {
-        var scope = document.querySelector('[data-partner-select-scope]')
+        var scope = document.querySelector('[data-organization-select-scope]')
         if (!scope) {
             return
         }
@@ -9,14 +9,14 @@
             $(scope).find('[data-toggle="tooltip"]').tooltip()
         }
 
-        var selectAll = scope.querySelector('[data-partner-select-all]')
-        var countLabel = scope.querySelector('[data-partner-selected-count]')
-        var downloadLink = scope.querySelector('[data-partner-download-link]')
+        var selectAll = scope.querySelector('[data-organization-select-all]')
+        var countLabel = scope.querySelector('[data-organization-selected-count]')
+        var downloadLink = scope.querySelector('[data-organization-download-link]')
         var selectedLabel = scope.dataset.selectedLabel || 'selected'
         var baseHref = downloadLink ? downloadLink.getAttribute('href') : null
 
         function checkboxes() {
-            return Array.prototype.slice.call(scope.querySelectorAll('[data-partner-checkbox]'))
+            return Array.prototype.slice.call(scope.querySelectorAll('[data-organization-checkbox]'))
         }
 
         function selectedValues() {
@@ -55,7 +55,7 @@
         }
 
         scope.addEventListener('change', function (event) {
-            if (event.target.hasAttribute('data-partner-checkbox')) {
+            if (event.target.hasAttribute('data-organization-checkbox')) {
                 refreshSelection()
             }
         })

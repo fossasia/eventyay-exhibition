@@ -34,7 +34,7 @@
                     </tr>
                     </thead>
                     <tbody dragsort-url="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">
-                    {% for field in proposal_fields %}
+                    {% for field in request_fields %}
                         <tr dragsort-id="{{ field.dragsort_id }}">
                             <th>
                                 {% if field.is_custom %}

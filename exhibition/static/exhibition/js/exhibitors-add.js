@@ -166,7 +166,7 @@
             exhibitorCheckbox.addEventListener('change', toggleExhibitorFields)
         }
 
-        document.querySelectorAll('[data-partner-image-source-pair]').forEach(initImageSourcePair)
+        document.querySelectorAll('[data-organization-image-source-pair]').forEach(initImageSourcePair)
         document.querySelectorAll('[data-social-link-row]').forEach(initSocialLinkRow)
 
         if (window.jQuery) {

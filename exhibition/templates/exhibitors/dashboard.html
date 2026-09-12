@@ -13,7 +13,7 @@
 
 {% block exhibitors_content %}
   <div class="dashboard">
-    {% if show_partners %}
+    {% if show_organizations %}
       <div class="widget-container widget-small">
         <a href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" class="widget">
           <div class="numwidget">
@@ -33,7 +33,7 @@
     {% endif %}
     {% if show_requests %}
       <div class="widget-container widget-small">
-        <a href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}?state=submitted" class="widget">
+        <a href="{% url 'plugins:exhibition:request.list' organizer=request.event.organizer.slug event=request.event.slug %}?state=submitted" class="widget">
           <div class="numwidget">
             <span class="num">{{ pending_request_count }}</span>
             <span class="text">{% trans "Requests awaiting review" %}</span>
@@ -59,7 +59,7 @@
           <div class="panel-heading">
             <h3 class="panel-title">
               {% trans "Recent requests" %}
-              <a href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}"
+              <a href="{% url 'plugins:exhibition:request.list' organizer=request.event.organizer.slug event=request.event.slug %}"
                  class="pull-right flip">
                 <small>{% trans "View all" %}</small>
               </a>
@@ -77,24 +77,24 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {% for proposal in recent_requests %}
+                  {% for exhibition_request in recent_requests %}
                     <tr>
                       <td>
-                        <a href="{% url 'plugins:exhibition:proposal.detail' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
-                          {{ proposal.name }}
+                        <a href="{% url 'plugins:exhibition:request.detail' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
+                          {{ exhibition_request.name }}
                         </a>
                       </td>
                       <td>
-                        {% if proposal.is_exhibitor and proposal.is_sponsor %}
+                        {% if exhibition_request.is_exhibitor and exhibition_request.is_sponsor %}
                           {% trans "Exhibitor and sponsor" %}
-                        {% elif proposal.is_sponsor %}
+                        {% elif exhibition_request.is_sponsor %}
                           {% trans "Sponsor" %}
                         {% else %}
                           {% trans "Exhibitor" %}
                         {% endif %}
                       </td>
-                      <td>{{ proposal.get_state_display }}</td>
-                      <td>{{ proposal.submitted|date:"SHORT_DATETIME_FORMAT"|default:"—" }}</td>
+                      <td>{{ exhibition_request.get_state_display }}</td>
+                      <td>{{ exhibition_request.submitted|date:"SHORT_DATETIME_FORMAT"|default:"—" }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>

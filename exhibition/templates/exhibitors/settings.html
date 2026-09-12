@@ -287,7 +287,7 @@
                             <tr>
                                 <th>{% trans "Group Name" %}</th>
                                 <th>{% trans "Level" %}</th>
-                                <th>{% trans "Partners" %}</th>
+                                <th>{% trans "Organizations" %}</th>
                                 <th class="text-center">{% trans "Front Page" %}</th>
                                 <th class="action-col-2"></th>
                             </tr>
@@ -299,7 +299,7 @@
                                         <span class="sponsor-group-display-name">{{ group.localized_name }}</span>
                                     </td>
                                     <td><span data-group-level>{{ group.level }}</span></td>
-                                    <td>{{ group.partner_count }}</td>
+                                    <td>{{ group.organization_count }}</td>
                                     <td class="text-center sponsor-group-front-page-cell">
                                         <label class="toggle-switch" title="{% translate 'Show this sponsor group in the Supported By section on the front page.' %}">
                                             <input

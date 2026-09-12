@@ -29,8 +29,8 @@ from . import mail as mail_helpers
 from .filters import (
     EmailFilterForm,
     ExhibitorFilterForm,
-    ProposalFilterForm,
     PublicExhibitorFilterForm,
+    RequestFilterForm,
 )
 from .forms import (
     CallSettingsForm,
@@ -39,13 +39,13 @@ from .forms import (
     ExhibitionDefaultFieldForm,
     ExhibitionEmailQueueForm,
     ExhibitionMailTemplatesForm,
-    ExhibitionProposalExtraLinkFormSet,
-    ExhibitionProposalForm,
-    ExhibitionProposalReviewForm,
-    ExhibitionProposalReviewNotesForm,
-    ExhibitionProposalSocialLinkFormSet,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
+    ExhibitionRequestExtraLinkFormSet,
+    ExhibitionRequestForm,
+    ExhibitionRequestReviewForm,
+    ExhibitionRequestReviewNotesForm,
+    ExhibitionRequestSocialLinkFormSet,
     ExhibitorDeviceProvisionForm,
     ExhibitorExtraLinkFormSet,
     ExhibitorInfoForm,
@@ -60,24 +60,24 @@ from .models import (
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
     LOG_GROUP_DELETED,
-    LOG_PARTNER_ADDED,
-    LOG_PARTNER_CHANGED,
-    LOG_PARTNER_DELETED,
-    LOG_PROPOSAL_CHANGED,
+    LOG_ORGANIZATION_ADDED,
+    LOG_ORGANIZATION_CHANGED,
+    LOG_ORGANIZATION_DELETED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
+    LOG_REQUEST_CHANGED,
     LOG_SETTINGS_CHANGED,
-    PROPOSAL_DEFAULT_FIELD_KEYS,
-    PROPOSAL_DEFAULT_FIELDS,
-    PROPOSAL_REVIEW_ACTIONS,
     QUESTION_OPTION_VARIANTS,
+    REQUEST_DEFAULT_FIELD_KEYS,
+    REQUEST_DEFAULT_FIELDS,
+    REQUEST_REVIEW_ACTIONS,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
-    ExhibitionProposal,
-    ExhibitionProposalState,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
+    ExhibitionRequest,
+    ExhibitionRequestState,
     ExhibitorDevice,
     ExhibitorInfo,
     ExhibitorSettings,
@@ -85,7 +85,7 @@ from .models import (
     SponsorGroup,
     generate_booth_id,
     get_next_sponsor_group_level,
-    storable_proposal_field_settings,
+    storable_request_field_settings,
 )
 from .social_links import serialize_social_link
 from .utils import (
@@ -102,7 +102,7 @@ from .utils import (
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
     should_hide_applicant_emails,
-    sync_exhibitor_from_proposal,
+    sync_exhibitor_from_request,
 )
 
 
@@ -117,22 +117,22 @@ def call_access_session_key(event):
     return f"exhibition_call_access_{event.pk}"
 
 
-def partner_list_url(event, partner_type):
+def organization_list_url(event, organization_type):
     """URL of the Sponsors or Exhibitors list, defaulting to Exhibitors."""
     route = {
         "sponsor": "plugins:exhibition:sponsors",
         "exhibitor": "plugins:exhibition:exhibitors",
-    }.get(partner_type, "plugins:exhibition:exhibitors")
+    }.get(organization_type, "plugins:exhibition:exhibitors")
     return reverse(route, kwargs=event_kwargs(event))
 
 
-def send_proposal_confirmation(event, proposal, requestor):
+def send_request_confirmation(event, exhibition_request, requestor):
     """Send the submission confirmation email once the transaction commits."""
     transaction.on_commit(
-        lambda: mail_helpers.queue_proposal_email(
+        lambda: mail_helpers.queue_request_email(
             event,
-            proposal,
-            mail_helpers.PROPOSAL_NEW,
+            exhibition_request,
+            mail_helpers.REQUEST_NEW,
             send_now=True,
             requestor=requestor,
         )
@@ -152,7 +152,7 @@ def access_newly_granted(exhibitor, previous=None):
     )
 
 
-def partner_type_of(exhibitor):
+def organization_type_of(exhibitor):
     if exhibitor.is_sponsor and exhibitor.is_exhibitor:
         return "both"
     if exhibitor.is_sponsor:
@@ -225,7 +225,7 @@ class DashboardView(EventPermissionRequiredMixin, TemplateView):
 
     RECENT_REQUEST_LIMIT = 5
 
-    def can_view_partners(self):
+    def can_view_organizations(self):
         return self.request.user.has_event_permission(
             self.request.event.organizer,
             self.request.event,
@@ -244,19 +244,21 @@ class DashboardView(EventPermissionRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         event = self.request.event
-        context["show_partners"] = self.can_view_partners()
+        context["show_organizations"] = self.can_view_organizations()
         context["show_requests"] = self.can_review_requests()
 
-        if context["show_partners"]:
-            partners = ExhibitorInfo.objects.filter(event=event)
-            context["exhibitor_count"] = partners.filter(is_exhibitor=True).count()
-            context["sponsor_count"] = partners.filter(is_sponsor=True).count()
+        if context["show_organizations"]:
+            organizations = ExhibitorInfo.objects.filter(event=event)
+            context["exhibitor_count"] = organizations.filter(is_exhibitor=True).count()
+            context["sponsor_count"] = organizations.filter(is_sponsor=True).count()
 
         if context["show_requests"]:
-            proposals = ExhibitionProposal.objects.filter(event=event)
-            context["pending_request_count"] = proposals.filter(state=ExhibitionProposalState.SUBMITTED).count()
+            exhibition_requests = ExhibitionRequest.objects.filter(event=event)
+            context["pending_request_count"] = exhibition_requests.filter(
+                state=ExhibitionRequestState.SUBMITTED
+            ).count()
             context["recent_requests"] = list(
-                proposals.exclude(state=ExhibitionProposalState.DRAFT).order_by("-submitted", "-pk")[
+                exhibition_requests.exclude(state=ExhibitionRequestState.DRAFT).order_by("-submitted", "-pk")[
                     : self.RECENT_REQUEST_LIMIT
                 ]
             )
@@ -306,7 +308,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         edit_group_forms = kwargs.get("edit_group_forms", {})
         sponsor_groups = list(
             SponsorGroup.objects.filter(event=self.request.event)
-            .annotate(partner_count=Count("partners"))
+            .annotate(organization_count=Count("organizations"))
             .order_by("level", "pk")
         )
         for group in sponsor_groups:
@@ -485,10 +487,10 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
 
         if action == "delete_group":
             group = get_object_or_404(SponsorGroup, pk=request.POST.get("group_id"), event=request.event)
-            if group.partners.exists():
+            if group.organizations.exists():
                 messages.error(
                     self.request,
-                    _("This sponsor group cannot be deleted while it is assigned to partners."),
+                    _("This sponsor group cannot be deleted while it is assigned to organizations."),
                 )
             else:
                 group.log_action(LOG_GROUP_DELETED, data={"name": group.localized_name}, user=request.user)
@@ -505,20 +507,20 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
     permission = ("can_change_event_settings", "can_view_orders")
     template_name = "exhibitors/exhibitor_info.html"
     context_object_name = "exhibitors"
-    partner_type = None
+    organization_type = None
 
     def build_filter_form(self):
         return ExhibitorFilterForm(
             data=self.request.GET,
             event=self.request.event,
-            organization_type=self.partner_type,
+            organization_type=self.organization_type,
         )
 
     def get_queryset(self):
         queryset = ExhibitorInfo.objects.filter(event=self.request.event).select_related("sponsor_group")
-        if self.partner_type == "sponsor":
+        if self.organization_type == "sponsor":
             queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
-        elif self.partner_type == "exhibitor":
+        elif self.organization_type == "exhibitor":
             queryset = queryset.filter(is_exhibitor=True).order_by("exhibitor_position", "name", "pk")
         else:
             queryset = queryset.order_by("name", "pk")
@@ -534,7 +536,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         return super().get(request, *args, **kwargs)
 
     def download_keys_csv(self):
-        queryset = self.get_queryset().prefetch_related("source_proposals__user")
+        queryset = self.get_queryset().prefetch_related("source_requests__user")
         selected_pks = self.request.GET.getlist("pk")
         if selected_pks:
             queryset = queryset.filter(pk__in=selected_pks)
@@ -555,7 +557,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         filename = {
             "sponsor": "sponsor-keys.csv",
             "exhibitor": "exhibitor-keys.csv",
-        }.get(self.partner_type, "partner-keys.csv")
+        }.get(self.organization_type, "organization-keys.csv")
         response = HttpResponse(output.getvalue().encode("utf-8"), content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         response["Cache-Control"] = "no-store"
@@ -563,11 +565,11 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["partner_type"] = self.partner_type
+        context["organization_type"] = self.organization_type
         context["reorder_enabled"] = not self.filter_form.filtered and not context["is_paginated"]
         context["send_vouchers_url"] = self.send_vouchers_url()
         context["query_string"] = self.request.GET.urlencode()
-        if self.partner_type == "sponsor":
+        if self.organization_type == "sponsor":
             context["sponsor_group_sections"] = self.build_sponsor_group_sections(context["exhibitors"])
         self.annotate_voucher_status(context["exhibitors"])
         return context
@@ -581,7 +583,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         route = {
             "sponsor": "plugins:exhibition:sponsors.send_vouchers",
             "exhibitor": "plugins:exhibition:exhibitors.send_vouchers",
-        }.get(self.partner_type)
+        }.get(self.organization_type)
         if route is None:
             return None
         return reverse(route, kwargs=event_kwargs(self.request.event))
@@ -601,12 +603,12 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
 
     def build_sponsor_group_sections(self, sponsors):
         groups = list(SponsorGroup.objects.filter(event=self.request.event).order_by("level", "pk"))
-        sections = [{"group": group, "partners": []} for group in groups]
-        ungrouped = {"group": None, "partners": []}
+        sections = [{"group": group, "organizations": []} for group in groups]
+        ungrouped = {"group": None, "organizations": []}
         section_by_group = {group.pk: section for group, section in zip(groups, sections)}
         for sponsor in sponsors:
             section = section_by_group.get(sponsor.sponsor_group_id, ungrouped)
-            section["partners"].append(sponsor)
+            section["organizations"].append(sponsor)
         return sections + [ungrouped]
 
 
@@ -631,14 +633,14 @@ class PublicExhibitorListView(ListView):
         context = super().get_context_data(**kwargs)
         context["event"] = self.request.event
         context["filter_form"] = self.filter_form
-        context["social_image"] = self.request.event.visible_header_image_url
+        context["social_image"] = self.request.event.visible_banner_url
         add_external_image_csp_sources(
             self.request,
             [
                 image_url
                 for exhibitor in context["exhibitors"]
                 for image_url in (
-                    exhibitor.visible_header_image_url,
+                    exhibitor.visible_banner_url,
                     exhibitor.visible_logo_url,
                 )
                 if image_url
@@ -659,7 +661,7 @@ class PublicExhibitorDetailView(DetailView):
         context = super().get_context_data(**kwargs)
         exhibitors = list(public_exhibitors_queryset(self.request.event))
         context["event"] = self.request.event
-        context["social_image"] = self.object.visible_header_image_url or self.object.visible_logo_url
+        context["social_image"] = self.object.visible_banner_url or self.object.visible_logo_url
         if len(exhibitors) > 1:
             current_index = next(index for index, exhibitor in enumerate(exhibitors) if exhibitor.pk == self.object.pk)
             context["previous_exhibitor"] = exhibitors[current_index - 1]
@@ -678,7 +680,7 @@ class PublicExhibitorDetailView(DetailView):
             [
                 image_url
                 for image_url in (
-                    self.object.visible_header_image_url,
+                    self.object.visible_banner_url,
                     self.object.visible_logo_url,
                 )
                 if image_url
@@ -697,7 +699,7 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         context["event"] = self.request.event
         context["settings"] = self.get_exhibition_settings()
         if self.request.user.is_authenticated:
-            context["user_proposals"] = ExhibitionProposal.objects.filter(
+            context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
                 user=self.request.user,
             )
@@ -719,10 +721,10 @@ class PublicCallSecretView(PublicCallView):
         return super().dispatch(request, *args, **kwargs)
 
 
-class UserProposalListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, ListView):
-    model = ExhibitionProposal
-    template_name = "exhibitors/public_proposal_list.html"
-    context_object_name = "proposals"
+class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, ListView):
+    model = ExhibitionRequest
+    template_name = "exhibitors/public_request_list.html"
+    context_object_name = "exhibition_requests"
     enforce_private = True
     require_call_enabled = False
 
@@ -732,10 +734,10 @@ class UserProposalListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin
         user = self.request.user
         if not user.is_authenticated:
             return False
-        return ExhibitionProposal.objects.filter(event=self.request.event, user=user).exists()
+        return ExhibitionRequest.objects.filter(event=self.request.event, user=user).exists()
 
     def get_queryset(self):
-        return ExhibitionProposal.objects.filter(
+        return ExhibitionRequest.objects.filter(
             event=self.request.event,
             user=self.request.user,
         ).order_by("-updated", "-created")
@@ -744,9 +746,9 @@ class UserProposalListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin
         context = super().get_context_data(**kwargs)
         settings = self.get_exhibition_settings()
         context["settings"] = settings
-        for proposal in context["proposals"]:
-            proposal.submitter_can_edit = proposal.editable and (
-                not proposal.requires_open_call_to_edit or settings.call_is_open
+        for exhibition_request in context["exhibition_requests"]:
+            exhibition_request.submitter_can_edit = exhibition_request.editable and (
+                not exhibition_request.requires_open_call_to_edit or settings.call_is_open
             )
         return context
 
@@ -763,35 +765,35 @@ def formset_has_entries(formset):
     return False
 
 
-class ProposalLinkFormsetMixin:
+class RequestLinkFormsetMixin:
     social_formset_prefix = "social_links"
     extra_formset_prefix = "extra_links"
 
-    def get_proposal_field_settings(self):
+    def get_request_field_settings(self):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
-        return settings.normalized_proposal_field_settings
+        return settings.normalized_request_field_settings
 
-    def proposal_field_is_active(self, key):
-        return self.get_proposal_field_settings()[key]["active"]
+    def request_field_is_active(self, key):
+        return self.get_request_field_settings()[key]["active"]
 
-    def proposal_field_is_required(self, key):
-        return self.get_proposal_field_settings()[key]["required"]
+    def request_field_is_required(self, key):
+        return self.get_request_field_settings()[key]["required"]
 
     def get_formset_instance(self):
         obj = getattr(self, "object", None)
         if obj is not None:
             return obj
-        return ExhibitionProposal(event=self.request.event, user=self.request.user)
+        return ExhibitionRequest(event=self.request.event, user=self.request.user)
 
     def get_social_formset(self):
-        return ExhibitionProposalSocialLinkFormSet(
+        return ExhibitionRequestSocialLinkFormSet(
             data=self.request.POST if self.request.method == "POST" else None,
             instance=self.get_formset_instance(),
             prefix=self.social_formset_prefix,
         )
 
     def get_extra_link_formset(self):
-        return ExhibitionProposalExtraLinkFormSet(
+        return ExhibitionRequestExtraLinkFormSet(
             data=self.request.POST if self.request.method == "POST" else None,
             instance=self.get_formset_instance(),
             prefix=self.extra_formset_prefix,
@@ -799,9 +801,9 @@ class ProposalLinkFormsetMixin:
 
     def post_with_formsets(self):
         form = self.get_form()
-        self.social_media_formset = self.get_social_formset() if self.proposal_field_is_active("social_links") else None
+        self.social_media_formset = self.get_social_formset() if self.request_field_is_active("social_links") else None
         self.extra_links_formset = (
-            self.get_extra_link_formset() if self.proposal_field_is_active("extra_links") else None
+            self.get_extra_link_formset() if self.request_field_is_active("extra_links") else None
         )
 
         valid = (
@@ -812,7 +814,7 @@ class ProposalLinkFormsetMixin:
 
         if (
             valid
-            and self.proposal_field_is_required("social_links")
+            and self.request_field_is_required("social_links")
             and not formset_has_entries(self.social_media_formset)
         ):
             self.social_media_formset._non_form_errors = self.social_media_formset.error_class(
@@ -821,7 +823,7 @@ class ProposalLinkFormsetMixin:
             valid = False
         if (
             valid
-            and self.proposal_field_is_required("extra_links")
+            and self.request_field_is_required("extra_links")
             and not formset_has_entries(self.extra_links_formset)
         ):
             self.extra_links_formset._non_form_errors = self.extra_links_formset.error_class(
@@ -862,15 +864,15 @@ class ProposalLinkFormsetMixin:
             self.extra_links_formset.save()
 
 
-class UserProposalCreateView(
-    ProposalLinkFormsetMixin,
+class UserRequestCreateView(
+    RequestLinkFormsetMixin,
     PublicCallEnabledMixin,
     PublicEventLoginRequiredMixin,
     CreateView,
 ):
-    model = ExhibitionProposal
-    form_class = ExhibitionProposalForm
-    template_name = "exhibitors/public_proposal_form.html"
+    model = ExhibitionRequest
+    form_class = ExhibitionRequestForm
+    template_name = "exhibitors/public_request_form.html"
 
     def dispatch(self, request, *args, **kwargs):
         settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
@@ -900,40 +902,40 @@ class UserProposalCreateView(
         form.instance.event = self.request.event
         form.instance.user = self.request.user
         if self.request.POST.get("action") == "draft":
-            form.instance.state = ExhibitionProposalState.DRAFT
+            form.instance.state = ExhibitionRequestState.DRAFT
             form.instance.submitted = None
         else:
-            form.instance.state = ExhibitionProposalState.SUBMITTED
+            form.instance.state = ExhibitionRequestState.SUBMITTED
             form.instance.submitted = timezone.now()
         response = super().form_valid(form)
         self.save_link_formsets()
-        if form.instance.state == ExhibitionProposalState.SUBMITTED:
-            send_proposal_confirmation(self.request.event, self.object, self.request.user)
+        if form.instance.state == ExhibitionRequestState.SUBMITTED:
+            send_request_confirmation(self.request.event, self.object, self.request.user)
         messages.success(self.request, _("Your request has been saved."))
         return response
 
     def get_success_url(self):
         return reverse(
-            "plugins:exhibition:proposal.user_list",
+            "plugins:exhibition:request.user_list",
             kwargs=event_kwargs(self.request.event),
         )
 
 
-class UserProposalEditView(
-    ProposalLinkFormsetMixin,
+class UserRequestEditView(
+    RequestLinkFormsetMixin,
     PublicCallEnabledMixin,
     PublicEventLoginRequiredMixin,
     UpdateView,
 ):
-    model = ExhibitionProposal
-    form_class = ExhibitionProposalForm
-    template_name = "exhibitors/public_proposal_form.html"
+    model = ExhibitionRequest
+    form_class = ExhibitionRequestForm
+    template_name = "exhibitors/public_request_form.html"
     slug_field = "code"
     slug_url_kwarg = "code"
     require_call_enabled = False
 
     def get_queryset(self):
-        return ExhibitionProposal.objects.filter(
+        return ExhibitionRequest.objects.filter(
             event=self.request.event,
             user=self.request.user,
         ).prefetch_related("answers", "answers__options")
@@ -960,38 +962,38 @@ class UserProposalEditView(
         return self.post_with_formsets()
 
     def state_is_locked(self):
-        return self.object.state == ExhibitionProposalState.ACCEPTED
+        return self.object.state == ExhibitionRequestState.ACCEPTED
 
     @transaction.atomic
     def form_valid(self, form):
         previous_state = self.object.state
         if not self.state_is_locked():
             if self.request.POST.get("action") == "draft":
-                form.instance.state = ExhibitionProposalState.DRAFT
+                form.instance.state = ExhibitionRequestState.DRAFT
                 form.instance.submitted = None
             else:
-                form.instance.state = ExhibitionProposalState.SUBMITTED
+                form.instance.state = ExhibitionRequestState.SUBMITTED
                 form.instance.submitted = form.instance.submitted or timezone.now()
         else:
             form.instance.profile_edited_at = timezone.now()
             if not form.instance.accepted_profile_snapshot:
-                baseline = ExhibitionProposal.objects.get(pk=form.instance.pk)
+                baseline = ExhibitionRequest.objects.get(pk=form.instance.pk)
                 form.instance.accepted_profile_snapshot = baseline.submitter_profile_values()
         response = super().form_valid(form)
         self.save_link_formsets()
         if (
-            form.instance.state == ExhibitionProposalState.SUBMITTED
-            and previous_state != ExhibitionProposalState.SUBMITTED
+            form.instance.state == ExhibitionRequestState.SUBMITTED
+            and previous_state != ExhibitionRequestState.SUBMITTED
         ):
-            send_proposal_confirmation(self.request.event, self.object, self.request.user)
+            send_request_confirmation(self.request.event, self.object, self.request.user)
         if form.changed_data:
             self.object.log_action(
-                LOG_PROPOSAL_CHANGED,
+                LOG_REQUEST_CHANGED,
                 data={"changed": form.changed_data, "by": "submitter"},
                 user=self.request.user,
             )
         if self.object.approved_exhibitor_id:
-            sync_exhibitor_from_proposal(self.object, requestor=self.request.user)
+            sync_exhibitor_from_request(self.object, requestor=self.request.user)
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -999,25 +1001,25 @@ class UserProposalEditView(
         context = super().get_context_data(**kwargs)
         context["can_edit"] = self.can_edit()
         context["state_locked"] = self.state_is_locked()
-        context["already_submitted"] = self.object.state == ExhibitionProposalState.SUBMITTED
+        context["already_submitted"] = self.object.state == ExhibitionRequestState.SUBMITTED
         return context
 
     def get_success_url(self):
         return reverse(
-            "plugins:exhibition:proposal.user_list",
+            "plugins:exhibition:request.user_list",
             kwargs=event_kwargs(self.request.event),
         )
 
 
-class UserProposalWithdrawView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, DetailView):
-    model = ExhibitionProposal
-    template_name = "exhibitors/public_proposal_withdraw.html"
-    context_object_name = "proposal"
+class UserRequestWithdrawView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, DetailView):
+    model = ExhibitionRequest
+    template_name = "exhibitors/public_request_withdraw.html"
+    context_object_name = "exhibition_request"
     slug_field = "code"
     slug_url_kwarg = "code"
 
     def get_queryset(self):
-        return ExhibitionProposal.objects.filter(
+        return ExhibitionRequest.objects.filter(
             event=self.request.event,
             user=self.request.user,
         )
@@ -1025,7 +1027,7 @@ class UserProposalWithdrawView(PublicCallEnabledMixin, PublicEventLoginRequiredM
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
         if not self.object.can_be_withdrawn:
-            messages.error(request, _("This proposal can no longer be withdrawn."))
+            messages.error(request, _("This request can no longer be withdrawn."))
             return redirect(self.get_success_url())
         return super().get(request, *args, **kwargs)
 
@@ -1040,20 +1042,20 @@ class UserProposalWithdrawView(PublicCallEnabledMixin, PublicEventLoginRequiredM
 
     def get_success_url(self):
         return reverse(
-            "plugins:exhibition:proposal.user_list",
+            "plugins:exhibition:request.user_list",
             kwargs=event_kwargs(self.request.event),
         )
 
 
-class UserProposalReinstateView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, DetailView):
-    model = ExhibitionProposal
-    template_name = "exhibitors/public_proposal_reinstate.html"
-    context_object_name = "proposal"
+class UserRequestReinstateView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, DetailView):
+    model = ExhibitionRequest
+    template_name = "exhibitors/public_request_reinstate.html"
+    context_object_name = "exhibition_request"
     slug_field = "code"
     slug_url_kwarg = "code"
 
     def get_queryset(self):
-        return ExhibitionProposal.objects.filter(
+        return ExhibitionRequest.objects.filter(
             event=self.request.event,
             user=self.request.user,
         )
@@ -1076,7 +1078,7 @@ class UserProposalReinstateView(PublicCallEnabledMixin, PublicEventLoginRequired
 
     def get_success_url(self):
         return reverse(
-            "plugins:exhibition:proposal.user_list",
+            "plugins:exhibition:request.user_list",
             kwargs=event_kwargs(self.request.event),
         )
 
@@ -1085,15 +1087,15 @@ class ExhibitorLinkFormsetMixin:
     social_formset_prefix = "social_links"
     extra_formset_prefix = "extra_links"
 
-    def get_proposal_field_settings(self):
+    def get_request_field_settings(self):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
-        return settings.normalized_proposal_field_settings
+        return settings.normalized_request_field_settings
 
-    def proposal_field_is_active(self, key):
-        return self.get_proposal_field_settings()[key]["active"]
+    def request_field_is_active(self, key):
+        return self.get_request_field_settings()[key]["active"]
 
-    def proposal_field_is_required(self, key):
-        return self.get_proposal_field_settings()[key]["required"]
+    def request_field_is_required(self, key):
+        return self.get_request_field_settings()[key]["required"]
 
     def get_formset_instance(self):
         obj = getattr(self, "object", None)
@@ -1115,9 +1117,9 @@ class ExhibitorLinkFormsetMixin:
 
     def post_with_formsets(self):
         form = self.get_form()
-        self.social_media_formset = self.get_social_formset() if self.proposal_field_is_active("social_links") else None
+        self.social_media_formset = self.get_social_formset() if self.request_field_is_active("social_links") else None
         self.extra_links_formset = (
-            self.get_extra_link_formset() if self.proposal_field_is_active("extra_links") else None
+            self.get_extra_link_formset() if self.request_field_is_active("extra_links") else None
         )
 
         valid = (
@@ -1128,7 +1130,7 @@ class ExhibitorLinkFormsetMixin:
 
         if (
             valid
-            and self.proposal_field_is_required("social_links")
+            and self.request_field_is_required("social_links")
             and not formset_has_entries(self.social_media_formset)
         ):
             self.social_media_formset._non_form_errors = self.social_media_formset.error_class(
@@ -1137,7 +1139,7 @@ class ExhibitorLinkFormsetMixin:
             valid = False
         if (
             valid
-            and self.proposal_field_is_required("extra_links")
+            and self.request_field_is_required("extra_links")
             and not formset_has_entries(self.extra_links_formset)
         ):
             self.extra_links_formset._non_form_errors = self.extra_links_formset.error_class(
@@ -1152,8 +1154,8 @@ class ExhibitorLinkFormsetMixin:
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         allow_blob_image_previews(self.request)
-        show_social_links = self.proposal_field_is_active("social_links")
-        show_extra_links = self.proposal_field_is_active("extra_links")
+        show_social_links = self.request_field_is_active("social_links")
+        show_extra_links = self.request_field_is_active("extra_links")
         context["social_media_formset"] = kwargs.get(
             "social_media_formset",
             getattr(self, "social_media_formset", self.get_social_formset() if show_social_links else None),
@@ -1229,7 +1231,7 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
         return JsonResponse({"levels": [{"id": group.pk, "level": group.level} for group in ordered_groups]})
 
 
-class PartnerReorderMixin(EventPermissionRequiredMixin, View):
+class OrganizationReorderMixin(EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     position_field = None
 
@@ -1248,27 +1250,27 @@ class PartnerReorderMixin(EventPermissionRequiredMixin, View):
         if not ids or len(ids) != len(set(ids)):
             return HttpResponse(status=400)
 
-        partners = {partner.pk: partner for partner in self.get_scope_queryset(request)}
-        if set(ids) != set(partners):
+        organizations = {organization.pk: organization for organization in self.get_scope_queryset(request)}
+        if set(ids) != set(organizations):
             return HttpResponse(status=400)
 
-        ordered = [partners[value] for value in ids]
+        ordered = [organizations[value] for value in ids]
         with transaction.atomic():
-            for index, partner in enumerate(ordered):
-                setattr(partner, self.position_field, index)
+            for index, organization in enumerate(ordered):
+                setattr(organization, self.position_field, index)
             ExhibitorInfo.objects.bulk_update(ordered, [self.position_field])
 
         return HttpResponse(status=204)
 
 
-class ExhibitorReorderView(PartnerReorderMixin):
+class ExhibitorReorderView(OrganizationReorderMixin):
     position_field = "exhibitor_position"
 
     def get_scope_queryset(self, request):
         return ExhibitorInfo.objects.filter(event=request.event, is_exhibitor=True)
 
 
-class SponsorReorderView(PartnerReorderMixin):
+class SponsorReorderView(OrganizationReorderMixin):
     position_field = "sponsor_position"
 
     def get_scope_queryset(self, request):
@@ -1302,22 +1304,22 @@ class CallTextPreviewView(EventPermissionRequiredMixin, View):
         return JsonResponse({"previews": previews})
 
 
-class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView):
-    model = ExhibitionProposal
+class RequestListView(EventPermissionRequiredMixin, FilteredListMixin, ListView):
+    model = ExhibitionRequest
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
-    template_name = "exhibitors/proposal_list.html"
-    context_object_name = "proposals"
+    template_name = "exhibitors/request_list.html"
+    context_object_name = "exhibition_requests"
 
     @cached_property
     def hide_applicant_emails(self):
         return should_hide_applicant_emails(self.request.user, self.request.event, request=self.request)
 
     def build_filter_form(self):
-        return ProposalFilterForm(data=self.request.GET, hide_emails=self.hide_applicant_emails)
+        return RequestFilterForm(data=self.request.GET, hide_emails=self.hide_applicant_emails)
 
     def get_queryset(self):
         queryset = (
-            ExhibitionProposal.objects.filter(event=self.request.event)
+            ExhibitionRequest.objects.filter(event=self.request.event)
             .select_related("user", "sponsor_group", "approved_exhibitor")
             .order_by("-updated", "-created", "-pk")
         )
@@ -1337,17 +1339,17 @@ class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView
         can_manage = self.can_manage()
         context["can_manage"] = can_manage
         if can_manage:
-            for proposal in context["proposals"]:
-                proposal.review_actions = proposal.available_review_actions()
-                proposal.bulk_actions = proposal.available_bulk_actions()
+            for exhibition_request in context["exhibition_requests"]:
+                exhibition_request.review_actions = exhibition_request.available_review_actions()
+                exhibition_request.bulk_actions = exhibition_request.available_bulk_actions()
         return context
 
 
-class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
-    model = ExhibitionProposal
+class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
+    model = ExhibitionRequest
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
-    template_name = "exhibitors/proposal_detail.html"
-    context_object_name = "proposal"
+    template_name = "exhibitors/request_detail.html"
+    context_object_name = "exhibition_request"
     slug_field = "code"
     slug_url_kwarg = "code"
 
@@ -1368,16 +1370,16 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
         )
 
     def can_review(self):
-        return self.can_manage() and self.object.state == ExhibitionProposalState.SUBMITTED
+        return self.can_manage() and self.object.state == ExhibitionRequestState.SUBMITTED
 
     def get_form_class(self):
         if self.can_review():
-            return ExhibitionProposalReviewForm
-        return ExhibitionProposalReviewNotesForm
+            return ExhibitionRequestReviewForm
+        return ExhibitionRequestReviewNotesForm
 
     def get_queryset(self):
         return (
-            ExhibitionProposal.objects.filter(event=self.request.event)
+            ExhibitionRequest.objects.filter(event=self.request.event)
             .select_related("user", "sponsor_group", "approved_exhibitor")
             .prefetch_related(
                 "answers",
@@ -1410,15 +1412,15 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
         self.object = form.save()
         if form.changed_data:
             self.object.log_action(
-                LOG_PROPOSAL_CHANGED,
+                LOG_REQUEST_CHANGED,
                 data={"changed": form.changed_data},
                 user=self.request.user,
             )
         action = self.request.POST.get("action", "save")
-        if action in PROPOSAL_REVIEW_ACTIONS:
+        if action in REQUEST_REVIEW_ACTIONS:
             if not self.can_manage():
                 raise PermissionDenied()
-            if not self.object.can_transition_to(PROPOSAL_REVIEW_ACTIONS[action]):
+            if not self.object.can_transition_to(REQUEST_REVIEW_ACTIONS[action]):
                 messages.error(self.request, _("This request can no longer be changed to that state."))
                 return redirect(self.get_success_url())
             return self.perform_review_action(action)
@@ -1432,7 +1434,7 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
             exhibitor = self.object.approve(requestor=requestor)
             messages.success(
                 self.request,
-                _("Request approved and partner profile created. An acceptance email was placed in the outbox."),
+                _("Request approved and organization profile created. An acceptance email was placed in the outbox."),
             )
             if self.can_edit_exhibitor():
                 return redirect(
@@ -1453,21 +1455,21 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
 
     def get_success_url(self):
         return reverse(
-            "plugins:exhibition:proposal.detail",
+            "plugins:exhibition:request.detail",
             kwargs={**event_kwargs(self.request.event), "code": self.object.code},
         )
 
 
-class ProposalActionView(EventPermissionRequiredMixin, View):
+class RequestActionView(EventPermissionRequiredMixin, View):
     permission = ("can_change_event_settings", "can_change_exhibition_proposals")
-    valid_actions = set(PROPOSAL_REVIEW_ACTIONS)
+    valid_actions = set(REQUEST_REVIEW_ACTIONS)
 
-    def get_proposals(self, request, select_all, codes):
+    def get_requests(self, request, select_all, codes):
         """Every request matching the active filters when selecting across pages, else the checked rows."""
-        queryset = ExhibitionProposal.objects.filter(event=request.event).select_related("approved_exhibitor")
+        queryset = ExhibitionRequest.objects.filter(event=request.event).select_related("approved_exhibitor")
         if not select_all:
             return queryset.filter(code__in=codes)
-        filter_form = ProposalFilterForm(
+        filter_form = RequestFilterForm(
             data=request.POST,
             hide_emails=should_hide_applicant_emails(request.user, request.event, request=request),
         )
@@ -1477,32 +1479,32 @@ class ProposalActionView(EventPermissionRequiredMixin, View):
 
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
-        codes = request.POST.getlist("proposal")
+        codes = request.POST.getlist("exhibition_request")
         select_all = request.POST.get("all") == "1"
         if action not in self.valid_actions or not (codes or select_all):
             return self.respond(request, False, _("No valid action was selected."), [], 0)
 
-        target_state = PROPOSAL_REVIEW_ACTIONS[action]
-        proposals = self.get_proposals(request, select_all, codes)
+        target_state = REQUEST_REVIEW_ACTIONS[action]
+        exhibition_requests = self.get_requests(request, select_all, codes)
         results = []
         changed = 0
         skipped = 0
         with transaction.atomic():
-            for proposal in proposals:
-                if not proposal.can_transition_to(target_state):
+            for exhibition_request in exhibition_requests:
+                if not exhibition_request.can_transition_to(target_state):
                     skipped += 1
                     continue
-                self.apply_action(proposal, action)
+                self.apply_action(exhibition_request, action)
                 changed += 1
                 if select_all:
                     continue
                 results.append(
                     {
-                        "code": proposal.code,
-                        "state": proposal.state,
-                        "state_display": proposal.get_state_display(),
-                        "actions": proposal.available_review_actions(),
-                        "bulk_actions": proposal.available_bulk_actions(),
+                        "code": exhibition_request.code,
+                        "state": exhibition_request.state,
+                        "state_display": exhibition_request.get_state_display(),
+                        "actions": exhibition_request.available_review_actions(),
+                        "bulk_actions": exhibition_request.available_bulk_actions(),
                     }
                 )
         return self.respond(
@@ -1514,15 +1516,15 @@ class ProposalActionView(EventPermissionRequiredMixin, View):
             reload=select_all and changed > 0,
         )
 
-    def apply_action(self, proposal, action):
+    def apply_action(self, exhibition_request, action):
         if action == "approve":
-            proposal.approve(requestor=self.request.user)
+            exhibition_request.approve(requestor=self.request.user)
         elif action == "reject":
-            proposal.reject(requestor=self.request.user)
+            exhibition_request.reject(requestor=self.request.user)
         elif action == "withdraw":
-            proposal.withdraw(requestor=self.request.user)
+            exhibition_request.withdraw(requestor=self.request.user)
         elif action == "reopen":
-            proposal.reopen(requestor=self.request.user)
+            exhibition_request.reopen(requestor=self.request.user)
 
     def build_message(self, action, count, skipped):
         if count:
@@ -1534,7 +1536,7 @@ class ProposalActionView(EventPermissionRequiredMixin, View):
             }
             message = templates[action] % {"count": count}
         else:
-            message = _("No proposals were updated.")
+            message = _("No requests were updated.")
         if skipped:
             skipped_message = ngettext(
                 "%(skipped)d was skipped because it was already processed.",
@@ -1554,7 +1556,7 @@ class ProposalActionView(EventPermissionRequiredMixin, View):
             messages.success(request, message)
         else:
             messages.error(request, message)
-        return redirect("plugins:exhibition:proposal.list", **event_kwargs(request.event))
+        return redirect("plugins:exhibition:request.list", **event_kwargs(request.event))
 
 
 class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
@@ -1569,12 +1571,12 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
-        field_settings = settings.normalized_proposal_field_settings
+        field_settings = settings.normalized_request_field_settings
         answer_counts = self.get_default_field_answer_counts()
-        field_definitions = {field["key"]: field for field in PROPOSAL_DEFAULT_FIELDS}
+        field_definitions = {field["key"]: field for field in REQUEST_DEFAULT_FIELDS}
 
         rows = []
-        for key in PROPOSAL_DEFAULT_FIELD_KEYS:
+        for key in REQUEST_DEFAULT_FIELD_KEYS:
             definition = field_definitions[key]
             rows.append(
                 {
@@ -1611,18 +1613,17 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                 }
             )
         rows.sort(key=lambda row: (row["sort_position"], row["sort_kind"]))
-        context["proposal_fields"] = rows
+        context["request_fields"] = rows
         return context
 
     def get_default_field_answer_counts(self):
-        proposals = ExhibitionProposal.objects.filter(event=self.request.event).exclude(
-            state=ExhibitionProposalState.DRAFT
+        exhibition_requests = ExhibitionRequest.objects.filter(event=self.request.event).exclude(
+            state=ExhibitionRequestState.DRAFT
         )
         file_has_value = {
             "slides": (Q(slides__isnull=False) & ~Q(slides="")) | (Q(slides_url__isnull=False) & ~Q(slides_url="")),
-            "logo": (Q(logo__isnull=False) & ~Q(logo="")) | (Q(logo_url__isnull=False) & ~Q(logo_url="")),
-            "header_image": (Q(header_image__isnull=False) & ~Q(header_image=""))
-            | (Q(header_image_url__isnull=False) & ~Q(header_image_url="")),
+            "logo": Q(logo__isnull=False) & ~Q(logo=""),
+            "banner": Q(banner__isnull=False) & ~Q(banner=""),
         }
         text_fields = (
             "description",
@@ -1634,14 +1635,14 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             "notes",
         )
         counts = {
-            "name": proposals.count(),
-            "social_links": proposals.filter(social_links__isnull=False).distinct().count(),
-            "extra_links": proposals.filter(extra_links__isnull=False).distinct().count(),
+            "name": exhibition_requests.count(),
+            "social_links": exhibition_requests.filter(social_links__isnull=False).distinct().count(),
+            "extra_links": exhibition_requests.filter(extra_links__isnull=False).distinct().count(),
         }
-        counts.update({key: proposals.filter(condition).count() for key, condition in file_has_value.items()})
+        counts.update({key: exhibition_requests.filter(condition).count() for key, condition in file_has_value.items()})
         counts.update(
             {
-                field: proposals.exclude(**{f"{field}__isnull": True}).exclude(**{field: ""}).count()
+                field: exhibition_requests.exclude(**{f"{field}__isnull": True}).exclude(**{field: ""}).count()
                 for field in text_fields
             }
         )
@@ -1655,21 +1656,21 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             self.save_field_order(settings, order_param)
             return HttpResponse(status=204)
 
-        proposal_field_settings = settings.normalized_proposal_field_settings
+        request_field_settings = settings.normalized_request_field_settings
 
-        for field in PROPOSAL_DEFAULT_FIELDS:
+        for field in REQUEST_DEFAULT_FIELDS:
             key = field["key"]
             is_active = field.get("active_locked") or request.POST.get(f"{key}_active") == "on"
-            proposal_field_settings[key]["active"] = is_active
-            proposal_field_settings[key]["required"] = is_active and (
+            request_field_settings[key]["active"] = is_active
+            request_field_settings[key]["required"] = is_active and (
                 field.get("required_locked")
                 or (field.get("supports_required", True) and request.POST.get(f"{key}_required") == "required")
             )
             if field.get("supports_required") is False:
-                proposal_field_settings[key]["required"] = False
+                request_field_settings[key]["required"] = False
 
-        settings.proposal_field_settings = storable_proposal_field_settings(proposal_field_settings)
-        settings.save(update_fields=["proposal_field_settings"])
+        settings.request_field_settings = storable_request_field_settings(request_field_settings)
+        settings.save(update_fields=["request_field_settings"])
 
         questions = list(ExhibitionQuestion.objects.filter(event=request.event))
         for question in questions:
@@ -1682,8 +1683,8 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
         return redirect("plugins:exhibition:call.questions", **event_kwargs(request.event))
 
     def save_field_order(self, settings, order_str):
-        proposal_field_settings = settings.normalized_proposal_field_settings
-        orderable_key_set = set(PROPOSAL_DEFAULT_FIELD_KEYS)
+        request_field_settings = settings.normalized_request_field_settings
+        orderable_key_set = set(REQUEST_DEFAULT_FIELD_KEYS)
         questions = {question.pk: question for question in ExhibitionQuestion.objects.filter(event=settings.event)}
         seen_keys = set()
         seen_question_pks = set()
@@ -1692,7 +1693,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
         for token in (raw_token.strip() for raw_token in order_str.split(",")):
             if token in orderable_key_set and token not in seen_keys:
                 seen_keys.add(token)
-                proposal_field_settings[token]["position"] = position
+                request_field_settings[token]["position"] = position
                 position += 1
             elif token.isdigit() and int(token) in questions and int(token) not in seen_question_pks:
                 question = questions[int(token)]
@@ -1700,9 +1701,9 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                 seen_question_pks.add(question.pk)
                 reordered_questions.append(question)
                 position += 1
-        for key in PROPOSAL_DEFAULT_FIELD_KEYS:
+        for key in REQUEST_DEFAULT_FIELD_KEYS:
             if key not in seen_keys:
-                proposal_field_settings[key]["position"] = position
+                request_field_settings[key]["position"] = position
                 position += 1
         remaining_questions = sorted(
             (question for pk, question in questions.items() if pk not in seen_question_pks),
@@ -1712,8 +1713,8 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
             question.position = position
             reordered_questions.append(question)
             position += 1
-        settings.proposal_field_settings = storable_proposal_field_settings(proposal_field_settings)
-        settings.save(update_fields=["proposal_field_settings"])
+        settings.request_field_settings = storable_request_field_settings(request_field_settings)
+        settings.save(update_fields=["request_field_settings"])
         if reordered_questions:
             ExhibitionQuestion.objects.bulk_update(reordered_questions, ["position"])
 
@@ -1864,7 +1865,7 @@ class DefaultFieldMixin(EventPermissionRequiredMixin):
     permission = "can_change_settings"
 
     def dispatch(self, request, *args, **kwargs):
-        if kwargs.get("key") not in PROPOSAL_DEFAULT_FIELD_KEYS:
+        if kwargs.get("key") not in REQUEST_DEFAULT_FIELD_KEYS:
             raise Http404(_("The requested form field does not exist."))
         return super().dispatch(request, *args, **kwargs)
 
@@ -1872,7 +1873,7 @@ class DefaultFieldMixin(EventPermissionRequiredMixin):
         return ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
 
     def get_field_setting(self):
-        return self.get_exhibition_settings().normalized_proposal_field_settings[self.kwargs["key"]]
+        return self.get_exhibition_settings().normalized_request_field_settings[self.kwargs["key"]]
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1905,12 +1906,12 @@ class ExhibitionDefaultFieldEditView(DefaultFieldMixin, FormView):
 
     def form_valid(self, form):
         settings = self.get_exhibition_settings()
-        proposal_field_settings = settings.normalized_proposal_field_settings
+        request_field_settings = settings.normalized_request_field_settings
         key = self.kwargs["key"]
-        proposal_field_settings[key]["custom_label"] = form.cleaned_data["label"].strip() or None
-        proposal_field_settings[key]["custom_help_text"] = form.cleaned_data["help_text"].strip() or None
-        settings.proposal_field_settings = storable_proposal_field_settings(proposal_field_settings)
-        settings.save(update_fields=["proposal_field_settings"])
+        request_field_settings[key]["custom_label"] = form.cleaned_data["label"].strip() or None
+        request_field_settings[key]["custom_help_text"] = form.cleaned_data["help_text"].strip() or None
+        settings.request_field_settings = storable_request_field_settings(request_field_settings)
+        settings.save(update_fields=["request_field_settings"])
         messages.success(self.request, _("Your changes have been saved."))
         return redirect(self.get_success_url())
 
@@ -1924,12 +1925,12 @@ class ExhibitionDefaultFieldResetView(DefaultFieldMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         settings = self.get_exhibition_settings()
-        proposal_field_settings = settings.normalized_proposal_field_settings
+        request_field_settings = settings.normalized_request_field_settings
         key = kwargs["key"]
-        proposal_field_settings[key]["custom_label"] = None
-        proposal_field_settings[key]["custom_help_text"] = None
-        settings.proposal_field_settings = storable_proposal_field_settings(proposal_field_settings)
-        settings.save(update_fields=["proposal_field_settings"])
+        request_field_settings[key]["custom_label"] = None
+        request_field_settings[key]["custom_help_text"] = None
+        settings.request_field_settings = storable_request_field_settings(request_field_settings)
+        settings.save(update_fields=["request_field_settings"])
         messages.success(request, _("The field has been reset to its default."))
         return redirect(self.get_success_url())
 
@@ -1939,11 +1940,11 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
     form_class = ExhibitorInfoForm
     template_name = "exhibitors/add.html"
     permission = "can_change_event_settings"
-    partner_type = None
+    organization_type = None
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs["partner_type"] = self.partner_type
+        kwargs["organization_type"] = self.organization_type
         return kwargs
 
     def post(self, request, *args, **kwargs):
@@ -1961,7 +1962,7 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
         response = super().form_valid(form)
         self.save_link_formsets()
         self.object.log_action(
-            LOG_PARTNER_ADDED,
+            LOG_ORGANIZATION_ADDED,
             data={"name": localize_event_text(self.object.name), "booth_id": self.object.booth_id},
             user=self.request.user,
         )
@@ -1974,15 +1975,15 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["action"] = "create"
-        context["partner_type"] = self.partner_type
+        context["organization_type"] = self.organization_type
         context["page_title"] = {
             "sponsor": _("Add a Sponsor"),
             "exhibitor": _("Add an Exhibitor"),
-        }.get(self.partner_type, _("Add an Exhibitor or Sponsor"))
+        }.get(self.organization_type, _("Add an Exhibitor or Sponsor"))
         return context
 
     def get_success_url(self):
-        return partner_list_url(self.request.event, self.partner_type)
+        return organization_list_url(self.request.event, self.organization_type)
 
 
 class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, UpdateView):
@@ -2026,13 +2027,13 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
         question_changes = [int(key.split("_", 1)[1]) for key in form.changed_data if key.startswith("question_")]
         if profile_changes:
             self.object.log_action(
-                LOG_PARTNER_CHANGED,
+                LOG_ORGANIZATION_CHANGED,
                 data={"changed": profile_changes},
                 user=self.request.user,
             )
-        if question_changes and form.linked_proposal:
-            form.linked_proposal.log_action(
-                LOG_PROPOSAL_CHANGED,
+        if question_changes and form.linked_request:
+            form.linked_request.log_action(
+                LOG_REQUEST_CHANGED,
                 data={"changed_questions": question_changes},
                 user=self.request.user,
             )
@@ -2049,15 +2050,15 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             "sponsor": _("Edit Sponsor"),
             "exhibitor": _("Edit Exhibitor"),
             "both": _("Edit Exhibitor & Sponsor"),
-        }.get(partner_type_of(self.object), _("Edit Exhibitor or Sponsor"))
+        }.get(organization_type_of(self.object), _("Edit Exhibitor or Sponsor"))
         return context
 
     def get_success_url(self):
-        # Return to the list the partner was edited from; fall back to its type.
-        partner_type = self.request.GET.get("type")
-        if partner_type not in ("sponsor", "exhibitor"):
-            partner_type = "sponsor" if self.object.is_sponsor and not self.object.is_exhibitor else "exhibitor"
-        return partner_list_url(self.request.event, partner_type)
+        # Return to the list the organization was edited from; fall back to its type.
+        organization_type = self.request.GET.get("type")
+        if organization_type not in ("sponsor", "exhibitor"):
+            organization_type = "sponsor" if self.object.is_sponsor and not self.object.is_exhibitor else "exhibitor"
+        return organization_list_url(self.request.event, organization_type)
 
 
 class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
@@ -2070,7 +2071,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
 
     def form_valid(self, form):
         self.object.log_action(
-            LOG_PARTNER_DELETED,
+            LOG_ORGANIZATION_DELETED,
             data={"name": localize_event_text(self.object.name), "booth_id": self.object.booth_id},
             user=self.request.user,
         )
@@ -2082,11 +2083,11 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
             "sponsor": _("Delete Sponsor"),
             "exhibitor": _("Delete Exhibitor"),
             "both": _("Delete Exhibitor & Sponsor"),
-        }.get(partner_type_of(self.object), _("Delete Exhibitor or Sponsor"))
+        }.get(organization_type_of(self.object), _("Delete Exhibitor or Sponsor"))
         return context
 
     def get_success_url(self) -> str:
-        return partner_list_url(self.request.event, partner_type_of(self.object))
+        return organization_list_url(self.request.event, organization_type_of(self.object))
 
 
 class ExhibitorCopyKeyView(EventPermissionRequiredMixin, View):
@@ -2167,7 +2168,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             messages.error(
                 request,
                 _(
-                    "This code was already included in a voucher email to this partner, so it cannot be "
+                    "This code was already included in a voucher email to this organization, so it cannot be "
                     "returned to the pool. Delete it under Tickets → Vouchers instead."
                 ),
             )
@@ -2177,7 +2178,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         return redirect(self.get_success_url())
 
     def lock_voucher_links(self):
-        """Hold this partner's links so a concurrent return cannot drop a code we are about to email."""
+        """Hold this organization's links so a concurrent return cannot drop a code we are about to email."""
         return list(
             ExhibitorVoucher.objects.filter(exhibitor=self.object)
             .select_for_update()
@@ -2250,7 +2251,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         self.lock_voucher_links()
         vouchers = [link.voucher for link in self.voucher_links()]
         if not vouchers:
-            form.add_error("count", _("This partner holds no vouchers yet, so there is nothing to email."))
+            form.add_error("count", _("This organization holds no vouchers yet, so there is nothing to email."))
             return self.render_to_response(self.get_context_data(form=form))
         mail_helpers.queue_voucher_email(request.event, self.object, vouchers, requestor=request.user)
         messages.success(
@@ -2269,27 +2270,27 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
     """Queue voucher emails for everyone in the current list, after confirmation."""
 
     permission = ("can_change_event_settings",)
-    partner_type = None
+    organization_type = None
 
     def target_queryset(self):
-        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("source_proposals__user")
-        if self.partner_type == "sponsor":
+        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("source_requests__user")
+        if self.organization_type == "sponsor":
             queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
-        elif self.partner_type == "exhibitor":
+        elif self.organization_type == "exhibitor":
             queryset = queryset.filter(is_exhibitor=True).order_by("exhibitor_position", "name", "pk")
         else:
             queryset = queryset.order_by("name", "pk")
         form = ExhibitorFilterForm(
             data=self.request.GET,
             event=self.request.event,
-            organization_type=self.partner_type,
+            organization_type=self.organization_type,
         )
         if form.is_valid():
             queryset = form.filter_qs(queryset)
         return queryset
 
     def list_url(self):
-        return partner_list_url(self.request.event, self.partner_type)
+        return organization_list_url(self.request.event, self.organization_type)
 
     def preview(self, exhibitors):
         """Split the list into who will be emailed and who cannot be, without claiming anything.
@@ -2333,7 +2334,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                 request,
                 "exhibitors/voucher_bulk_send.html",
                 {
-                    "partner_type": self.partner_type,
+                    "organization_type": self.organization_type,
                     "sendable": sendable,
                     "no_email": no_email,
                     "no_vouchers": no_vouchers,
@@ -2381,7 +2382,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         return mail_helpers.queue_voucher_emails(self.request.event, sendable, requestor=requestor, issue_missing=True)
 
     def skipped_no_email_message(self, count):
-        if self.partner_type == "sponsor":
+        if self.organization_type == "sponsor":
             text = ngettext(
                 "%(count)d sponsor was skipped because it has no email address.",
                 "%(count)d sponsors were skipped because they have no email address.",
@@ -2396,7 +2397,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         return text % {"count": count}
 
     def skipped_no_vouchers_message(self, count):
-        if self.partner_type == "sponsor":
+        if self.organization_type == "sponsor":
             text = ngettext(
                 "%(count)d sponsor was skipped because their voucher count is set to 0.",
                 "%(count)d sponsors were skipped because their voucher count is set to 0.",
@@ -2527,7 +2528,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         recipients = mail_helpers.compose_recipients(
             event,
             states=form.cleaned_data["states"],
-            partner_type=form.cleaned_data["partner_type"],
+            organization_type=form.cleaned_data["organization_type"],
             sponsor_group=form.cleaned_data["sponsor_group"],
         )
         created = mail_helpers.queue_compose_emails(
@@ -2926,9 +2927,9 @@ class EmailTemplatesView(EventPermissionRequiredMixin, TemplateView):
                 "body_field": form[mail_helpers.body_settings_key(role)],
             }
             for role, label in (
-                (mail_helpers.PROPOSAL_NEW, _("Request received (confirmation)")),
-                (mail_helpers.PROPOSAL_ACCEPTED, _("Request accepted")),
-                (mail_helpers.PROPOSAL_REJECTED, _("Request rejected")),
+                (mail_helpers.REQUEST_NEW, _("Request received (confirmation)")),
+                (mail_helpers.REQUEST_ACCEPTED, _("Request accepted")),
+                (mail_helpers.REQUEST_REJECTED, _("Request rejected")),
                 (mail_helpers.EXHIBITOR_ACCESS, _("Exhibitor lead scanning key")),
                 (mail_helpers.VOUCHERS, _("Vouchers")),
             )
@@ -2974,7 +2975,7 @@ class EmailTemplatePreviewView(EventPermissionRequiredMixin, View):
         else:
             return JsonResponse({"detail": _("Unknown template.")}, status=400)
 
-        placeholder_context = mail_helpers.ROLE_PLACEHOLDER_CONTEXT.get(role, mail_helpers.PROPOSAL_PLACEHOLDER_CONTEXT)
+        placeholder_context = mail_helpers.ROLE_PLACEHOLDER_CONTEXT.get(role, mail_helpers.REQUEST_PLACEHOLDER_CONTEXT)
 
         from eventyay.base.i18n import language
         from eventyay.base.services.mail import expand_email_variable_chips

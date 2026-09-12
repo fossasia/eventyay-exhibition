@@ -68,7 +68,7 @@
   {% endif %}
   {% if 'can_change_event_settings' in request.eventpermset or 'can_change_exhibition_proposals' in request.eventpermset or 'is_exhibition_reviewer' in request.eventpermset %}
     <li>
-      <a href="{% url 'plugins:exhibition:proposal.list' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'proposal.list' or url_name == 'proposal.detail' %}class="active"{% endif %}>
+      <a href="{% url 'plugins:exhibition:request.list' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'exhibition_request.list' or url_name == 'exhibition_request.detail' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-inbox"></span>
         <span class="sidebar-text">{% trans "Exhibition requests" %}</span>
       </a>

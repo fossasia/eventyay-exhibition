@@ -15,8 +15,8 @@ from exhibition.api import VoucherRedemptionRetrieveView, get_allowed_attendee_d
 from exhibition.forms import ExhibitorVoucherBatchForm, ExhibitorVoucherDefaultsForm
 from exhibition.models import (
     ExhibitionEmailQueue,
-    ExhibitionProposal,
-    ExhibitionProposalState,
+    ExhibitionRequest,
+    ExhibitionRequestState,
     ExhibitorInfo,
     ExhibitorSettings,
     ExhibitorVoucher,
@@ -192,7 +192,7 @@ def test_sponsors_share_the_exhibitor_pool_when_no_sponsor_pool_is_set(event):
 
 
 @pytest.mark.django_db
-def test_a_partner_that_is_both_draws_from_the_exhibitor_pool(event):
+def test_a_organization_that_is_both_draws_from_the_exhibitor_pool(event):
     with scopes_disabled():
         ExhibitorSettings.objects.create(
             event=event, voucher_pool_tag="exhibitors", sponsor_voucher_pool_tag="sponsors"
@@ -529,7 +529,7 @@ def test_queue_voucher_emails_reports_the_addressless_separately(voucher_event):
     assert not ExhibitorVoucher.objects.filter(exhibitor=no_address).exists()
 
 
-def _bulk_view(event, partner_type="exhibitor", *, data=None):
+def _bulk_view(event, organization_type="exhibitor", *, data=None):
     request = RequestFactory().post("/vouchers/send", data=data or {})
     request.event = event
     request.user = None
@@ -537,7 +537,7 @@ def _bulk_view(event, partner_type="exhibitor", *, data=None):
     request._messages = FallbackStorage(request)
     view = ExhibitorVoucherBulkSendView()
     view.request = request
-    view.partner_type = partner_type
+    view.organization_type = organization_type
     return view, request
 
 
@@ -617,13 +617,13 @@ def test_bulk_send_issues_defaults_and_queues_one_email_each(voucher_event):
 
 
 @pytest.mark.django_db
-def test_bulk_send_only_targets_its_own_partner_type(voucher_event):
+def test_bulk_send_only_targets_its_own_organization_type(voucher_event):
     with scopes_disabled():
         ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1, voucher_pool_tag=POOL)
         _pool(voucher_event, 4)
         _exhibitor(voucher_event, name="Booth", email="booth@example.com", is_exhibitor=True, is_sponsor=False)
         _exhibitor(voucher_event, name="Gold", email="gold@example.com", is_exhibitor=False, is_sponsor=True)
-        view, request = _bulk_view(voucher_event, partner_type="sponsor", data={"confirmed": "1"})
+        view, request = _bulk_view(voucher_event, organization_type="sponsor", data={"confirmed": "1"})
 
         view.post(request)
 
@@ -774,14 +774,14 @@ def test_bulk_send_leaves_the_pool_alone_for_whoever_it_skips(voucher_event):
 
 
 def _applied_via(exhibitor, *, login, contact=""):
-    """Approve a proposal onto this exhibitor, as the call-for-exhibitors flow does."""
+    """Approve a exhibition_request onto this exhibitor, as the call-for-exhibitors flow does."""
     user = User.objects.create_user(email=login, password="pw")
-    return ExhibitionProposal.objects.create(
+    return ExhibitionRequest.objects.create(
         event=exhibitor.event,
         user=user,
         name="Acme Corp",
         email=contact,
-        state=ExhibitionProposalState.ACCEPTED,
+        state=ExhibitionRequestState.ACCEPTED,
         approved_exhibitor=exhibitor,
     )
 
@@ -805,7 +805,7 @@ def test_recipient_email_falls_back_to_the_login_address(voucher_event):
 
 
 @pytest.mark.django_db
-def test_recipient_email_prefers_the_proposal_contact_over_the_login(voucher_event):
+def test_recipient_email_prefers_the_request_contact_over_the_login(voucher_event):
     with scopes_disabled():
         exhibitor = _exhibitor(voucher_event, email="")
         _applied_via(exhibitor, login="login@example.com", contact="contact@example.com")
@@ -814,7 +814,7 @@ def test_recipient_email_prefers_the_proposal_contact_over_the_login(voucher_eve
 
 
 @pytest.mark.django_db
-def test_recipient_email_is_blank_for_a_manually_added_partner(voucher_event):
+def test_recipient_email_is_blank_for_a_manually_added_organization(voucher_event):
     with scopes_disabled():
         assert _exhibitor(voucher_event, email="").recipient_email == ""
 
@@ -831,7 +831,7 @@ def test_voucher_email_goes_to_the_login_address_when_none_is_stored(voucher_eve
 
 
 @pytest.mark.django_db
-def test_bulk_send_reaches_partners_with_only_a_login_address(voucher_event):
+def test_bulk_send_reaches_organizations_with_only_a_login_address(voucher_event):
     with scopes_disabled():
         ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2, voucher_pool_tag=POOL)
         _pool(voucher_event, 2)
@@ -905,7 +905,7 @@ def test_an_unemailed_code_goes_back_to_the_pool(voucher_event):
 
 @pytest.mark.django_db
 def test_an_emailed_code_cannot_go_back_to_the_pool(voucher_event):
-    """Returning it would hand the code to someone else while the first partner still holds it."""
+    """Returning it would hand the code to someone else while the first organization still holds it."""
     with scopes_disabled():
         ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
         exhibitor = _mailed_exhibitor(voucher_event)

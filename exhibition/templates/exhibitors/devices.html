@@ -11,7 +11,7 @@
 {% block exhibitors_content %}
     <p>
         {% blocktrans trimmed %}
-            Provision check-in app devices for this partner. Each device gets its own single-use setup
+            Provision check-in app devices for this organization. Each device gets its own single-use setup
             token, which the access-credentials email can deliver through the {device_tokens} placeholder.
         {% endblocktrans %}
     </p>
@@ -20,7 +20,7 @@
         <div class="alert alert-info">
             {% blocktrans trimmed %}
                 Provisioning devices requires organizer-level permissions. Ask an organizer admin to
-                create the devices for this partner.
+                create the devices for this organization.
             {% endblocktrans %}
         </div>
     {% endif %}
@@ -67,7 +67,7 @@
                 </form>
             {% endif %}
         {% else %}
-            <p class="text-muted">{% trans "No devices have been provisioned for this partner yet." %}</p>
+            <p class="text-muted">{% trans "No devices have been provisioned for this organization yet." %}</p>
         {% endif %}
     </fieldset>
 
