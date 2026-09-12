@@ -10,6 +10,8 @@
         {% trans "Sponsor Settings" %}
     {% elif active_tab == "vouchers" %}
         {% trans "Voucher Settings" %}
+    {% elif active_tab == "leads" %}
+        {% trans "Lead Scanning Settings" %}
     {% else %}
         {% trans "Exhibitor Settings" %}
     {% endif %}
@@ -29,6 +31,8 @@
             {% trans "Sponsor Settings" %}
         {% elif active_tab == "vouchers" %}
             {% trans "Voucher Settings" %}
+        {% elif active_tab == "leads" %}
+            {% trans "Lead Scanning Settings" %}
         {% else %}
             {% trans "Exhibitor Settings" %}
         {% endif %}
@@ -219,6 +223,31 @@
                 </div>
             </form>
 
+    {% elif active_tab == "leads" %}
+            <form action="" method="post" class="form-horizontal">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save_lead_settings">
+                <input type="hidden" name="tab" value="leads">
+                {% bootstrap_form_errors device_defaults_form %}
+                <fieldset>
+                    <legend>{% trans "Devices" %}</legend>
+                    <p>
+                        {% blocktrans trimmed %}
+                            Each exhibitor uses lead-scanning devices to scan attendee badges at their booth.
+                            The access email carries a setup token and QR code for every device that still
+                            needs setting up, and goes out to the outbox whenever devices are added or their
+                            tokens are regenerated.
+                        {% endblocktrans %}
+                    </p>
+                    {% bootstrap_field device_defaults_form.device_default_count layout="control" %}
+                </fieldset>
+
+                <div class="form-group submit-group">
+                    <div class="col-md-9 col-md-offset-3">
+                        <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+                    </div>
+                </div>
+            </form>
     {% elif active_tab == "exhibitors" %}
             <form action="" method="post" class="form-horizontal">
                 {% csrf_token %}

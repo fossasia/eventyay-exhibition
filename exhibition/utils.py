@@ -261,8 +261,8 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
     return exhibitor
 
 
-def event_voucher_settings(event):
-    """Event-wide voucher defaults, without creating a settings row on a read path."""
+def event_exhibitor_settings(event):
+    """The event's exhibitor settings, without creating a row on a read path."""
     from .models import ExhibitorSettings
 
     return ExhibitorSettings.objects.filter(event=event).first() or ExhibitorSettings(event=event)
@@ -270,7 +270,7 @@ def event_voucher_settings(event):
 
 def resolve_voucher_pool_tag(exhibitor, *, event_settings=None):
     """The pool an exhibitor draws from: the sponsor pool for sponsors, else the exhibitor pool."""
-    settings = event_settings or event_voucher_settings(exhibitor.event)
+    settings = event_settings or event_exhibitor_settings(exhibitor.event)
     if exhibitor.is_sponsor and not exhibitor.is_exhibitor and settings.sponsor_voucher_pool_tag:
         return settings.sponsor_voucher_pool_tag
     return settings.voucher_pool_tag
@@ -282,7 +282,7 @@ def resolve_voucher_defaults(exhibitor, *, event_settings=None):
     The count is their sponsor group's when they have one, otherwise the event-wide default.
     Pass ``event_settings`` when resolving for many exhibitors to avoid a query per row.
     """
-    settings = event_settings or event_voucher_settings(exhibitor.event)
+    settings = event_settings or event_exhibitor_settings(exhibitor.event)
     source = exhibitor.sponsor_group if exhibitor.sponsor_group_id else settings
     return {
         "count": source.voucher_default_count,
@@ -357,7 +357,7 @@ def provision_exhibitor_devices(exhibitor, count, *, user=None):
             organizer=exhibitor.event.organizer,
             name=f"{partner_name} #{existing + index + 1}",
             all_events=False,
-            security_profile="eventyay_checkin",
+            security_profile="full",
         )
         device.save()
         device.limit_events.add(exhibitor.event)

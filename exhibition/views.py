@@ -46,6 +46,7 @@ from .forms import (
     ExhibitionProposalSocialLinkFormSet,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
+    ExhibitorDeviceDefaultsForm,
     ExhibitorDeviceProvisionForm,
     ExhibitorExtraLinkFormSet,
     ExhibitorInfoForm,
@@ -95,7 +96,7 @@ from .utils import (
     build_exhibitor_video_embed,
     build_voucher_csv,
     claim_pool_vouchers,
-    event_voucher_settings,
+    event_exhibitor_settings,
     pool_remaining,
     provision_exhibitor_devices,
     public_exhibitors_queryset,
@@ -139,9 +140,53 @@ def send_proposal_confirmation(event, proposal, requestor):
     )
 
 
-def queue_exhibitor_access_mail(event, exhibitor, requestor):
-    """Queue the access-credentials email for organiser review in the outbox."""
-    return mail_helpers.queue_exhibitor_access_email(event, exhibitor, requestor=requestor)
+def queue_exhibitor_access_mail(request, exhibitor):
+    """Queue the access-credentials email for review, saying so when there is nothing to send."""
+    if not (exhibitor.email or "").strip():
+        messages.warning(
+            request,
+            _("No lead scanning email was queued because this profile has no email address on file."),
+        )
+        return None
+    if not mail_helpers.exhibitor_has_devices(exhibitor):
+        messages.warning(
+            request,
+            _(
+                "No lead scanning email was queued because this profile has no devices yet. "
+                "It will be queued as soon as you add their first device."
+            ),
+        )
+        return None
+    if not mail_helpers.devices_awaiting_setup(exhibitor).exists():
+        messages.info(
+            request,
+            _("No lead scanning email was queued because all of this profile's devices are already set up."),
+        )
+        return None
+    queued = mail_helpers.queue_exhibitor_access_email(request.event, exhibitor, requestor=request.user)
+    if queued:
+        messages.info(request, _("An access-credentials email was placed in the outbox."))
+    return queued
+
+
+def grant_lead_scanning_access(request, exhibitor):
+    """Give a profile the event's default devices if they have none, then queue the access email."""
+    if not exhibitor.lead_scanning_enabled:
+        return None
+    if not mail_helpers.exhibitor_has_devices(exhibitor):
+        count = event_exhibitor_settings(request.event).device_default_count
+        if count:
+            provision_exhibitor_devices(exhibitor, count, user=request.user)
+            messages.info(
+                request,
+                ngettext(
+                    "%(count)d lead-scanning device was created for this profile.",
+                    "%(count)d lead-scanning devices were created for this profile.",
+                    count,
+                )
+                % {"count": count},
+            )
+    return queue_exhibitor_access_mail(request, exhibitor)
 
 
 def access_newly_granted(exhibitor, previous=None):
@@ -280,7 +325,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
 
     def get_active_tab(self):
         tab = self.request.GET.get("tab") or self.request.POST.get("tab") or self.active_tab
-        if tab not in {"exhibitors", "sponsors", "call", "vouchers"}:
+        if tab not in {"exhibitors", "sponsors", "call", "vouchers", "leads"}:
             return "exhibitors"
         return tab
 
@@ -289,6 +334,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             "call": "plugins:exhibition:settings.call",
             "sponsors": "plugins:exhibition:settings.sponsors",
             "vouchers": "plugins:exhibition:settings.vouchers",
+            "leads": "plugins:exhibition:settings.leads",
         }
         route_name = route_names.get(tab, "plugins:exhibition:settings.exhibitors")
         return reverse(
@@ -301,6 +347,9 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         ctx["settings"] = settings
         ctx["data_access_fields"] = self.get_data_access_fields(settings)
+        ctx["device_defaults_form"] = kwargs.get("device_defaults_form") or ExhibitorDeviceDefaultsForm(
+            instance=settings
+        )
         ctx["active_tab"] = self.get_active_tab()
 
         edit_group_forms = kwargs.get("edit_group_forms", {})
@@ -394,6 +443,19 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("exhibitors"))
+
+        if action == "save_lead_settings":
+            device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
+            if not device_defaults_form.is_valid():
+                return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
+            device_defaults_form.save()
+            settings.log_action(
+                LOG_SETTINGS_CHANGED,
+                data={"changed": device_defaults_form.changed_data},
+                user=request.user,
+            )
+            messages.success(self.request, _("Settings have been saved."))
+            return redirect(self.get_settings_url("leads"))
 
         if action == "save_voucher_settings":
             voucher_defaults_form = ExhibitorVoucherDefaultsForm(
@@ -1965,10 +2027,8 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
             data={"name": localize_event_text(self.object.name), "booth_id": self.object.booth_id},
             user=self.request.user,
         )
-        if access_newly_granted(form.instance) and queue_exhibitor_access_mail(
-            self.request.event, self.object, self.request.user
-        ):
-            messages.info(self.request, _("An access-credentials email was placed in the outbox."))
+        if access_newly_granted(form.instance):
+            grant_lead_scanning_access(self.request, self.object)
         return response
 
     def get_context_data(self, **kwargs):
@@ -2036,10 +2096,8 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
                 data={"changed_questions": question_changes},
                 user=self.request.user,
             )
-        if access_newly_granted(form.instance, previous) and queue_exhibitor_access_mail(
-            self.request.event, self.object, self.request.user
-        ):
-            messages.info(self.request, _("An access-credentials email was placed in the outbox."))
+        if access_newly_granted(form.instance, previous):
+            grant_lead_scanning_access(self.request, self.object)
         return response
 
     def get_context_data(self, **kwargs):
@@ -2297,7 +2355,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         Anyone holding no vouchers is still sendable when their pool can cover their share; the
         pool is drawn down as we go, so the preview reflects what the whole run would consume.
         """
-        event_settings = event_voucher_settings(self.request.event)
+        event_settings = event_exhibitor_settings(self.request.event)
         remaining = {}
         sendable, no_email, no_vouchers, pool_short = [], [], [], []
         for exhibitor in exhibitors:
@@ -2418,7 +2476,7 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
     context_object_name = "exhibitor"
 
     def get_queryset(self):
-        return ExhibitorInfo.objects.filter(event=self.request.event)
+        return ExhibitorInfo.objects.filter(event=self.request.event, is_exhibitor=True)
 
     def can_provision(self):
         return self.request.user.has_organizer_permission(
@@ -2455,11 +2513,14 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
         count = form.cleaned_data["count"]
-        provision_exhibitor_devices(self.object, count, user=request.user)
+        exhibitor = self.get_queryset().select_for_update().get(pk=self.object.pk)
+        provision_exhibitor_devices(exhibitor, count, user=request.user)
         messages.success(
             request,
             ngettext("%(count)d device added.", "%(count)d devices added.", count) % {"count": count},
         )
+        if exhibitor.lead_scanning_enabled:
+            queue_exhibitor_access_mail(request, exhibitor)
         return redirect(self.get_success_url())
 
     @transaction.atomic
@@ -2479,6 +2540,8 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
             )
         else:
             messages.success(request, _("New setup tokens generated."))
+        if self.object.lead_scanning_enabled:
+            queue_exhibitor_access_mail(request, self.object)
         return redirect(self.get_success_url())
 
 

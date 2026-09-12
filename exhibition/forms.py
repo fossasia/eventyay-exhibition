@@ -671,6 +671,14 @@ class SponsorGroupForm(VoucherDefaultsFormMixin, I18nModelForm):
         return get_next_sponsor_group_level(self.event)
 
 
+class ExhibitorDeviceDefaultsForm(forms.ModelForm):
+    """How many lead-scanning devices a profile gets automatically when scanning is enabled."""
+
+    class Meta:
+        model = ExhibitorSettings
+        fields = ["device_default_count"]
+
+
 class ExhibitorVoucherDefaultsForm(VoucherDefaultsFormMixin, forms.ModelForm):
     """Which pools partners draw from, and how many codes each one gets by default."""
 

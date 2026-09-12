@@ -263,14 +263,21 @@ def _render_device_block(name, setup_url, token):
     )
 
 
-def render_device_tokens(exhibitor):
-    """One setup URL, token and QR code per lead-scanning device linked to the exhibitor."""
+def devices_awaiting_setup(exhibitor):
+    """Linked devices whose setup token has not been used yet."""
     from .models import ExhibitorDevice
 
+    return ExhibitorDevice.objects.filter(exhibitor=exhibitor, device__initialized__isnull=True).select_related(
+        "device"
+    )
+
+
+def render_device_tokens(exhibitor):
+    """One setup URL, token and QR code per device that still needs setting up."""
     setup_url = device_setup_url()
     blocks = [
         _render_device_block(link.device.name, setup_url, link.device.initialization_token)
-        for link in ExhibitorDevice.objects.filter(exhibitor=exhibitor).select_related("device")
+        for link in devices_awaiting_setup(exhibitor)
     ]
     return "".join(blocks)
 
@@ -439,12 +446,21 @@ def queue_compose_emails(event, proposals, subject, body, *, scheduled_at=None, 
     return created
 
 
+def exhibitor_has_devices(exhibitor):
+    """Whether any lead-scanning device is linked, and so the access email has tokens to carry."""
+    from .models import ExhibitorDevice
+
+    return ExhibitorDevice.objects.filter(exhibitor=exhibitor).exists()
+
+
 def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
-    """Queue the access-credentials email; ``None`` if the exhibitor has no email address."""
+    """Queue the access-credentials email; ``None`` without a recipient or any device to set up."""
     from .models import ExhibitionEmailQueue
 
     to_email = exhibitor.recipient_email
     if not to_email:
+        return None
+    if not devices_awaiting_setup(exhibitor).exists():
         return None
 
     subject_tpl, body_tpl = get_email_template(event, EXHIBITOR_ACCESS)
@@ -523,11 +539,11 @@ def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=Fal
     With ``issue_missing``, an exhibitor holding no vouchers gets a batch created from their
     defaults first, so a bulk send does not skip everyone who was never issued vouchers by hand.
     """
-    from .utils import event_voucher_settings, resolve_voucher_defaults
+    from .utils import event_exhibitor_settings, resolve_voucher_defaults
 
     queued = []
     skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: [], VOUCHER_SKIP_POOL_EMPTY: []}
-    event_settings = event_voucher_settings(event) if issue_missing else None
+    event_settings = event_exhibitor_settings(event) if issue_missing else None
     for exhibitor in exhibitors:
         if not exhibitor.recipient_email:
             skipped[VOUCHER_SKIP_NO_EMAIL].append(exhibitor)

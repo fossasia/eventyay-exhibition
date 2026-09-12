@@ -12,6 +12,7 @@ from exhibition.api import (
     _visible_attendee,
 )
 from exhibition.models import ExhibitorInfo
+from exhibition.utils import provision_exhibitor_devices
 
 
 def _exhibitor(event, **flags):
@@ -103,3 +104,25 @@ def test_update_forbidden_when_scanning_disabled(event):
         request = _post(exhibitor.key, {"note": "hi", "tags": []})
         response = LeadUpdateView().post(request, organizer="o", event="e", lead_id="x")
         assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_provisioned_devices_get_full_access_without_a_manual_step(event):
+    """Lead scanning needs the full profile; the check-in allowlist does not cover it."""
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", lead_scanning_enabled=True)
+        provision_exhibitor_devices(exhibitor, 2)
+        profiles = {link.device.security_profile for link in exhibitor.devices.select_related("device")}
+
+    assert profiles == {"full"}
+
+
+@pytest.mark.django_db
+def test_provisioned_devices_stay_scoped_to_their_event(event):
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", lead_scanning_enabled=True)
+        provision_exhibitor_devices(exhibitor, 1)
+        device = exhibitor.devices.select_related("device").first().device
+
+        assert device.all_events is False
+        assert list(device.limit_events.all()) == [event]

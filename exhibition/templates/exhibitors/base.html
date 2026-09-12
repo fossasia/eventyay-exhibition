@@ -42,6 +42,11 @@
             <span class="sidebar-text">{% trans "Vouchers" %}</span>
           </a>
         </li>
+        <li>
+          <a href="{% url 'plugins:exhibition:settings.leads' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'settings.leads' %}class="active"{% endif %}>
+            <span class="sidebar-text">{% trans "Lead scanning" %}</span>
+          </a>
+        </li>
       </ul>
     </li>
     <li>

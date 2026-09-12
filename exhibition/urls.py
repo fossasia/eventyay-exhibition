@@ -125,6 +125,11 @@ urlpatterns = [
         name="settings.vouchers",
     ),
     path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/leads",
+        SettingsView.as_view(active_tab="leads"),
+        name="settings.leads",
+    ),
+    path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/call",
         SettingsView.as_view(active_tab="call"),
         name="settings.call",
