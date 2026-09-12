@@ -25,7 +25,11 @@
                         <span class="label label-default">{{ entry.recipients|length }}</span>
                     {% endif %}
                 </td>
-                <td>{{ entry.subject }}</td>
+                <td>
+                    <a href="{% url 'plugins:exhibition:email.preview' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}">
+                        {{ entry.subject }}
+                    </a>
+                </td>
                 <td class="email-created">{{ entry.sent_at }}</td>
             </tr>
         {% empty %}

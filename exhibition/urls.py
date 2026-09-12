@@ -305,6 +305,11 @@ urlpatterns = [
         name="email.custom_templates.delete",
     ),
     path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/preview",
+        EmailEditView.as_view(),
+        name="email.preview",
+    ),
+    path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/edit",
         EmailEditView.as_view(),
         name="email.edit",
