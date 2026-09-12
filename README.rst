@@ -29,6 +29,29 @@ Features
 - Support notes and tags for scanned leads.
 - Provide REST API endpoints for exhibitor data and lead scanning workflows.
 
+Image dimensions
+----------------
+
+Exhibitor header images (banners) are shown complete, never cropped. Every
+public surface -- the exhibitor list card and the detail page hero -- reserves
+the same box:
+
+============  ==================
+Property      Value
+============  ==================
+Aspect ratio  3:1 (wide)
+Recommended   1500 x 500 pixels
+============  ==================
+
+An image that does not match 3:1 is neither rejected nor cropped. It is scaled
+to fit inside the box and centred, with the surrounding area filled by a plain
+background, so the layout stays intact whatever is uploaded.
+
+The ratio is defined as the ``--exhibition-banner-ratio`` CSS custom property
+in ``exhibition/static/exhibition/css/exhibitors-public-list.css`` and
+``exhibitors-public-detail.css``. Change it in both places to move every
+surface together.
+
 Repository branches
 -------------------
 

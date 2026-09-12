@@ -1,3 +1,11 @@
+/* Banner (header image) aspect ratio.
+   Exhibitor banners are shown complete rather than cropped, so every surface
+   reserves the same 3:1 box and letterboxes anything that does not match.
+   Recommended upload: 1500 x 500 px. Documented in README.rst. */
+:root {
+    --exhibition-banner-ratio: 3 / 1;
+}
+
 .exhibition-public-page {
     margin-top: 32px;
 }
@@ -74,7 +82,7 @@
 
 .exhibition-public-card-image {
     background: var(--color-grey-lightest, #f8f9fa);
-    height: 180px;
+    aspect-ratio: var(--exhibition-banner-ratio);
     overflow: hidden;
 }
 
@@ -82,7 +90,7 @@
     width: 100%;
     height: 100%;
     display: block;
-    object-fit: cover;
+    object-fit: contain;
     object-position: center;
 }
 

@@ -312,6 +312,11 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 "Lets this exhibitor sign in to the lead scanning app and scan attendees at their booth. "
                 "Turn this off to block scanning entirely."
             ),
+            "header_image": _(
+                "Shown as the banner on the public exhibitor page and list card. "
+                "Use a wide 3:1 image, for example 1500 x 500 pixels. Other shapes are "
+                "shown complete on a plain background rather than being cropped."
+            ),
         }
 
     PROFILE_SETTING_FIELD_MAP = {
@@ -1085,6 +1090,13 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "url": _("Organization website"),
             "booth_name": _("Preferred booth name"),
             "notes": _("Message to the organizers"),
+        }
+        help_texts = {
+            "header_image": _(
+                "Shown as the banner on the public exhibitor page and list card. "
+                "Use a wide 3:1 image, for example 1500 x 500 pixels. Other shapes are "
+                "shown complete on a plain background rather than being cropped."
+            ),
         }
         widgets = {
             "notes": forms.Textarea(attrs={"rows": 4}),
