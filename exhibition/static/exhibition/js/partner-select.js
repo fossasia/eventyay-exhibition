@@ -32,8 +32,13 @@
         function refreshSelection() {
             var boxes = checkboxes()
             var selected = selectedValues()
+            var isSelectAllPages = scope.dataset.selectAllPages === "true";
             if (countLabel) {
-                countLabel.textContent = selected.length ? selected.length + ' ' + selectedLabel : ''
+                if (isSelectAllPages && scope.dataset.totalCount) {
+                    countLabel.textContent = scope.dataset.totalCount + ' ' + selectedLabel
+                } else {
+                    countLabel.textContent = selected.length ? selected.length + ' ' + selectedLabel : ''
+                }
             }
             if (selectAll) {
                 selectAll.checked = boxes.length > 0 && selected.length === boxes.length
@@ -47,6 +52,7 @@
 
         if (selectAll) {
             selectAll.addEventListener('change', function () {
+                scope.dataset.selectAllPages = selectAll.checked ? "true" : "false"
                 checkboxes().forEach(function (box) {
                     box.checked = selectAll.checked
                 })
@@ -56,6 +62,7 @@
 
         scope.addEventListener('change', function (event) {
             if (event.target.hasAttribute('data-partner-checkbox')) {
+                scope.dataset.selectAllPages = "false"
                 refreshSelection()
             }
         })
@@ -64,15 +71,18 @@
             downloadLink.addEventListener('click', function (event) {
                 event.preventDefault()
                 var selected = selectedValues()
-                if (!selected.length) {
+                var isSelectAllPages = scope.dataset.selectAllPages === "true";
+                if (!selected.length && !isSelectAllPages) {
                     return
                 }
-                var params = selected
-                    .map(function (value) {
-                        return 'pk=' + encodeURIComponent(value)
+                var searchParams = new URLSearchParams(window.location.search);
+                searchParams.set('download', 'yes');
+                if (!isSelectAllPages) {
+                    selected.forEach(function (value) {
+                        searchParams.append('pk', value);
                     })
-                    .join('&')
-                window.location.href = baseHref + '&' + params
+                }
+                window.location.href = window.location.pathname + '?' + searchParams.toString()
             })
         }
 
