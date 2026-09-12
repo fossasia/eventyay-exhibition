@@ -8,6 +8,7 @@
 {% endblock %}
 
 {% block exhibitors_content %}
+    <span data-selection-passthrough hidden></span>
     <form action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}" method="post">
         {% csrf_token %}
         <input type="hidden" name="op" value="{% if scope == 'all' %}discard_all{% else %}discard{% endif %}">

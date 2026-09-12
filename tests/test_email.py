@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -28,6 +29,7 @@ from exhibition.models import (
 from exhibition.views import (
     EmailComposeView,
     EmailDeleteView,
+    EmailOutboxListView,
     EmailSendView,
     EmailTemplatePreviewView,
     group_email_entries,
@@ -712,6 +714,42 @@ def test_delete_view_discards_whole_batch(mail_event):
 
     with scopes_disabled():
         assert ExhibitionEmailQueue.objects.filter(event=mail_event).count() == 0
+
+
+def _outbox_context(event, **params):
+    request = RequestFactory().get("/outbox", params)
+    request.event = event
+    request.user = None
+    request.session = {}
+    request.resolver_match = SimpleNamespace(url_name="email.outbox")
+    view = EmailOutboxListView()
+    view.setup(request)
+    with scopes_disabled():
+        view.object_list = view.get_queryset()
+        return view.get_context_data()
+
+
+@pytest.mark.django_db
+def test_outbox_lists_every_selectable_row_not_just_the_current_page(mail_event):
+    p1 = _proposal(mail_event, "One", ExhibitionProposalState.ACCEPTED, email="one@example.com")
+    p2 = _proposal(mail_event, "Two", ExhibitionProposalState.ACCEPTED, email="two@example.com")
+    with scopes_disabled():
+        batch = mail_helpers.queue_compose_emails(mail_event, [p1, p2], "Hi", "Body")
+        single = mail_helpers.queue_proposal_email(mail_event, p1, mail_helpers.PROPOSAL_ACCEPTED)
+
+    context = _outbox_context(mail_event, page_size=1)
+
+    assert len(context["entries"]) == 1
+    assert sorted(context["selectable_ids"]) == sorted([min(row.pk for row in batch), single.pk])
+
+
+@pytest.mark.django_db
+def test_outbox_caps_the_selection_below_the_post_field_limit(mail_event, settings):
+    settings.DATA_UPLOAD_MAX_NUMBER_FIELDS = 50
+    assert _outbox_context(mail_event)["selection_limit"] == 47
+
+    settings.DATA_UPLOAD_MAX_NUMBER_FIELDS = None
+    assert _outbox_context(mail_event)["selection_limit"] is None
 
 
 PLAIN_BODY = "First paragraph.\n\nSecond paragraph.\nSame paragraph, new line."

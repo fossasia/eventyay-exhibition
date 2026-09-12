@@ -2,6 +2,7 @@ import io
 import json
 
 from defusedcsv import csv
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
@@ -192,6 +193,8 @@ class PublicCallEnabledMixin:
 class FilteredListMixin(PaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
+    selection_field = None
+
     def build_filter_form(self):
         raise NotImplementedError
 
@@ -209,6 +212,8 @@ class FilteredListMixin(PaginationMixin):
         context["filter_form"] = self.filter_form
         context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form)
         context["advanced_filter_count"] = advanced_filter_count(self.filter_form)
+        if self.selection_field:
+            context["selectable_ids"] = list(self.object_list.order_by().values_list(self.selection_field, flat=True))
         return context
 
 
@@ -505,6 +510,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
     permission = ("can_change_event_settings", "can_view_orders")
     template_name = "exhibitors/exhibitor_info.html"
     context_object_name = "exhibitors"
+    selection_field = "pk"
     partner_type = None
 
     def build_filter_form(self):
@@ -1307,6 +1313,7 @@ class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_list.html"
     context_object_name = "proposals"
+    selection_field = "code"
 
     @cached_property
     def hide_applicant_emails(self):
@@ -2656,6 +2663,17 @@ class EmailListMixin(FilteredListMixin):
         return [self.template_name]
 
 
+def bulk_email_selection_limit():
+    """Most rows a bulk email request can carry, or ``None`` when Django sets no cap.
+
+    Each selected row is its own POST field, and Django rejects a request with
+    more than ``DATA_UPLOAD_MAX_NUMBER_FIELDS`` of them. The discard confirmation
+    re-posts the selection alongside the CSRF token, ``op`` and ``confirmed``.
+    """
+    limit = django_settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+    return None if limit is None else limit - 3
+
+
 class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
     """Unsent queued emails awaiting organiser review."""
 
@@ -2664,9 +2682,15 @@ class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView
     template_name = "exhibitors/email_outbox.html"
     partial_template_name = "exhibitors/_email_outbox_body.html"
     date_field = "created"
+    selection_field = "pk"
 
     def base_queryset(self):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["selection_limit"] = bulk_email_selection_limit()
+        return context
 
 
 class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
@@ -2828,14 +2852,24 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         batches = [batch for batch in base.filter(pk__in=selected).values_list("batch", flat=True) if batch]
         return base.filter(Q(pk__in=selected) | Q(batch__in=batches))
 
+    def outbox_redirect(self, request, done=False):
+        """Back to the outbox. ``?bulk=done`` tells the page its selection was consumed.
+
+        Only set it once rows have actually been sent or discarded, so a cancelled
+        confirmation or a request that did nothing leaves the selection to retry.
+        """
+        response = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
+        if done:
+            response["Location"] += "?bulk=done"
+        return response
+
     def post(self, request, *args, **kwargs):
         op = request.POST.get("op", "")
         action = "send" if op.startswith("send") else "discard" if op.startswith("discard") else None
         scope = "all" if op.endswith("_all") else "selected"
-        outbox_url = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
 
         if action is None:
-            return outbox_url
+            return self.outbox_redirect(request)
 
         rows = self.target_rows(request, scope)
 
@@ -2852,7 +2886,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request, done=bool(count))
 
         if request.POST.get("confirmed"):
             count = rows.count()
@@ -2865,12 +2899,12 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request, done=bool(count))
 
         count = rows.count()
         if not count:
             messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request)
         return render(
             request,
             "exhibitors/email_bulk_discard.html",

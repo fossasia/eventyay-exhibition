@@ -32,10 +32,20 @@
         var bulkBar = container.querySelector('.proposal-bulk-bar')
         var bulkHint = container.querySelector('[data-proposal-bulk-hint]')
         var bulkReasons = bulkBar ? bulkBar.dataset : {}
-        var selectAllAcrossPages = false
+        var store = window.ExhibitionSelection.create({ scope: container })
+
+        function selectableIds() {
+            return (
+                store.available() ||
+                checkboxes().map(function (box) {
+                    return box.value
+                })
+            )
+        }
 
         function allResultsSelected() {
-            return selectAllAcrossPages && selectedBoxes().length > 0
+            var selectable = selectableIds().length
+            return selectable > 0 && store.size() === selectable
         }
 
         function filterParams() {
@@ -56,23 +66,39 @@
             return Array.prototype.slice.call(container.querySelectorAll('[data-proposal-checkbox]'))
         }
 
-        function selectedBoxes() {
-            return checkboxes().filter(function (box) {
-                return box.checked
+        function metaFor(box) {
+            return {
+                actions: (box.dataset.proposalBulkActions || '').split(' ').filter(Boolean),
+            }
+        }
+
+        function metaLookup() {
+            var known = {}
+            checkboxes().forEach(function (box) {
+                known[box.value] = metaFor(box)
+            })
+            return function (code) {
+                return known[code] || null
+            }
+        }
+
+        function refreshMeta() {
+            checkboxes().forEach(function (box) {
+                if (store.has(box.value)) {
+                    store.add(box.value, metaFor(box))
+                }
             })
         }
 
         function eligibleFor(action) {
-            return selectedBoxes().filter(function (box) {
-                var actions = (box.dataset.proposalBulkActions || '').split(' ')
-                return actions.indexOf(action) !== -1
+            return store.ids().filter(function (code) {
+                var meta = store.meta(code)
+                return !!meta && (meta.actions || []).indexOf(action) !== -1
             })
         }
 
         function selectedCodes(action) {
-            return eligibleFor(action).map(function (box) {
-                return box.value
-            })
+            return eligibleFor(action)
         }
 
         function capitalize(word) {
@@ -80,9 +106,10 @@
         }
 
         function refreshSelection() {
-            var boxes = checkboxes()
-            var count = selectedBoxes().length
-            var pageFullySelected = boxes.length > 0 && count === boxes.length
+            checkboxes().forEach(function (box) {
+                box.checked = store.has(box.value)
+            })
+            var count = store.size()
             var acrossPages = allResultsSelected()
             var hints = []
             bulkButtons.forEach(function (button) {
@@ -107,12 +134,11 @@
                 bulkHint.hidden = hints.length === 0
             }
             if (countLabel) {
-                var shown = acrossPages ? bulkReasons.proposalTotal : count
-                countLabel.textContent = count ? shown + ' ' + (i18n.selected || '') : ''
+                countLabel.textContent = count ? count + ' ' + (i18n.selected || '') : ''
             }
             if (selectAll) {
-                selectAll.checked = pageFullySelected
-                selectAll.indeterminate = count > 0 && !pageFullySelected
+                selectAll.checked = acrossPages
+                selectAll.indeterminate = count > 0 && !acrossPages
             }
         }
 
@@ -173,6 +199,7 @@
                 return
             }
             box.checked = false
+            store.remove(box.value)
             box.setAttribute('data-proposal-bulk-actions', (result.bulk_actions || []).join(' '))
         }
 
@@ -192,7 +219,7 @@
         function setBusy(busy) {
             bulkButtons.forEach(function (button) {
                 var pending = allResultsSelected()
-                    ? selectedBoxes().length === 0
+                    ? store.size() === 0
                     : selectedCodes(button.dataset.proposalBulk).length === 0
                 button.disabled = busy || pending
             })
@@ -234,6 +261,13 @@
                 })
                 .then(function (payload) {
                     if (payload.ok && payload.data.ok) {
+                        if (acrossPages) {
+                            store.clear()
+                        } else {
+                            codes.forEach(function (code) {
+                                store.remove(code)
+                            })
+                        }
                         if (payload.data.reload) {
                             refreshResults(payload.data.message)
                             return
@@ -334,21 +368,23 @@
 
         if (selectAll) {
             selectAll.addEventListener('change', function () {
-                selectAllAcrossPages = selectAll.checked
-                checkboxes().forEach(function (box) {
-                    box.checked = selectAll.checked
-                })
+                if (selectAll.checked) {
+                    store.addAll(selectableIds(), metaLookup())
+                } else {
+                    store.clear()
+                }
                 refreshSelection()
             })
         }
 
         container.addEventListener('change', function (event) {
             if (event.target.matches('[data-proposal-checkbox]')) {
-                selectAllAcrossPages = false
+                store.toggle(event.target.value, event.target.checked, metaFor(event.target))
                 refreshSelection()
             }
         })
 
+        refreshMeta()
         refreshSelection()
     }
 

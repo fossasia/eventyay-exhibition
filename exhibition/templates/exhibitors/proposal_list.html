@@ -26,10 +26,10 @@
         <div class="proposal-action-feedback" data-proposal-feedback></div>
         <div class="table-responsive"
              data-proposal-actions-url="{% url 'plugins:exhibition:proposal.actions' organizer=request.event.organizer.slug event=request.event.slug %}"
+             data-selection-ids="{{ selectable_ids|join:' ' }}"
              data-proposal-list>
             {% if can_manage %}
                 <div class="proposal-bulk-bar"
-                     data-proposal-total="{{ page_obj.paginator.count }}"
                      data-proposal-reason-none="{% trans 'Select at least one request.' %}"
                      data-proposal-reason-approve="{% trans 'None of the selected requests can be approved.' %}"
                      data-proposal-reason-reject="{% trans 'None of the selected requests can be rejected.' %}"
