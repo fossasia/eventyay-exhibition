@@ -5,13 +5,19 @@ from types import SimpleNamespace
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.template.loader import render_to_string
 from django.test import RequestFactory
 from django_scopes import scopes_disabled
 from eventyay.base.models import Question
 from rest_framework import serializers
 
 from exhibition.api import ExhibitorInfoSerializer, LeadCreateView
-from exhibition.forms import ExhibitionProposalForm, ExhibitorInfoForm, SponsorGroupForm
+from exhibition.forms import (
+    CallSettingsForm,
+    ExhibitionProposalForm,
+    ExhibitorInfoForm,
+    SponsorGroupForm,
+)
 from exhibition.models import (
     PROPOSAL_DEFAULT_FIELD_KEYS,
     ExhibitorInfo,
@@ -228,24 +234,28 @@ def test_sponsor_group_reorder_requires_complete_unique_group_ids(event):
 
 @pytest.mark.django_db
 def test_call_settings_form_renders_call_text_without_preview(event):
-    make_exhibitor_settings(event)
-    factory = RequestFactory()
-    view = SettingsView.as_view(active_tab="call")
-    request = factory.get("/settings/call")
-    request.event = event
-    request.user = SimpleNamespace(
-        has_event_permission=lambda *args, **kwargs: True,
-        is_authenticated=True,
-    )
-    request.session = {}
-    request._messages = FallbackStorage(request)
-    response = view(request, organizer=event.organizer.slug, event=event.slug)
-    assert response.status_code == 200
-    content = response.rendered_content
-    assert "call_text" in content
-    assert "call_text_preview" not in content
-    assert "data-email-preview-wrapper" not in content
-    assert "call-text-preview-note" not in content
+    with scopes_disabled():
+        settings = make_exhibitor_settings(event)
+        form = CallSettingsForm(instance=settings, event=event)
+        request = RequestFactory().get(f"/control/event/{event.organizer.slug}/{event.slug}/settings/call")
+        request.event = event
+        request.organizer = event.organizer
+        request.LANGUAGE_CODE = "en"
+        content = render_to_string(
+            "exhibitors/settings.html",
+            {
+                "active_tab": "call",
+                "call_settings_form": form,
+                "settings": settings,
+                "request": request,
+            },
+            request=request,
+        )
+        assert 'name="call_text_0"' in content
+        assert 'data-tiptap-profile="richtext"' in content
+        assert "call_text_preview" not in content
+        assert "data-email-preview-wrapper" not in content
+        assert "call-text-preview-note" not in content
 
 
 @pytest.mark.django_db
