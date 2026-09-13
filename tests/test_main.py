@@ -20,7 +20,6 @@ from exhibition.models import (
     get_next_sponsor_group_level,
 )
 from exhibition.views import (
-    CallTextPreviewView,
     ExhibitionDefaultFieldEditView,
     ExhibitionDefaultFieldResetView,
     ExhibitionQuestionListView,
@@ -228,48 +227,25 @@ def test_sponsor_group_reorder_requires_complete_unique_group_ids(event):
 
 
 @pytest.mark.django_db
-def test_call_text_preview_renders_markdown_per_active_locale(event):
-    event.settings.locales = ["en", "de"]
+def test_call_settings_form_renders_call_text_without_preview(event):
+    make_exhibitor_settings(event)
     factory = RequestFactory()
-    view = CallTextPreviewView()
-
-    request = factory.post(
-        "/preview",
-        data={
-            "body_en": "# Hello",
-            "body_de": "## Hallo",
-        },
-    )
+    view = SettingsView.as_view(active_tab="call")
+    request = factory.get("/settings/call")
     request.event = event
-    response = view.post(request)
-
-    assert response.status_code == 200
-    previews = json.loads(response.content)["previews"]
-    assert set(previews.keys()) == {"en", "de"}
-    assert "<h1>Hello</h1>" in previews["en"]
-    assert "<h2>Hallo</h2>" in previews["de"]
-
-
-@pytest.mark.django_db
-def test_call_text_preview_ignores_inactive_locales_and_blank_text(event):
-    event.settings.locales = ["en"]
-    factory = RequestFactory()
-    view = CallTextPreviewView()
-
-    request = factory.post(
-        "/preview",
-        data={
-            "body_en": "",
-            "body_de": "# Nope",
-        },
+    request.user = SimpleNamespace(
+        has_event_permission=lambda *args, **kwargs: True,
+        is_authenticated=True,
     )
-    request.event = event
-    response = view.post(request)
-
+    request.session = {}
+    request._messages = FallbackStorage(request)
+    response = view(request, organizer=event.organizer.slug, event=event.slug)
     assert response.status_code == 200
-    previews = json.loads(response.content)["previews"]
-    assert set(previews.keys()) == {"en"}
-    assert previews["en"] == ""
+    content = response.rendered_content
+    assert "call_text" in content
+    assert "call_text_preview" not in content
+    assert "data-email-preview-wrapper" not in content
+    assert "call-text-preview-note" not in content
 
 
 @pytest.mark.django_db
