@@ -33,7 +33,7 @@
           </a>
         </li>
         <li>
-          <a href="{% url 'plugins:exhibition:settings.sponsors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'settings.sponsors' %}class="active"{% endif %}>
+          <a href="{% url 'plugins:exhibition:settings.sponsors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'settings.sponsors' or url_name == 'delete_group' %}class="active"{% endif %}>
             <span class="sidebar-text">{% trans "Sponsors" %}</span>
           </a>
         </li>
