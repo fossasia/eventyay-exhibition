@@ -1,7 +1,7 @@
 {% extends "exhibitors/base.html" %}
 {% load i18n %}
 {% load static %}
-{% block title %}{{ request.event.name }} - {% if partner_type == 'sponsor' %}{% trans "Sponsors" %}{% elif partner_type == 'exhibitor' %}{% trans "Exhibitors" %}{% else %}{% trans "Exhibitors & Sponsors" %}{% endif %}{% endblock %}
+{% block title %}{{ request.event.name }} - {% if organization_type == 'sponsor' %}{% trans "Sponsors" %}{% elif organization_type == 'exhibitor' %}{% trans "Exhibitors" %}{% else %}{% trans "Exhibitors & Sponsors" %}{% endif %}{% endblock %}
 {% block custom_header %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/dragsort-table.css' %}">
@@ -9,15 +9,15 @@
     <script defer src="{% static 'exhibition/js/list-filters.js' %}"></script>
     <script defer src="{% static 'orga/js/dragsort.js' %}"></script>
     <script defer src="{% static 'exhibition/js/copy-key.js' %}"></script>
-    <script defer src="{% static 'exhibition/js/partner-select.js' %}"></script>
+    <script defer src="{% static 'exhibition/js/organization-select.js' %}"></script>
 {% endblock %}
 {% block exhibitors_header %}
-    <h1>{% if partner_type == 'sponsor' %}{% trans "Sponsors" %}{% elif partner_type == 'exhibitor' %}{% trans "Exhibitors" %}{% else %}{% trans "Exhibitors & Sponsors" %}{% endif %}</h1>
+    <h1>{% if organization_type == 'sponsor' %}{% trans "Sponsors" %}{% elif organization_type == 'exhibitor' %}{% trans "Exhibitors" %}{% else %}{% trans "Exhibitors & Sponsors" %}{% endif %}</h1>
 {% endblock %}
 {% block exhibitors_content %}
-    {% if partner_type == 'sponsor' %}
+    {% if organization_type == 'sponsor' %}
         {% url 'plugins:exhibition:sponsors.add' organizer=request.event.organizer.slug event=request.event.slug as add_url %}
-    {% elif partner_type == 'exhibitor' %}
+    {% elif organization_type == 'exhibitor' %}
         {% url 'plugins:exhibition:exhibitors.add' organizer=request.event.organizer.slug event=request.event.slug as add_url %}
     {% else %}
         {% url 'plugins:exhibition:add' organizer=request.event.organizer.slug event=request.event.slug as add_url %}
@@ -29,9 +29,9 @@
             <p>
                 {% if filter_form.filtered %}
                     {% blocktrans trimmed %}No organizations match your filters.{% endblocktrans %}
-                {% elif partner_type == 'sponsor' %}
+                {% elif organization_type == 'sponsor' %}
                     {% blocktrans trimmed %}You don't have any sponsors yet.{% endblocktrans %}
-                {% elif partner_type == 'exhibitor' %}
+                {% elif organization_type == 'exhibitor' %}
                     {% blocktrans trimmed %}You don't have any exhibitors yet.{% endblocktrans %}
                 {% else %}
                     {% blocktrans trimmed %}You don't have any exhibitors or sponsors yet.{% endblocktrans %}
@@ -40,32 +40,32 @@
 
             {% if "can_change_event_settings" in request.eventpermset and not filter_form.filtered %}
                 <a href="{{ add_url }}" class="btn btn-primary btn-lg"><i class="fa fa-plus"></i>
-                    {% if partner_type == 'sponsor' %}{% trans "Add a Sponsor" %}{% elif partner_type == 'exhibitor' %}{% trans "Add an Exhibitor" %}{% else %}{% trans "Add an Exhibitor or Sponsor" %}{% endif %}
+                    {% if organization_type == 'sponsor' %}{% trans "Add a Sponsor" %}{% elif organization_type == 'exhibitor' %}{% trans "Add an Exhibitor" %}{% else %}{% trans "Add an Exhibitor or Sponsor" %}{% endif %}
                 </a>
             {% endif %}
         </div>
     {% else %}
-        <div data-partner-select-scope data-selected-label="{% trans "selected" %}">
+        <div data-organization-select-scope data-selected-label="{% trans "selected" %}">
         {% if send_vouchers_url %}
-            <form id="partner-send-vouchers" action="{{ send_vouchers_url }}{% if query_string %}?{{ query_string }}{% endif %}" method="post">
+            <form id="organization-send-vouchers" action="{{ send_vouchers_url }}{% if query_string %}?{{ query_string }}{% endif %}" method="post">
                 {% csrf_token %}
             </form>
         {% endif %}
         <p>
             {% if "can_change_event_settings" in request.eventpermset %}
                 <a href="{{ add_url }}" class="btn btn-default"><i class="fa fa-plus"></i>
-                    {% if partner_type == 'sponsor' %}{% trans "Add a Sponsor" %}{% elif partner_type == 'exhibitor' %}{% trans "Add an Exhibitor" %}{% else %}{% trans "Add an Exhibitor or Sponsor" %}{% endif %}
+                    {% if organization_type == 'sponsor' %}{% trans "Add a Sponsor" %}{% elif organization_type == 'exhibitor' %}{% trans "Add an Exhibitor" %}{% else %}{% trans "Add an Exhibitor or Sponsor" %}{% endif %}
                 </a>
-                <a href="?download=yes" class="btn btn-default" title="{% trans "Download access keys as CSV" %}" data-partner-download-link>
+                <a href="?download=yes" class="btn btn-default" title="{% trans "Download access keys as CSV" %}" data-organization-download-link>
                     <i class="fa fa-download"></i>
-                    {% if partner_type == 'sponsor' %}{% trans "Download sponsor keys" %}{% elif partner_type == 'exhibitor' %}{% trans "Download exhibitor keys" %}{% else %}{% trans "Download access keys" %}{% endif %}
+                    {% if organization_type == 'sponsor' %}{% trans "Download sponsor keys" %}{% elif organization_type == 'exhibitor' %}{% trans "Download exhibitor keys" %}{% else %}{% trans "Download access keys" %}{% endif %}
                 </a>
                 {% if send_vouchers_url %}
-                    <button type="submit" form="partner-send-vouchers" class="btn btn-default" title="{% trans "Queue a voucher email for everyone in this list" %}">
+                    <button type="submit" form="organization-send-vouchers" class="btn btn-default" title="{% trans "Queue a voucher email for everyone in this list" %}">
                         <i class="fa fa-envelope"></i> {% trans "Send vouchers to all" %}
                     </button>
                 {% endif %}
-                <span class="text-muted" data-partner-selected-count></span>
+                <span class="text-muted" data-organization-selected-count></span>
             {% endif %}
         </p>
 
@@ -78,15 +78,15 @@
 
         {% trans "Name" as label_name %}
         {% trans "Booth" as label_booth %}
-        {% if partner_type == 'sponsor' %}
+        {% if organization_type == 'sponsor' %}
             <div class="table-responsive">
                 <table class="table table-hover dragsort-table">
                     <thead>
                     <tr>
                         {% if "can_change_event_settings" in request.eventpermset %}
-                            <th class="partner-select-col">
-                                <label class="batch-select-label" aria-label="{% trans 'Select all partners' %}">
-                                    <input type="checkbox" data-partner-select-all>
+                            <th class="organization-select-col">
+                                <label class="batch-select-label" aria-label="{% trans 'Select all organizations' %}">
+                                    <input type="checkbox" data-organization-select-all>
                                 </label>
                             </th>
                         {% endif %}
@@ -97,10 +97,10 @@
                     </tr>
                     </thead>
                     {% for section in sponsor_group_sections %}
-                        {% if section.partners %}
+                        {% if section.organizations %}
                             <tbody {% if reorder_enabled %}dragsort-url="{% url 'plugins:exhibition:sponsors.reorder' organizer=request.event.organizer.slug event=request.event.slug %}?group_id={% if section.group %}{{ section.group.pk }}{% else %}none{% endif %}"{% endif %}>
-                            {% for e in section.partners %}
-                                {% include "exhibitors/_partner_row.html" with e=e partner_type=partner_type reorder_enabled=reorder_enabled %}
+                            {% for e in section.organizations %}
+                                {% include "exhibitors/_organization_row.html" with e=e organization_type=organization_type reorder_enabled=reorder_enabled %}
                             {% endfor %}
                             </tbody>
                         {% endif %}
@@ -113,22 +113,22 @@
                     <thead>
                     <tr>
                         {% if "can_change_event_settings" in request.eventpermset %}
-                            <th class="partner-select-col">
-                                <label class="batch-select-label" aria-label="{% trans 'Select all partners' %}">
-                                    <input type="checkbox" data-partner-select-all>
+                            <th class="organization-select-col">
+                                <label class="batch-select-label" aria-label="{% trans 'Select all organizations' %}">
+                                    <input type="checkbox" data-organization-select-all>
                                 </label>
                             </th>
                         {% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
-                        {% if not partner_type %}<th>{% trans "Group" %}</th>{% endif %}
+                        {% if not organization_type %}<th>{% trans "Group" %}</th>{% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="booth" label=label_booth %}</th>
                         {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Vouchers" %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>
-                    <tbody {% if partner_type == 'exhibitor' and reorder_enabled %}dragsort-url="{% url 'plugins:exhibition:exhibitors.reorder' organizer=request.event.organizer.slug event=request.event.slug %}"{% endif %}>
+                    <tbody {% if organization_type == 'exhibitor' and reorder_enabled %}dragsort-url="{% url 'plugins:exhibition:exhibitors.reorder' organizer=request.event.organizer.slug event=request.event.slug %}"{% endif %}>
                     {% for e in exhibitors %}
-                        {% include "exhibitors/_partner_row.html" with e=e partner_type=partner_type reorder_enabled=reorder_enabled %}
+                        {% include "exhibitors/_organization_row.html" with e=e organization_type=organization_type reorder_enabled=reorder_enabled %}
                     {% endfor %}
                     </tbody>
                 </table>

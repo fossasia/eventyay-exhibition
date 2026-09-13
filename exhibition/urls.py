@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 from eventyay.api.urls import event_router
 from eventyay.common.urls import OrganizerSlugConverter  # noqa: F401
 
@@ -40,22 +41,22 @@ from .views import (
     ExhibitorReorderView,
     ExhibitorVoucherBulkSendView,
     ExhibitorVoucherManageView,
-    ProposalActionView,
-    ProposalDetailView,
-    ProposalListView,
     PublicCallSecretView,
     PublicCallView,
     PublicExhibitorDetailView,
     PublicExhibitorListView,
+    RequestActionView,
+    RequestDetailView,
+    RequestListView,
     SettingsView,
     SponsorGroupFrontPageToggleView,
     SponsorGroupReorderView,
     SponsorReorderView,
-    UserProposalCreateView,
-    UserProposalEditView,
-    UserProposalListView,
-    UserProposalReinstateView,
-    UserProposalWithdrawView,
+    UserRequestCreateView,
+    UserRequestEditView,
+    UserRequestListView,
+    UserRequestReinstateView,
+    UserRequestWithdrawView,
 )
 
 urlpatterns = [
@@ -76,28 +77,47 @@ urlpatterns = [
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/submit/",
-        UserProposalCreateView.as_view(),
-        name="proposal.add",
+        UserRequestCreateView.as_view(),
+        name="request.add",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/me/",
-        UserProposalListView.as_view(),
-        name="proposal.user_list",
+        UserRequestListView.as_view(),
+        name="request.user_list",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/",
+        UserRequestEditView.as_view(),
+        name="request.user_edit",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/withdraw/",
+        UserRequestWithdrawView.as_view(),
+        name="request.user_withdraw",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/reinstate/",
+        UserRequestReinstateView.as_view(),
+        name="request.user_reinstate",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/proposals/<str:code>/",
-        UserProposalEditView.as_view(),
-        name="proposal.user_edit",
+        RedirectView.as_view(pattern_name="plugins:exhibition:request.user_edit", permanent=True, query_string=True),
+        name="request.user_edit.legacy",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/proposals/<str:code>/withdraw/",
-        UserProposalWithdrawView.as_view(),
-        name="proposal.user_withdraw",
+        RedirectView.as_view(
+            pattern_name="plugins:exhibition:request.user_withdraw", permanent=True, query_string=True
+        ),
+        name="request.user_withdraw.legacy",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/proposals/<str:code>/reinstate/",
-        UserProposalReinstateView.as_view(),
-        name="proposal.user_reinstate",
+        RedirectView.as_view(
+            pattern_name="plugins:exhibition:request.user_reinstate", permanent=True, query_string=True
+        ),
+        name="request.user_reinstate.legacy",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/<int:pk>/",
@@ -151,7 +171,7 @@ urlpatterns = [
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors",
-        ExhibitorListView.as_view(partner_type="exhibitor"),
+        ExhibitorListView.as_view(organization_type="exhibitor"),
         name="exhibitors",
     ),
     path(
@@ -161,12 +181,12 @@ urlpatterns = [
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors/send-vouchers",
-        ExhibitorVoucherBulkSendView.as_view(partner_type="exhibitor"),
+        ExhibitorVoucherBulkSendView.as_view(organization_type="exhibitor"),
         name="exhibitors.send_vouchers",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/sponsors",
-        ExhibitorListView.as_view(partner_type="sponsor"),
+        ExhibitorListView.as_view(organization_type="sponsor"),
         name="sponsors",
     ),
     path(
@@ -176,33 +196,33 @@ urlpatterns = [
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/sponsors/send-vouchers",
-        ExhibitorVoucherBulkSendView.as_view(partner_type="sponsor"),
+        ExhibitorVoucherBulkSendView.as_view(organization_type="sponsor"),
         name="sponsors.send_vouchers",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors/add",
-        ExhibitorCreateView.as_view(partner_type="exhibitor"),
+        ExhibitorCreateView.as_view(organization_type="exhibitor"),
         name="exhibitors.add",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/sponsors/add",
-        ExhibitorCreateView.as_view(partner_type="sponsor"),
+        ExhibitorCreateView.as_view(organization_type="sponsor"),
         name="sponsors.add",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/call",
-        ProposalListView.as_view(),
-        name="proposal.list",
+        RequestListView.as_view(),
+        name="request.list",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/call/actions",
-        ProposalActionView.as_view(),
-        name="proposal.actions",
+        RequestActionView.as_view(),
+        name="request.actions",
     ),
     path(
-        "exhibitors/event/<orgslug:organizer>/<slug:event>/call/proposals/<str:code>",
-        ProposalDetailView.as_view(),
-        name="proposal.detail",
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/call/requests/<str:code>",
+        RequestDetailView.as_view(),
+        name="request.detail",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/call/questions",

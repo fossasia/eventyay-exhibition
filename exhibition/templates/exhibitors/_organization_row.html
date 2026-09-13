@@ -1,20 +1,20 @@
 {% load i18n %}
 <tr {% if reorder_enabled and "can_change_event_settings" in request.eventpermset %}dragsort-id="{{ e.id }}"{% endif %}>
     {% if "can_change_event_settings" in request.eventpermset %}
-        <td class="partner-select-col">
-            <input type="checkbox" value="{{ e.id }}" data-partner-checkbox aria-label="{% blocktrans trimmed with name=e.name %}Select {{ name }}{% endblocktrans %}">
+        <td class="organization-select-col">
+            <input type="checkbox" value="{{ e.id }}" data-organization-checkbox aria-label="{% blocktrans trimmed with name=e.name %}Select {{ name }}{% endblocktrans %}">
         </td>
     {% endif %}
     <td>
         {% if "can_change_event_settings" in request.eventpermset %}
-            <strong><a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ partner_type }}">
+            <strong><a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}">
                 {{ e.name }}
             </a></strong>
         {% else %}
             <strong>{{ e.name }}</strong>
         {% endif %}
     </td>
-    {% if partner_type != 'exhibitor' %}
+    {% if organization_type != 'exhibitor' %}
         <td>
             {% if e.sponsor_group %}
                 {{ e.sponsor_group.localized_name }}
@@ -23,7 +23,7 @@
             {% endif %}
         </td>
     {% endif %}
-    {% if partner_type != 'sponsor' %}
+    {% if organization_type != 'sponsor' %}
         <td>
             {% if not e.is_exhibitor %}
                 -
@@ -35,7 +35,7 @@
         </td>
     {% endif %}
     {% if "can_change_event_settings" in request.eventpermset %}
-        <td class="partner-vouchers-col">
+        <td class="organization-vouchers-col">
             {% if e.voucher_pending %}
                 <span class="label label-warning" title="{% trans "Waiting in the outbox" %}" data-toggle="tooltip">
                     {% trans "In outbox" %}
@@ -51,11 +51,11 @@
     {% endif %}
     <td class="text-right flip">
         {% if "can_change_event_settings" in request.eventpermset %}
-            <a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ partner_type }}" class="btn btn-default btn-sm" title="{% trans "Edit" %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+            <a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}" class="btn btn-default btn-sm" title="{% trans "Edit" %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
             <button type="button" class="btn btn-default btn-sm exhibitor-copy-key" data-url="{% url "plugins:exhibition:copy_key" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" data-copied-label="{% trans "Copied!" %}" data-failed-label="{% trans "Copy failed" %}" title="{% trans "Key" %}" data-toggle="tooltip"><i class="fa fa-copy"></i></button>
             <a href="{% url "plugins:exhibition:vouchers" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-default btn-sm" title="{% trans "Vouchers" %}" data-toggle="tooltip"><i class="fa fa-ticket"></i></a>
             <a href="{% url "plugins:exhibition:devices" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-default btn-sm" title="{% trans "Lead-scanning devices" %}" data-toggle="tooltip"><i class="fa fa-mobile"></i></a>
-            <a href="{% url "plugins:exhibition:delete" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ partner_type }}" class="btn btn-delete btn-danger btn-sm" title="{% trans "Delete" %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+            <a href="{% url "plugins:exhibition:delete" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}" class="btn btn-delete btn-danger btn-sm" title="{% trans "Delete" %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
             {% if reorder_enabled %}
                 <button type="button" draggable="true" class="btn btn-primary btn-sm dragsort-button" title="{% trans 'Move' %}" aria-label="{% trans 'Move' %}" data-toggle="tooltip">
                     <i class="fa fa-arrows"></i>

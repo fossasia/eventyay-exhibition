@@ -23,9 +23,9 @@ from eventyay.presale.signals import (
 )
 
 from .mail import (
-    proposal_public_url,
     render_device_tokens,
     render_voucher_list,
+    request_public_url,
     sample_device_tokens,
     sample_voucher_list,
 )
@@ -36,22 +36,22 @@ from .models import (
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
     LOG_GROUP_DELETED,
-    LOG_PARTNER_ADDED,
-    LOG_PARTNER_CHANGED,
-    LOG_PARTNER_CREATED,
-    LOG_PARTNER_DELETED,
-    LOG_PARTNER_REACTIVATED,
-    LOG_PARTNER_SYNCED,
+    LOG_ORGANIZATION_ADDED,
+    LOG_ORGANIZATION_CHANGED,
+    LOG_ORGANIZATION_CREATED,
+    LOG_ORGANIZATION_DELETED,
+    LOG_ORGANIZATION_REACTIVATED,
+    LOG_ORGANIZATION_SYNCED,
     LOG_PREFIX,
-    LOG_PROPOSAL_CHANGED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
+    LOG_REQUEST_CHANGED,
     LOG_SETTINGS_CHANGED,
-    PROPOSAL_LOG_ACTIONS,
-    ExhibitionProposal,
-    ExhibitionProposalState,
+    REQUEST_LOG_ACTIONS,
     ExhibitionQuestion,
+    ExhibitionRequest,
+    ExhibitionRequestState,
     ExhibitorDevice,
     ExhibitorInfo,
     ExhibitorSettings,
@@ -77,13 +77,13 @@ def exhibition_dashboard_component(sender, request=None, **kwargs):
         request=request,
     )
     if can_review and not can_view_exhibitors:
-        url = reverse("plugins:exhibition:proposal.list", kwargs=kwargs_url)
+        url = reverse("plugins:exhibition:request.list", kwargs=kwargs_url)
         description = _("Screen and evaluate exhibitor and sponsor requests for the event.")
         link_label = _("Request Review Dashboard")
     else:
         url = reverse("plugins:exhibition:dashboard", kwargs=kwargs_url)
         description = _(
-            "Manage exhibitors and sponsors, maintain booth details, and create partner profiles for the event."
+            "Manage exhibitors and sponsors, maintain booth details, and create organization profiles for the event."
         )
         link_label = _("Exhibitors & Sponsors Dashboard")
     return format_html(
@@ -104,16 +104,18 @@ def presale_supported_by(sender, request=None, **kwargs):
     sponsor_groups = list(
         SponsorGroup.objects.filter(event=sender, show_on_front_page=True).prefetch_related(
             Prefetch(
-                "partners",
+                "organizations",
                 queryset=ExhibitorInfo.objects.filter(event=sender, is_sponsor=True, active=True).order_by(
                     "sponsor_position", "name"
                 ),
-                to_attr="front_page_partners",
+                to_attr="front_page_organizations",
             )
         )
     )
     sponsor_groups = [
-        group for group in sponsor_groups if any(partner.visible_logo_url for partner in group.front_page_partners)
+        group
+        for group in sponsor_groups
+        if any(organization.visible_logo_url for organization in group.front_page_organizations)
     ]
     sponsor_groups.sort(key=lambda group: (group.level, group.pk))
 
@@ -123,10 +125,10 @@ def presale_supported_by(sender, request=None, **kwargs):
     add_external_image_csp_sources(
         request,
         [
-            partner.visible_logo_url
+            organization.visible_logo_url
             for group in sponsor_groups
-            for partner in group.front_page_partners
-            if partner.visible_logo_url
+            for organization in group.front_page_organizations
+            if organization.visible_logo_url
         ],
     )
 
@@ -208,26 +210,28 @@ def exhibition_mail_placeholders(sender, **kwargs):
         ),
         SimpleFunctionalMailTextPlaceholder(
             "request_name",
-            ["proposal"],
-            lambda proposal: localize_event_text(proposal.name) or str(proposal.name),
+            ["exhibition_request"],
+            lambda exhibition_request: localize_event_text(exhibition_request.name) or str(exhibition_request.name),
             _("Acme Corp"),
         ),
         SimpleFunctionalMailTextPlaceholder(
             "request_code",
-            ["proposal"],
-            lambda proposal: proposal.code,
+            ["exhibition_request"],
+            lambda exhibition_request: exhibition_request.code,
             "ABCD1234EFGH",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "request_url",
-            ["proposal"],
-            proposal_public_url,
-            "https://example.com/orga/event/exhibition/call/proposals/ABCD1234EFGH/",
+            ["exhibition_request"],
+            request_public_url,
+            "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "name",
-            ["proposal"],
-            lambda proposal: (proposal.user.get_display_name() if proposal.user_id else "") or "",
+            ["exhibition_request"],
+            lambda exhibition_request: (
+                (exhibition_request.user.get_display_name() if exhibition_request.user_id else "") or ""
+            ),
             _("Jane Doe"),
         ),
         SimpleFunctionalMailTextPlaceholder(
@@ -289,13 +293,13 @@ def exhibition_user_menu_item(sender, request=None, icon_class="", **kwargs):
     if not user or not user.is_authenticated:
         return ""
 
-    if not ExhibitionProposal.objects.filter(event=sender, user=user).exists():
+    if not ExhibitionRequest.objects.filter(event=sender, user=user).exists():
         return ""
 
     return format_html(
         '<a href="{}" class="dropdown-item" role="menuitem" tabindex="-1"><i class="fa fa-handshake-o {}"></i> {}</a>',
         reverse(
-            "plugins:exhibition:proposal.user_list",
+            "plugins:exhibition:request.user_list",
             kwargs={
                 "organizer": sender.organizer.slug,
                 "event": sender.slug,
@@ -307,17 +311,17 @@ def exhibition_user_menu_item(sender, request=None, icon_class="", **kwargs):
 
 
 LOG_ENTRY_LABELS = {
-    PROPOSAL_LOG_ACTIONS["approve"]: _("Exhibition request approved."),
-    PROPOSAL_LOG_ACTIONS["reject"]: _("Exhibition request rejected."),
-    PROPOSAL_LOG_ACTIONS["withdraw"]: _("Exhibition request withdrawn."),
-    PROPOSAL_LOG_ACTIONS["reopen"]: _("Exhibition request reopened for review."),
-    LOG_PROPOSAL_CHANGED: _("Exhibition request changed."),
-    LOG_PARTNER_CREATED: _("Organization profile created from an approved request."),
-    LOG_PARTNER_REACTIVATED: _("Organization profile reactivated after re-approval."),
-    LOG_PARTNER_SYNCED: _("Organization profile updated from the submitter's changes."),
-    LOG_PARTNER_ADDED: _("Organization profile created."),
-    LOG_PARTNER_CHANGED: _("Organization profile changed."),
-    LOG_PARTNER_DELETED: _("Organization profile deleted."),
+    REQUEST_LOG_ACTIONS["approve"]: _("Exhibition request approved."),
+    REQUEST_LOG_ACTIONS["reject"]: _("Exhibition request rejected."),
+    REQUEST_LOG_ACTIONS["withdraw"]: _("Exhibition request withdrawn."),
+    REQUEST_LOG_ACTIONS["reopen"]: _("Exhibition request reopened for review."),
+    LOG_REQUEST_CHANGED: _("Exhibition request changed."),
+    LOG_ORGANIZATION_CREATED: _("Organization profile created from an approved request."),
+    LOG_ORGANIZATION_REACTIVATED: _("Organization profile reactivated after re-approval."),
+    LOG_ORGANIZATION_SYNCED: _("Organization profile updated from the submitter's changes."),
+    LOG_ORGANIZATION_ADDED: _("Organization profile created."),
+    LOG_ORGANIZATION_CHANGED: _("Organization profile changed."),
+    LOG_ORGANIZATION_DELETED: _("Organization profile deleted."),
     LOG_SETTINGS_CHANGED: _("Exhibition settings changed."),
     LOG_CALL_SETTINGS_CHANGED: _("Call for exhibitors settings changed."),
     LOG_CALL_SECRET_REGENERATED: _("Private call link regenerated."),
@@ -349,10 +353,10 @@ def changed_field_labels(logentry):
     return _("Updated: {fields}.").format(fields=", ".join(labels))
 
 
-def proposal_state_label(value):
+def request_state_label(value):
     """Render a stored state slug with its translated label."""
     try:
-        return ExhibitionProposalState(value).label
+        return ExhibitionRequestState(value).label
     except ValueError:
         return value
 
@@ -366,12 +370,12 @@ def exhibition_logentry_display(sender, logentry, **kwargs):
     if not label:
         return
 
-    if logentry.action_type in PROPOSAL_LOG_ACTIONS.values():
+    if logentry.action_type in REQUEST_LOG_ACTIONS.values():
         data = logentry.parsed_data
         if data.get("from") and data.get("to"):
             transition = _("State changed from {old} to {new}.").format(
-                old=proposal_state_label(data["from"]),
-                new=proposal_state_label(data["to"]),
+                old=request_state_label(data["from"]),
+                new=request_state_label(data["to"]),
             )
             return f"{label} {transition}"
 
@@ -390,11 +394,11 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
     a_text = None
     a_map = None
 
-    if isinstance(target, ExhibitionProposal):
+    if isinstance(target, ExhibitionRequest):
         a_text = _("Exhibition request {val}")
         a_map = {
             "href": reverse(
-                "plugins:exhibition:proposal.detail",
+                "plugins:exhibition:request.detail",
                 kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "code": target.code},
             ),
             "val": escape(localize_event_text(target.name) or str(target.name)),

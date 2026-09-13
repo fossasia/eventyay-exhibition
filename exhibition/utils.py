@@ -61,13 +61,11 @@ def should_hide_applicant_emails(user, event, request=None) -> bool:
 def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
     from .models import ExhibitorInfo
 
-    has_logo = (Q(logo__isnull=False) & ~Q(logo="")) | (Q(logo_url__isnull=False) & ~Q(logo_url=""))
-    has_header = (Q(header_image__isnull=False) & ~Q(header_image="")) | (
-        Q(header_image_url__isnull=False) & ~Q(header_image_url="")
-    )
+    has_logo = Q(logo__isnull=False) & ~Q(logo="")
+    has_banner = Q(banner__isnull=False) & ~Q(banner="")
     return (
         ExhibitorInfo.objects.filter(event=event, is_exhibitor=True, active=True)
-        .filter(has_logo, has_header)
+        .filter(has_logo, has_banner)
         .prefetch_related("social_links", "extra_links")
         .order_by("exhibitor_position", "name", "pk")
     )
@@ -160,63 +158,63 @@ def build_exhibitor_video_embed(url: str) -> dict | None:
     return None
 
 
-def create_exhibitor_from_proposal(proposal, requestor=None):
+def create_exhibitor_from_request(exhibition_request, requestor=None):
     from .models import (
-        LOG_PARTNER_CREATED,
-        LOG_PARTNER_REACTIVATED,
-        ExhibitionProposalState,
+        LOG_ORGANIZATION_CREATED,
+        LOG_ORGANIZATION_REACTIVATED,
+        ExhibitionRequestState,
         ExhibitorExtraLink,
         ExhibitorInfo,
         ExhibitorSocialLink,
         generate_booth_id,
     )
 
-    booth_id = proposal.booth_id
-    if proposal.is_exhibitor and not booth_id:
-        booth_id = generate_booth_id(event=proposal.event)
+    booth_id = exhibition_request.booth_id
+    if exhibition_request.is_exhibitor and not booth_id:
+        booth_id = generate_booth_id(event=exhibition_request.event)
 
-    if proposal.approved_exhibitor_id:
-        exhibitor = proposal.approved_exhibitor
+    if exhibition_request.approved_exhibitor_id:
+        exhibitor = exhibition_request.approved_exhibitor
         exhibitor.active = True
-        exhibitor.is_exhibitor = proposal.is_exhibitor
-        exhibitor.is_sponsor = proposal.is_sponsor
-        exhibitor.sponsor_group = proposal.sponsor_group if proposal.is_sponsor else None
-        exhibitor.booth_id = booth_id if proposal.is_exhibitor else None
-        exhibitor.booth_name = proposal.booth_name if proposal.is_exhibitor else ""
+        exhibitor.is_exhibitor = exhibition_request.is_exhibitor
+        exhibitor.is_sponsor = exhibition_request.is_sponsor
+        exhibitor.sponsor_group = exhibition_request.sponsor_group if exhibition_request.is_sponsor else None
+        exhibitor.booth_id = booth_id if exhibition_request.is_exhibitor else None
+        exhibitor.booth_name = exhibition_request.booth_name if exhibition_request.is_exhibitor else ""
         exhibitor.save(
             update_fields=["active", "is_exhibitor", "is_sponsor", "sponsor_group", "booth_id", "booth_name"]
         )
-        proposal.state = ExhibitionProposalState.ACCEPTED
-        proposal.submitted = proposal.submitted or timezone.now()
-        proposal.profile_edited_at = None
-        proposal.capture_profile_snapshot()
-        proposal.save(update_fields=["state", "submitted", "profile_edited_at", "accepted_profile_snapshot", "updated"])
+        exhibition_request.state = ExhibitionRequestState.ACCEPTED
+        exhibition_request.submitted = exhibition_request.submitted or timezone.now()
+        exhibition_request.profile_edited_at = None
+        exhibition_request.capture_profile_snapshot()
+        exhibition_request.save(
+            update_fields=["state", "submitted", "profile_edited_at", "accepted_profile_snapshot", "updated"]
+        )
         exhibitor.log_action(
-            LOG_PARTNER_REACTIVATED,
-            data={"proposal": proposal.code},
+            LOG_ORGANIZATION_REACTIVATED,
+            data={"exhibition_request": exhibition_request.code},
             user=requestor,
         )
         return exhibitor
 
     exhibitor = ExhibitorInfo.objects.create(
-        event=proposal.event,
-        name=proposal.name,
-        description=proposal.description,
-        url=proposal.url,
-        email=proposal.email,
-        contact_url=proposal.contact_url,
-        video_url=proposal.video_url,
-        slides=proposal.slides,
-        slides_url=proposal.slides_url,
-        logo=proposal.logo,
-        logo_url=proposal.logo_url,
-        header_image=proposal.header_image,
-        header_image_url=proposal.header_image_url,
-        is_sponsor=proposal.is_sponsor,
-        sponsor_group=proposal.sponsor_group if proposal.is_sponsor else None,
-        is_exhibitor=proposal.is_exhibitor,
-        booth_id=booth_id if proposal.is_exhibitor else None,
-        booth_name=proposal.booth_name if proposal.is_exhibitor else "",
+        event=exhibition_request.event,
+        name=exhibition_request.name,
+        description=exhibition_request.description,
+        url=exhibition_request.url,
+        email=exhibition_request.email,
+        contact_url=exhibition_request.contact_url,
+        video_url=exhibition_request.video_url,
+        slides=exhibition_request.slides,
+        slides_url=exhibition_request.slides_url,
+        logo=exhibition_request.logo,
+        banner=exhibition_request.banner,
+        is_sponsor=exhibition_request.is_sponsor,
+        sponsor_group=exhibition_request.sponsor_group if exhibition_request.is_sponsor else None,
+        is_exhibitor=exhibition_request.is_exhibitor,
+        booth_id=booth_id if exhibition_request.is_exhibitor else None,
+        booth_name=exhibition_request.booth_name if exhibition_request.is_exhibitor else "",
     )
     ExhibitorSocialLink.objects.bulk_create(
         [
@@ -225,7 +223,7 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
                 network=link.network,
                 url=link.url,
             )
-            for link in proposal.social_links.all()
+            for link in exhibition_request.social_links.all()
         ]
     )
     ExhibitorExtraLink.objects.bulk_create(
@@ -235,15 +233,15 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
                 label=link.label,
                 url=link.url,
             )
-            for link in proposal.extra_links.all()
+            for link in exhibition_request.extra_links.all()
         ]
     )
-    proposal.approved_exhibitor = exhibitor
-    proposal.state = ExhibitionProposalState.ACCEPTED
-    proposal.submitted = proposal.submitted or timezone.now()
-    proposal.profile_edited_at = None
-    proposal.capture_profile_snapshot()
-    proposal.save(
+    exhibition_request.approved_exhibitor = exhibitor
+    exhibition_request.state = ExhibitionRequestState.ACCEPTED
+    exhibition_request.submitted = exhibition_request.submitted or timezone.now()
+    exhibition_request.profile_edited_at = None
+    exhibition_request.capture_profile_snapshot()
+    exhibition_request.save(
         update_fields=[
             "approved_exhibitor",
             "state",
@@ -254,8 +252,8 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
         ]
     )
     exhibitor.log_action(
-        LOG_PARTNER_CREATED,
-        data={"proposal": proposal.code, "booth_id": exhibitor.booth_id},
+        LOG_ORGANIZATION_CREATED,
+        data={"exhibition_request": exhibition_request.code, "booth_id": exhibitor.booth_id},
         user=requestor,
     )
     return exhibitor
@@ -340,7 +338,7 @@ def claim_pool_vouchers(exhibitor, count, *, pool_tag=None):
         )
 
 
-PROPOSAL_LOCALIZED_PROFILE_FIELDS = ("name", "description")
+REQUEST_LOCALIZED_PROFILE_FIELDS = ("name", "description")
 
 
 def provision_exhibitor_devices(exhibitor, count, *, user=None):
@@ -349,13 +347,13 @@ def provision_exhibitor_devices(exhibitor, count, *, user=None):
 
     from .models import ExhibitorDevice
 
-    partner_name = localize_event_text(exhibitor.name) or str(exhibitor.name)
+    organization_name = localize_event_text(exhibitor.name) or str(exhibitor.name)
     existing = ExhibitorDevice.objects.filter(exhibitor=exhibitor).count()
     links = []
     for index in range(count):
         device = Device(
             organizer=exhibitor.event.organizer,
-            name=f"{partner_name} #{existing + index + 1}",
+            name=f"{organization_name} #{existing + index + 1}",
             all_events=False,
             security_profile="eventyay_checkin",
         )
@@ -390,7 +388,7 @@ def reset_exhibitor_device_setup(exhibitor, *, user=None):
     return disconnected
 
 
-PROPOSAL_SYNCED_PROFILE_FIELDS = (
+REQUEST_SYNCED_PROFILE_FIELDS = (
     "name",
     "description",
     "url",
@@ -400,39 +398,37 @@ PROPOSAL_SYNCED_PROFILE_FIELDS = (
     "slides",
     "slides_url",
     "logo",
-    "logo_url",
-    "header_image",
-    "header_image_url",
+    "banner",
 )
 
 
-def sync_exhibitor_from_proposal(proposal, requestor=None):
-    """Push submitter-owned profile fields of an accepted proposal onto its partner profile."""
-    from .models import LOG_PARTNER_SYNCED, ExhibitorExtraLink, ExhibitorSocialLink
+def sync_exhibitor_from_request(exhibition_request, requestor=None):
+    """Push submitter-owned profile fields of an accepted exhibition_request onto its organization profile."""
+    from .models import LOG_ORGANIZATION_SYNCED, ExhibitorExtraLink, ExhibitorSocialLink
 
-    exhibitor = proposal.approved_exhibitor
+    exhibitor = exhibition_request.approved_exhibitor
     if not exhibitor:
         return None
 
-    locale = proposal.content_locale
-    for field in PROPOSAL_SYNCED_PROFILE_FIELDS:
-        if field in PROPOSAL_LOCALIZED_PROFILE_FIELDS:
+    locale = exhibition_request.content_locale
+    for field in REQUEST_SYNCED_PROFILE_FIELDS:
+        if field in REQUEST_LOCALIZED_PROFILE_FIELDS:
             setattr(
                 exhibitor,
                 field,
                 merge_localized_value(
                     getattr(exhibitor, field),
                     locale,
-                    localized_value_for(getattr(proposal, field), locale),
+                    localized_value_for(getattr(exhibition_request, field), locale),
                 ),
             )
         else:
-            setattr(exhibitor, field, getattr(proposal, field))
+            setattr(exhibitor, field, getattr(exhibition_request, field))
     if exhibitor.is_exhibitor:
         exhibitor.booth_name = merge_localized_value(
             exhibitor.booth_name,
             locale,
-            localized_value_for(proposal.booth_name, locale),
+            localized_value_for(exhibition_request.booth_name, locale),
         )
     exhibitor.save()
 
@@ -444,7 +440,7 @@ def sync_exhibitor_from_proposal(proposal, requestor=None):
                 network=link.network,
                 url=link.url,
             )
-            for link in proposal.social_links.all()
+            for link in exhibition_request.social_links.all()
         ]
     )
     exhibitor.extra_links.all().delete()
@@ -455,12 +451,12 @@ def sync_exhibitor_from_proposal(proposal, requestor=None):
                 label=link.label,
                 url=link.url,
             )
-            for link in proposal.extra_links.all()
+            for link in exhibition_request.extra_links.all()
         ]
     )
     exhibitor.log_action(
-        LOG_PARTNER_SYNCED,
-        data={"proposal": proposal.code},
+        LOG_ORGANIZATION_SYNCED,
+        data={"exhibition_request": exhibition_request.code},
         user=requestor,
     )
     return exhibitor
