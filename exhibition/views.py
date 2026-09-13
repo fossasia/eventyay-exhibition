@@ -2633,9 +2633,28 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
 
     permission = EMAIL_MANAGE_PERMISSION
 
+    def outbox_redirect(self, request):
+        query_params = request.GET.copy()
+        query_params.pop("select_all_pages", None)
+        query_string = query_params.urlencode()
+        url = reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(request.event))
+        if query_string:
+            url = f"{url}?{query_string}"
+        return redirect(url)
+
     def target_rows(self, request, scope):
         base = ExhibitionEmailQueue.objects.filter(event=request.event, sent_at__isnull=True)
         if scope == "all":
+            if request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true":
+                filter_form = EmailFilterForm(data=request.GET, date_field="created")
+                if filter_form.is_valid():
+                    filtered = filter_form.filter_qs(base)
+                    batches = [
+                        batch for batch in filtered.exclude(batch__isnull=True).values_list("batch", flat=True) if batch
+                    ]
+                    if batches:
+                        return base.filter(Q(pk__in=filtered.values("pk")) | Q(batch__in=batches))
+                    return filtered
             return base
         selected = request.POST.getlist("selected")
         if not selected:
@@ -2647,10 +2666,9 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         op = request.POST.get("op", "")
         action = "send" if op.startswith("send") else "discard" if op.startswith("discard") else None
         scope = "all" if op.endswith("_all") else "selected"
-        outbox_url = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
 
         if action is None:
-            return outbox_url
+            return self.outbox_redirect(request)
 
         rows = self.target_rows(request, scope)
 
@@ -2667,7 +2685,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request)
 
         if request.POST.get("confirmed"):
             count = rows.count()
@@ -2680,12 +2698,15 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request)
 
         count = rows.count()
         if not count:
             messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request)
+
+        query_params = request.GET.copy()
+        query_params.pop("select_all_pages", None)
         return render(
             request,
             "exhibitors/email_bulk_discard.html",
@@ -2693,6 +2714,8 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 "count": count,
                 "scope": scope,
                 "selected": request.POST.getlist("selected"),
+                "query_string": request.GET.urlencode(),
+                "cancel_query_string": query_params.urlencode(),
             },
         )
 

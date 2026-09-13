@@ -76,6 +76,7 @@
                     return
                 }
                 var searchParams = new URLSearchParams(window.location.search);
+                searchParams.delete('pk');
                 searchParams.set('download', 'yes');
                 if (!isSelectAllPages) {
                     selected.forEach(function (value) {

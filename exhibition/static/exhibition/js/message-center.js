@@ -118,9 +118,20 @@
 
         if (btn.value === "send" || btn.value === "discard") {
             var originalValue = btn.value;
+            var originalAction = form.getAttribute("action");
             btn.value = originalValue + "_all";
+
+            var searchParams = new URLSearchParams(window.location.search);
+            searchParams.set("select_all_pages", "true");
+            form.action = (originalAction || "").split("?")[0] + "?" + searchParams.toString();
+
             setTimeout(function () {
                 btn.value = originalValue;
+                if (originalAction) {
+                    form.setAttribute("action", originalAction);
+                } else {
+                    form.removeAttribute("action");
+                }
             }, 0);
         }
     }
