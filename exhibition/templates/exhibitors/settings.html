@@ -327,13 +327,11 @@
                                                 data-toggle="tooltip">
                                                 <i class="fa fa-angle-down"></i>
                                             </button>
-                                            <form action="" method="post" class="sponsor-group-delete-form">
-                                                {% csrf_token %}
-                                                <input type="hidden" name="tab" value="sponsors">
-                                                <input type="hidden" name="action" value="delete_group">
-                                                <input type="hidden" name="group_id" value="{{ group.pk }}">
-                                                <button type="submit" class="btn btn-delete btn-danger btn-sm" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></button>
-                                            </form>
+                                            <a
+                                                href="{% url 'plugins:exhibition:delete_group' organizer=request.event.organizer.slug event=request.event.slug pk=group.pk %}"
+                                                class="btn btn-delete btn-danger btn-sm"
+                                                title="{% trans 'Delete' %}"
+                                                data-toggle="tooltip"><i class="fa fa-trash"></i></a>
                                             <button type="button" class="btn btn-primary btn-sm sponsor-group-drag-handle" data-group-drag-handle aria-label="{% trans 'Reorder sponsor group' %}" title="{% trans 'Reorder sponsor group' %}" data-toggle="tooltip">
                                                 <i class="fa fa-arrows"></i>
                                             </button>

@@ -48,6 +48,7 @@ from .views import (
     PublicExhibitorDetailView,
     PublicExhibitorListView,
     SettingsView,
+    SponsorGroupDeleteView,
     SponsorGroupFrontPageToggleView,
     SponsorGroupReorderView,
     SponsorReorderView,
@@ -138,6 +139,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/toggle-front-page",
         SponsorGroupFrontPageToggleView.as_view(),
         name="toggle_front_page",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/delete",
+        SponsorGroupDeleteView.as_view(),
+        name="delete_group",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/reorder",

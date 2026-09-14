@@ -1,0 +1,25 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Delete sponsor group" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Delete sponsor group" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        <p>
+            {% blocktrans trimmed with name=group.localized_name %}
+                Are you sure you want to delete the sponsor group "{{ name }}"?
+            {% endblocktrans %}
+        </p>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-danger">{% trans "Delete" %}</button>
+            <a class="btn btn-default" href="{% url 'plugins:exhibition:settings.sponsors' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}
