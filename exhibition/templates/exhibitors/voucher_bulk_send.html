@@ -8,6 +8,7 @@
 {% endblock %}
 
 {% block exhibitors_content %}
+    <span data-selection-passthrough hidden></span>
     <form action="?{{ query_string }}" method="post">
         {% csrf_token %}
         <input type="hidden" name="confirmed" value="1">
