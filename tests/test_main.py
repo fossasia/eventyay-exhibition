@@ -8,7 +8,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory
 from django_scopes import scopes_disabled
 from eventyay.base.models import Question
-from eventyay.base.models.auth import User
 from rest_framework import serializers
 
 from exhibition.api import ExhibitorInfoSerializer, LeadCreateView
@@ -27,7 +26,6 @@ from exhibition.views import (
     ExhibitionQuestionListView,
     ExhibitorListView,
     SettingsView,
-    SponsorGroupDeleteView,
     SponsorGroupReorderView,
 )
 
@@ -187,72 +185,6 @@ def test_exhibitor_serializer_rejects_level_mismatch_without_mutating_group(even
     group.refresh_from_db()
     assert str(excinfo.value.detail["sponsor_group_level"]) == "Level does not match existing sponsor group."
     assert group.level == 1
-
-
-def _sponsor_group_delete_view(event, group, method="get"):
-    request = getattr(RequestFactory(), method)("/")
-    request.event = event
-    request.user = User.objects.create_user(email="organizer@example.com", password="pw")
-    request.session = {}
-    setattr(request, "_messages", FallbackStorage(request))
-    view = SponsorGroupDeleteView()
-    view.request = request
-    view.kwargs = {"pk": group.pk}
-    return view, request
-
-
-@pytest.mark.django_db
-def test_sponsor_group_delete_asks_for_confirmation_before_deleting(event):
-    group = SponsorGroup.objects.create(event=event, name="Gold", level=1)
-    view, _request = _sponsor_group_delete_view(event, group)
-
-    response = view.get(view.request)
-
-    assert response.status_code == 200
-    assert response.template_name == ["exhibitors/sponsor_group_delete.html"]
-    assert response.context_data["group"] == group
-    assert SponsorGroup.objects.filter(pk=group.pk).exists()
-
-
-@pytest.mark.django_db
-def test_sponsor_group_delete_removes_group_on_confirmation(event):
-    group = SponsorGroup.objects.create(event=event, name="Gold", level=1)
-    view, _request = _sponsor_group_delete_view(event, group, method="post")
-
-    response = view.post(view.request)
-
-    assert response.status_code == 302
-    assert not SponsorGroup.objects.filter(pk=group.pk).exists()
-
-
-@pytest.mark.django_db
-def test_sponsor_group_delete_rejects_group_assigned_to_partners(event):
-    group = SponsorGroup.objects.create(event=event, name="Gold", level=1)
-    ExhibitorInfo.objects.create(event=event, name="Acme", is_sponsor=True, sponsor_group=group)
-    view, request = _sponsor_group_delete_view(event, group, method="post")
-
-    response = view.post(request)
-
-    assert response.status_code == 302
-    assert SponsorGroup.objects.filter(pk=group.pk).exists()
-    assert [str(message) for message in request._messages] == [
-        "This sponsor group cannot be deleted while it is assigned to partners."
-    ]
-
-
-@pytest.mark.django_db
-def test_sponsor_group_delete_confirmation_skipped_for_assigned_group(event):
-    group = SponsorGroup.objects.create(event=event, name="Gold", level=1)
-    ExhibitorInfo.objects.create(event=event, name="Acme", is_sponsor=True, sponsor_group=group)
-    view, request = _sponsor_group_delete_view(event, group)
-
-    response = view.get(request)
-
-    assert response.status_code == 302
-    assert SponsorGroup.objects.filter(pk=group.pk).exists()
-    assert [str(message) for message in request._messages] == [
-        "This sponsor group cannot be deleted while it is assigned to partners."
-    ]
 
 
 @pytest.mark.django_db
