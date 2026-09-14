@@ -1,7 +1,8 @@
 import pytest
 from django.test import RequestFactory
+from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget
 
-from exhibition.forms import ExhibitionQuestionOptionFormSet
+from exhibition.forms import ExhibitionQuestionFieldsMixin, ExhibitionQuestionOptionFormSet
 from exhibition.models import ExhibitionQuestion, ExhibitionQuestionOption, ExhibitionQuestionVariant
 from exhibition.views import ExhibitionQuestionOptionFormSetMixin
 
@@ -255,3 +256,21 @@ def test_non_choice_question_clears_existing_options(event):
     view.save_option_formset()
 
     assert not question.options.exists()
+
+
+@pytest.mark.django_db
+def test_phone_question_builds_a_form_field(event):
+    question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.PHONE,
+        question={"en": "Contact phone"},
+    )
+
+    field = ExhibitionQuestionFieldsMixin().get_exhibition_question_field(
+        question=question,
+        answer=None,
+        readonly=False,
+    )
+
+    assert isinstance(field.widget, WrappedPhoneNumberPrefixWidget)
+    assert field.widget.render("phone", None)
