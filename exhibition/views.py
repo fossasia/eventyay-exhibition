@@ -874,8 +874,12 @@ class ProposalLinkFormsetMixin:
             and (self.extra_links_formset is None or self.extra_links_formset.is_valid())
         )
 
+        is_draft = self.request.POST.get("action") == "draft" and not (
+            hasattr(self, "state_is_locked") and self.state_is_locked()
+        )
+
         if (
-            valid
+            not is_draft
             and self.proposal_field_is_required("social_links")
             and not formset_has_entries(self.social_media_formset)
         ):
@@ -884,7 +888,7 @@ class ProposalLinkFormsetMixin:
             )
             valid = False
         if (
-            valid
+            not is_draft
             and self.proposal_field_is_required("extra_links")
             and not formset_has_entries(self.extra_links_formset)
         ):
