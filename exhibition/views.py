@@ -19,7 +19,6 @@ from eventyay.base.services.system_questions import (
     STATE_REQUIRED,
     get_system_question_base_state,
 )
-from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.common.utils.language import localize_event_text
 from eventyay.control.forms.filter import advanced_filter_count, advanced_filters_open_from_get
 from eventyay.control.permissions import EventPermissionRequiredMixin
@@ -1345,25 +1344,6 @@ class SponsorReorderView(PartnerReorderMixin):
         except (TypeError, ValueError):
             return queryset.none()
         return queryset.filter(sponsor_group_id=group_id)
-
-
-class CallTextPreviewView(EventPermissionRequiredMixin, View):
-    """Render draft Call text with the same styling as the public call page.
-
-    Consumed by core's shared ``richtextPreview.js`` (``data-email-preview-*``
-    attributes): the body text is posted as one ``body_<locale>`` field per
-    rendered locale.
-    """
-
-    permission = "can_change_settings"
-
-    def post(self, request, *args, **kwargs):
-        event_locales = request.event.settings.locales
-        previews = {}
-        for locale in event_locales:
-            text = request.POST.get(f"body_{locale}", "")
-            previews[locale] = str(rich_text(text)) if text else ""
-        return JsonResponse({"previews": previews})
 
 
 class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView):
