@@ -45,7 +45,7 @@
             {% endif %}
         </div>
     {% else %}
-        <div data-partner-select-scope data-selected-label="{% trans "selected" %}">
+        <div data-partner-select-scope data-total-count="{{ page_obj.paginator.count }}" data-selected-label="{% trans "selected" %}">
         {% if send_vouchers_url %}
             <form id="partner-send-vouchers" action="{{ send_vouchers_url }}{% if query_string %}?{{ query_string }}{% endif %}" method="post">
                 {% csrf_token %}
