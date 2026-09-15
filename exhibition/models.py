@@ -3,6 +3,7 @@ import secrets
 import string
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.db.models import Max, Q
 from django.utils import timezone
@@ -238,6 +239,15 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
         default=True,
         verbose_name=_("Attach voucher list as CSV"),
         help_text=_("Adds a spreadsheet of the recipient's own voucher codes to the voucher email."),
+    )
+    device_default_count = models.PositiveIntegerField(
+        default=1,
+        validators=[MaxValueValidator(50)],
+        verbose_name=_("Devices per profile"),
+        help_text=_(
+            "Created automatically when lead scanning is enabled for an exhibitor or sponsor that has no "
+            "devices yet, and the access email is queued right away. Set to 0 to add devices by hand."
+        ),
     )
     allowed_fields = models.JSONField(default=default_allowed_fields)
     call_enabled = models.BooleanField(default=False)

@@ -23,14 +23,19 @@ from exhibition.models import (
     ExhibitionProposal,
     ExhibitionProposalState,
     ExhibitorInfo,
+    ExhibitorSettings,
     SponsorGroup,
 )
+from exhibition.utils import provision_exhibitor_devices
 from exhibition.views import (
     EmailComposeView,
     EmailDeleteView,
     EmailSendView,
     EmailTemplatePreviewView,
+    ExhibitorDeviceManageView,
+    grant_lead_scanning_access,
     group_email_entries,
+    queue_exhibitor_access_mail,
 )
 
 
@@ -76,13 +81,17 @@ def proposal(mail_event, applicant):
 
 @pytest.fixture
 def exhibitor(mail_event):
+    """A profile with one provisioned device, so the access email has a token to carry."""
     with scopes_disabled():
-        return ExhibitorInfo.objects.create(
+        partner = ExhibitorInfo.objects.create(
             event=mail_event,
             name="Acme Corp",
             email="exhibitor@example.com",
             booth_id="B-9",
+            lead_scanning_enabled=True,
         )
+        provision_exhibitor_devices(partner, 1)
+        return partner
 
 
 @pytest.mark.django_db
@@ -286,6 +295,238 @@ def test_access_email_returns_none_without_exhibitor_email(mail_event):
         exhibitor = ExhibitorInfo.objects.create(event=mail_event, name="No Email Co", email="")
 
     assert mail_helpers.queue_exhibitor_access_email(mail_event, exhibitor) is None
+
+
+def _organiser_request(event, data=None):
+    request = RequestFactory().post("/", data=data or {})
+    request.event = event
+    request.user = None
+    request.session = {}
+    request._messages = FallbackStorage(request)
+    return request
+
+
+def _message_texts(request):
+    return [str(message) for message in request._messages]
+
+
+def _deviceless(mail_event, **kwargs):
+    kwargs.setdefault("email", "nodevice@example.com")
+    kwargs.setdefault("lead_scanning_enabled", True)
+    with scopes_disabled():
+        return ExhibitorInfo.objects.create(event=mail_event, name="No Device Co", **kwargs)
+
+
+@pytest.mark.django_db
+def test_access_email_is_skipped_without_any_device(mail_event):
+    """The whole point: {device_tokens} would render empty, so nothing is worth sending."""
+    exhibitor = _deviceless(mail_event)
+
+    assert mail_helpers.queue_exhibitor_access_email(mail_event, exhibitor) is None
+    with scopes_disabled():
+        assert not ExhibitionEmailQueue.objects.filter(event=mail_event).exists()
+
+
+@pytest.mark.django_db
+def test_access_email_is_queued_once_a_device_exists(mail_event):
+    exhibitor = _deviceless(mail_event)
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 1)
+
+        queued = mail_helpers.queue_exhibitor_access_email(mail_event, exhibitor)
+
+    assert queued is not None
+    assert queued.role == mail_helpers.EXHIBITOR_ACCESS
+    assert exhibitor.key in queued.body
+
+
+@pytest.mark.django_db
+def test_exhibitor_has_devices_tracks_provisioning(mail_event):
+    exhibitor = _deviceless(mail_event)
+    with scopes_disabled():
+        assert mail_helpers.exhibitor_has_devices(exhibitor) is False
+        provision_exhibitor_devices(exhibitor, 2)
+        assert mail_helpers.exhibitor_has_devices(exhibitor) is True
+
+
+@pytest.mark.django_db
+def test_organiser_is_told_when_the_send_is_skipped(mail_event):
+    exhibitor = _deviceless(mail_event)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        assert queue_exhibitor_access_mail(request, exhibitor) is None
+
+    texts = _message_texts(request)
+    assert len(texts) == 1
+    assert "no devices yet" in texts[0]
+
+
+@pytest.mark.django_db
+def test_a_missing_address_is_reported_before_the_device_check(mail_event):
+    """Otherwise the skip message promises an email that adding a device would not produce."""
+    exhibitor = _deviceless(mail_event, email="")
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        assert queue_exhibitor_access_mail(request, exhibitor) is None
+
+    texts = _message_texts(request)
+    assert len(texts) == 1
+    assert "no email address on file" in texts[0]
+
+
+@pytest.mark.django_db
+def test_a_missing_address_is_reported_even_with_devices(mail_event):
+    exhibitor = _deviceless(mail_event, email="")
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 1)
+
+        assert queue_exhibitor_access_mail(request, exhibitor) is None
+
+    assert "no email address on file" in _message_texts(request)[0]
+
+
+@pytest.mark.django_db
+def test_organiser_is_told_when_the_mail_is_queued(mail_event, exhibitor):
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        assert queue_exhibitor_access_mail(request, exhibitor) is not None
+
+    assert "outbox" in _message_texts(request)[0]
+
+
+def _provision(exhibitor, count):
+    request = _organiser_request(exhibitor.event, data={"count": count})
+    view = ExhibitorDeviceManageView()
+    view.request = request
+    view.object = exhibitor
+    view.kwargs = {"pk": exhibitor.pk}
+    return view.provision_devices(request), request
+
+
+@pytest.mark.django_db
+def test_adding_the_first_device_queues_the_access_email(mail_event):
+    exhibitor = _deviceless(mail_event)
+
+    with scopes_disabled():
+        _provision(exhibitor, 1)
+        queued = ExhibitionEmailQueue.objects.filter(event=mail_event, role=mail_helpers.EXHIBITOR_ACCESS)
+
+        assert queued.count() == 1
+        assert queued.first().to_email == "nodevice@example.com"
+
+
+@pytest.mark.django_db
+def test_adding_more_devices_queues_an_email_with_the_new_tokens(mail_event):
+    """Each batch gets its own email, listing only the devices that still need setting up."""
+    exhibitor = _deviceless(mail_event)
+
+    with scopes_disabled():
+        _provision(exhibitor, 1)
+        first = exhibitor.devices.select_related("device").get().device
+        first.initialized = timezone.now()
+        first.save(update_fields=["initialized"])
+
+        _provision(exhibitor, 2)
+
+        emails = ExhibitionEmailQueue.objects.filter(event=mail_event, role=mail_helpers.EXHIBITOR_ACCESS)
+        assert emails.count() == 2
+        latest = emails.order_by("-created").first()
+        pending = [
+            link.device.initialization_token
+            for link in exhibitor.devices.select_related("device")
+            if link.device.initialized is None
+        ]
+
+    assert len(pending) == 2
+    assert all(token in latest.body for token in pending)
+    assert first.initialization_token not in latest.body
+
+
+@pytest.mark.django_db
+def test_regenerating_tokens_queues_an_email_with_the_fresh_tokens(mail_event):
+    exhibitor = _deviceless(mail_event)
+
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 2)
+        for link in exhibitor.devices.select_related("device"):
+            link.device.initialized = timezone.now()
+            link.device.save(update_fields=["initialized"])
+        old_tokens = {link.device.initialization_token for link in exhibitor.devices.select_related("device")}
+
+        request = _organiser_request(mail_event, data={"action": "reset"})
+        view = ExhibitorDeviceManageView()
+        view.request = request
+        view.object = exhibitor
+        view.kwargs = {"pk": exhibitor.pk}
+        view.reset_tokens(request)
+
+        queued = ExhibitionEmailQueue.objects.get(event=mail_event, role=mail_helpers.EXHIBITOR_ACCESS)
+        new_tokens = {link.device.initialization_token for link in exhibitor.devices.select_related("device")}
+
+    assert new_tokens.isdisjoint(old_tokens)
+    assert all(token in queued.body for token in new_tokens)
+
+
+@pytest.mark.django_db
+def test_no_email_when_every_device_is_already_set_up(mail_event):
+    exhibitor = _deviceless(mail_event)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 1)
+        device = exhibitor.devices.select_related("device").get().device
+        device.initialized = timezone.now()
+        device.save(update_fields=["initialized"])
+
+        assert queue_exhibitor_access_mail(request, exhibitor) is None
+        assert not ExhibitionEmailQueue.objects.filter(event=mail_event).exists()
+
+    assert "already set up" in _message_texts(request)[0]
+
+
+@pytest.mark.django_db
+def test_the_email_lists_only_devices_awaiting_setup(mail_event):
+    exhibitor = _deviceless(mail_event)
+
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 3)
+        links = list(exhibitor.devices.select_related("device"))
+        links[0].device.initialized = timezone.now()
+        links[0].device.save(update_fields=["initialized"])
+
+        queued = mail_helpers.queue_exhibitor_access_email(mail_event, exhibitor)
+
+    assert links[0].device.initialization_token not in queued.body
+    assert links[1].device.initialization_token in queued.body
+    assert links[2].device.initialization_token in queued.body
+
+
+@pytest.mark.django_db
+def test_adding_devices_queues_nothing_while_lead_scanning_is_off(mail_event):
+    exhibitor = _deviceless(mail_event, lead_scanning_enabled=False)
+
+    with scopes_disabled():
+        _provision(exhibitor, 1)
+
+        assert not ExhibitionEmailQueue.objects.filter(event=mail_event).exists()
+
+
+@pytest.mark.django_db
+def test_the_queued_email_carries_a_token_for_each_device(mail_event):
+    exhibitor = _deviceless(mail_event)
+
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 3)
+        queued = mail_helpers.queue_exhibitor_access_email(mail_event, exhibitor)
+        tokens = [link.device.initialization_token for link in exhibitor.devices.select_related("device")]
+
+    assert len(tokens) == 3
+    assert all(token in queued.body for token in tokens)
 
 
 def _preview(event, role, body_by_locale):
@@ -752,3 +993,92 @@ def test_email_body_widget_keeps_markdown_emphasis():
 
     assert "<strong>" in seeded
     assert "**" not in seeded
+
+
+def _access_emails(event):
+    return ExhibitionEmailQueue.objects.filter(event=event, role=mail_helpers.EXHIBITOR_ACCESS)
+
+
+@pytest.mark.django_db
+def test_granting_access_creates_the_default_devices_and_queues_the_email(mail_event):
+    exhibitor = _deviceless(mail_event)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=mail_event, device_default_count=2)
+
+        grant_lead_scanning_access(request, exhibitor)
+
+        assert exhibitor.devices.count() == 2
+        assert _access_emails(mail_event).count() == 1
+
+
+@pytest.mark.django_db
+def test_granting_access_uses_one_device_when_nothing_is_configured(mail_event):
+    """The out-of-the-box default is one device, so enabling scanning just works."""
+    exhibitor = _deviceless(mail_event)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        grant_lead_scanning_access(request, exhibitor)
+
+        assert exhibitor.devices.count() == 1
+        assert _access_emails(mail_event).count() == 1
+
+
+@pytest.mark.django_db
+def test_granting_access_leaves_hand_provisioned_devices_alone(mail_event):
+    """Devices added on the profile's own page take priority over the event default."""
+    exhibitor = _deviceless(mail_event)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=mail_event, device_default_count=5)
+        provision_exhibitor_devices(exhibitor, 3)
+
+        grant_lead_scanning_access(request, exhibitor)
+
+        assert exhibitor.devices.count() == 3
+        assert _access_emails(mail_event).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_zero_default_means_devices_are_added_by_hand(mail_event):
+    exhibitor = _deviceless(mail_event)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=mail_event, device_default_count=0)
+
+        grant_lead_scanning_access(request, exhibitor)
+
+        assert exhibitor.devices.count() == 0
+        assert not _access_emails(mail_event).exists()
+
+    assert "no devices yet" in _message_texts(request)[0]
+
+
+@pytest.mark.django_db
+def test_voucher_access_alone_does_not_create_devices(mail_event):
+    exhibitor = _deviceless(mail_event, lead_scanning_enabled=False, allow_voucher_access=True)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        grant_lead_scanning_access(request, exhibitor)
+
+        assert exhibitor.devices.count() == 0
+
+
+@pytest.mark.django_db
+def test_no_credentials_go_out_while_lead_scanning_is_off(mail_event):
+    """A pending device and an address are not enough: the tokens would be for an app that rejects them."""
+    exhibitor = _deviceless(mail_event, lead_scanning_enabled=False, allow_voucher_access=True)
+    request = _organiser_request(mail_event)
+
+    with scopes_disabled():
+        provision_exhibitor_devices(exhibitor, 1)
+
+        assert grant_lead_scanning_access(request, exhibitor) is None
+        assert not _access_emails(mail_event).exists()
+
+    assert _message_texts(request) == []
