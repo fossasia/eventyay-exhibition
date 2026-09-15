@@ -15,7 +15,7 @@ from eventyay.base.signals import (
 )
 from eventyay.common.signals import user_menu_items
 from eventyay.common.utils.language import localize_event_text
-from eventyay.control.signals import event_dashboard_components
+from eventyay.control.signals import event_dashboard_components, nav_event_common
 from eventyay.presale.signals import (
     front_page_after_content,
     header_nav_tabs,
@@ -61,21 +61,47 @@ from .models import (
 from .utils import add_external_image_csp_sources, public_exhibitors_queryset
 
 
-@receiver(event_dashboard_components, dispatch_uid="exhibition_dashboard_component")
-def exhibition_dashboard_component(sender, request=None, **kwargs):
-    kwargs_url = {"organizer": sender.organizer.slug, "event": sender.slug}
-    can_view_exhibitors = request and request.user.has_event_permission(
-        sender.organizer,
-        sender,
+def exhibition_access(event, request):
+    """``(can_view_exhibitors, can_review)`` for the requesting user, both False when anonymous."""
+    if not request or not request.user.is_authenticated:
+        return False, False
+    can_view_exhibitors = request.user.has_event_permission(
+        event.organizer,
+        event,
         ("can_change_event_settings", "can_view_orders"),
         request=request,
     )
-    can_review = request and request.user.has_event_permission(
-        sender.organizer,
-        sender,
+    can_review = request.user.has_event_permission(
+        event.organizer,
+        event,
         ("can_change_exhibition_proposals", "is_exhibition_reviewer"),
         request=request,
     )
+    return can_view_exhibitors, can_review
+
+
+@receiver(nav_event_common, dispatch_uid="exhibition_nav_event_common")
+def exhibition_nav_event_common(sender, request=None, **kwargs):
+    can_view_exhibitors, can_review = exhibition_access(sender, request)
+    if not can_view_exhibitors and not can_review:
+        return []
+    kwargs_url = {"organizer": sender.organizer.slug, "event": sender.slug}
+    route = "plugins:exhibition:dashboard" if can_view_exhibitors else "plugins:exhibition:proposal.list"
+    match = request.resolver_match
+    return [
+        {
+            "label": _("Exhibition"),
+            "url": reverse(route, kwargs=kwargs_url),
+            "icon": "building-o",
+            "active": bool(match and match.namespace == "plugins:exhibition"),
+        }
+    ]
+
+
+@receiver(event_dashboard_components, dispatch_uid="exhibition_dashboard_component")
+def exhibition_dashboard_component(sender, request=None, **kwargs):
+    kwargs_url = {"organizer": sender.organizer.slug, "event": sender.slug}
+    can_view_exhibitors, can_review = exhibition_access(sender, request)
     if can_review and not can_view_exhibitors:
         url = reverse("plugins:exhibition:proposal.list", kwargs=kwargs_url)
         description = _("Screen and evaluate exhibitor and sponsor requests for the event.")
