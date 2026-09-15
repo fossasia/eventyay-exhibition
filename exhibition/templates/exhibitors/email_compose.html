@@ -36,6 +36,7 @@
 
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
+        {% include 'exhibitors/_i18n_language_switcher.html' %}
         {% bootstrap_form_errors form %}
         <fieldset>
             <legend>{% trans "Recipients" %}</legend>

@@ -1,0 +1,128 @@
+.exhibition-lang-select {
+    position: relative;
+}
+
+.exhibition-lang-field {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 34px;
+    height: auto;
+    padding: 5px 28px 5px 10px;
+    cursor: pointer;
+}
+
+.exhibition-lang-select.is-open .exhibition-lang-field {
+    border-color: #66afe9;
+}
+
+.exhibition-lang-caret {
+    position: absolute;
+    top: 11px;
+    right: 10px;
+    font-size: 11px;
+    color: #888;
+    pointer-events: none;
+}
+
+.exhibition-lang-select.is-open .exhibition-lang-caret {
+    transform: rotate(180deg);
+}
+
+.exhibition-lang-badges {
+    display: contents;
+}
+
+.exhibition-lang-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border: 1px solid #c9dcea;
+    border-radius: 3px;
+    background: #eaf3fa;
+    color: #31708f;
+    font-size: 12px;
+    line-height: 1.5;
+    cursor: pointer;
+}
+
+.exhibition-lang-badge:hover,
+.exhibition-lang-badge:focus {
+    background: #d9eaf6;
+}
+
+.exhibition-lang-badge.is-active {
+    background: #337ab7;
+    border-color: #2e6da4;
+    color: #fff;
+}
+
+.exhibition-lang-badge.has-error {
+    border-color: #a94442;
+    background: #f2dede;
+    color: #a94442;
+}
+
+.exhibition-lang-badge.has-error.is-active {
+    background: #a94442;
+    color: #fff;
+}
+
+.exhibition-lang-panel {
+    position: absolute;
+    z-index: 1000;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 5px 0;
+    list-style: none;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.175);
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.exhibition-lang-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.exhibition-lang-option:hover,
+.exhibition-lang-option:focus {
+    background: #f5f5f5;
+}
+
+.exhibition-lang-option.is-active {
+    font-weight: 600;
+}
+
+.exhibition-lang-option-state {
+    font-size: 11px;
+    color: #777;
+    white-space: nowrap;
+}
+
+.exhibition-lang-option.has-content .exhibition-lang-option-state::before {
+    content: "\f00c";
+    font-family: FontAwesome;
+    color: #3c763d;
+}
+
+.exhibition-lang-option.has-error .exhibition-lang-option-state::before {
+    content: "\f071";
+    font-family: FontAwesome;
+    color: #a94442;
+}
+
+.exhibition-lang-hidden {
+    display: none !important;
+}

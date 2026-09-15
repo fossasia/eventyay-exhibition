@@ -18,6 +18,7 @@
 {% block exhibitors_content %}
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
+        {% include 'exhibitors/_i18n_language_switcher.html' %}
         {% bootstrap_form_errors form %}
         {% bootstrap_field form.name layout="control" %}
         {% bootstrap_field form.subject layout="control" %}

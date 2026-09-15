@@ -43,6 +43,7 @@
     {% if active_tab == "call" %}
             <form action="" method="post" class="form-horizontal">
                 {% csrf_token %}
+                {% include 'exhibitors/_i18n_language_switcher.html' %}
                 <input type="hidden" name="action" value="save_call_settings">
                 <input type="hidden" name="tab" value="call">
                 {% bootstrap_form_errors call_settings_form %}
@@ -292,6 +293,7 @@
 
                 <form action="" method="post" class="form-horizontal {% if not show_add_group_form %}hidden{% endif %}" id="add-group-form">
                     {% csrf_token %}
+                    {% include 'exhibitors/_i18n_language_switcher.html' %}
                     <input type="hidden" name="tab" value="sponsors">
                     <input type="hidden" name="action" value="add_group">
                     {% bootstrap_form_errors add_group_form %}
@@ -373,6 +375,7 @@
                                     <td colspan="5">
                                         <form action="" method="post" class="form-horizontal sponsor-group-editor-form">
                                             {% csrf_token %}
+                                            {% include 'exhibitors/_i18n_language_switcher.html' %}
                                             <input type="hidden" name="tab" value="sponsors">
                                             <input type="hidden" name="action" value="rename_group">
                                             <input type="hidden" name="group_id" value="{{ group.pk }}">

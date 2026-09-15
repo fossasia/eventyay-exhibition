@@ -1,0 +1,44 @@
+{% load i18n %}
+{% load exhibition_email %}
+{% if request.event.settings.locales|length > 1 %}
+  <div class="form-group exhibition-lang-switcher" data-i18n-switcher hidden>
+    <label class="col-md-3 control-label">{% translate 'Language' %}</label>
+    <div class="col-md-9">
+      <div class="exhibition-lang-select" data-i18n-select>
+        <div class="form-control exhibition-lang-field"
+             data-i18n-field
+             role="combobox"
+             tabindex="0"
+             aria-expanded="false"
+             aria-haspopup="listbox">
+          <span class="exhibition-lang-badges" data-i18n-badges>
+            {% for locale in request.event.settings.locales %}
+              <button type="button"
+                      class="exhibition-lang-badge"
+                      data-i18n-badge
+                      data-locale="{{ locale }}"
+                      dir="{{ locale|locale_dir }}"
+                      hidden>{{ locale|locale_name }}</button>
+            {% endfor %}
+          </span>
+          <span class="exhibition-lang-caret fa fa-chevron-down" aria-hidden="true"></span>
+        </div>
+        <ul class="exhibition-lang-panel" data-i18n-panel role="listbox" hidden>
+          {% for locale in request.event.settings.locales %}
+            <li class="exhibition-lang-option"
+                data-i18n-option
+                data-locale="{{ locale }}"
+                role="option"
+                aria-selected="false">
+              <span class="exhibition-lang-option-name" dir="{{ locale|locale_dir }}">{{ locale|locale_name }}</span>
+              <span class="exhibition-lang-option-state" data-i18n-option-state></span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <p class="help-block">
+        {% translate 'Only the selected language is shown; all languages are saved together.' %}
+      </p>
+    </div>
+  </div>
+{% endif %}

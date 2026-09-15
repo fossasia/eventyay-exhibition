@@ -29,6 +29,7 @@
 
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
+        {% include 'exhibitors/_i18n_language_switcher.html' %}
         {% bootstrap_form_errors form %}
         <div class="panel-group" id="email_templates_group">
             {% for panel in template_panels %}
