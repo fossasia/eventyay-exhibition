@@ -5,15 +5,15 @@ from types import SimpleNamespace
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.template.loader import render_to_string
 from django.test import RequestFactory
+from django.urls import reverse
 from django_scopes import scopes_disabled
-from eventyay.base.models import Question
+from eventyay.base.models import Question, Team
+from eventyay.base.models.auth import User
 from rest_framework import serializers
 
 from exhibition.api import ExhibitorInfoSerializer, LeadCreateView
 from exhibition.forms import (
-    CallSettingsForm,
     ExhibitionProposalForm,
     ExhibitorDeviceDefaultsForm,
     ExhibitorInfoForm,
@@ -234,29 +234,47 @@ def test_sponsor_group_reorder_requires_complete_unique_group_ids(event):
 
 
 @pytest.mark.django_db
-def test_call_settings_form_renders_call_text_without_preview(event):
+def test_call_settings_form_renders_call_text_without_preview(client, event, settings):
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
     with scopes_disabled():
-        settings = make_exhibitor_settings(event)
-        form = CallSettingsForm(instance=settings, event=event)
-        request = RequestFactory().get(f"/control/event/{event.organizer.slug}/{event.slug}/settings/call")
-        request.event = event
-        request.organizer = event.organizer
-        request.LANGUAGE_CODE = "en"
-        content = render_to_string(
-            "exhibitors/settings.html",
-            {
-                "active_tab": "call",
-                "call_settings_form": form,
-                "settings": settings,
-                "request": request,
-            },
-            request=request,
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        make_exhibitor_settings(event)
+
+        user = User.objects.create_superuser("admin@dummy.dummy", "dummy")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            can_create_events=True,
+            can_change_teams=True,
+            can_change_organizer_settings=True,
+            can_change_event_settings=True,
+            can_change_items=True,
+            can_view_orders=True,
+            can_change_orders=True,
+            can_view_vouchers=True,
+            can_change_vouchers=True,
         )
-        assert 'name="call_text_0"' in content
-        assert 'data-tiptap-profile="richtext"' in content
-        assert "call_text_preview" not in content
-        assert "data-email-preview-wrapper" not in content
-        assert "call-text-preview-note" not in content
+        team.members.add(user)
+    client.force_login(user)
+
+    url = reverse(
+        "plugins:exhibition:settings.call",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = client.get(url)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'name="call_text_0"' in content
+    assert 'data-tiptap-profile="richtext"' in content
+    assert "call_text_preview" not in content
+    assert "data-email-preview-wrapper" not in content
+    assert "call-text-preview-note" not in content
 
 
 @pytest.mark.django_db
