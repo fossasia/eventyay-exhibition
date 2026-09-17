@@ -2463,6 +2463,7 @@ class EmailListMixin(FilteredListMixin):
         context = super().get_context_data(**kwargs)
         context["entries"] = group_email_entries(self.expand_batches(context["emails"]))
         context["date_field"] = self.date_field
+        context["query_string"] = self.request.GET.urlencode()
         return context
 
     def get_template_names(self):
@@ -2648,13 +2649,8 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
             if request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true":
                 filter_form = EmailFilterForm(data=request.GET, date_field="created")
                 if filter_form.is_valid():
-                    filtered = filter_form.filter_qs(base)
-                    batches = [
-                        batch for batch in filtered.exclude(batch__isnull=True).values_list("batch", flat=True) if batch
-                    ]
-                    if batches:
-                        return base.filter(Q(pk__in=filtered.values("pk")) | Q(batch__in=batches))
-                    return filtered
+                    return filter_form.filter_qs(base)
+                return base
             return base
         selected = request.POST.getlist("selected")
         if not selected:
@@ -2665,7 +2661,8 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         op = request.POST.get("op", "")
         action = "send" if op.startswith("send") else "discard" if op.startswith("discard") else None
-        scope = "all" if op.endswith("_all") else "selected"
+        is_select_all = request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true"
+        scope = "all" if (op.endswith("_all") or (is_select_all and action is not None)) else "selected"
 
         if action is None:
             return self.outbox_redirect(request)
@@ -2713,6 +2710,8 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
             {
                 "count": count,
                 "scope": scope,
+                "op": op,
+                "is_select_all": is_select_all,
                 "selected": request.POST.getlist("selected"),
                 "query_string": request.GET.urlencode(),
                 "cancel_query_string": query_params.urlencode(),

@@ -6,8 +6,9 @@
 {% trans "Subject" as label_subject %}
 {% trans "Created" as label_created %}
 
-<form method="post" action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}">
+<form method="post" action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}{% if query_string %}?{{ query_string }}{% endif %}">
     {% csrf_token %}
+    <input type="hidden" name="select_all_pages" value="false">
     {% if entries %}
         <div class="email-bulk-toolbar" data-total-count="{{ page_obj.paginator.count }}" data-selected-label="{% trans 'selected' %}">
             <button type="submit" class="btn btn-default btn-sm" name="op" value="send">

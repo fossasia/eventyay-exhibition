@@ -70,10 +70,18 @@
             });
             if (form) {
                 form.dataset.selectAllPages = element.checked ? "true" : "false";
+                var selectAllInput = form.querySelector('input[name="select_all_pages"]');
+                if (selectAllInput) {
+                    selectAllInput.value = element.checked ? "true" : "false";
+                }
             }
         } else if (element.matches("[data-select-row]")) {
             if (form) {
                 form.dataset.selectAllPages = "false";
+                var selectAllInput = form.querySelector('input[name="select_all_pages"]');
+                if (selectAllInput) {
+                    selectAllInput.value = "false";
+                }
             }
             var all = table.querySelector("[data-select-all]");
             if (all) {
@@ -105,38 +113,42 @@
         }
     }
 
+    var lastClickedButton = null;
+
     function onBulkButtonClick(event) {
         var btn = event.target.closest('button[type="submit"][name="op"]');
-        if (!btn) {
+        if (btn) {
+            lastClickedButton = btn;
+        }
+    }
+
+    function onBulkFormSubmit(event) {
+        var form = event.target;
+        if (!form || !form.querySelector || !form.querySelector(".email-bulk-toolbar")) {
             return;
         }
 
-        var form = btn.closest("form");
-        if (!form || form.dataset.selectAllPages !== "true") {
-            return;
+        var submitter = event.submitter || lastClickedButton;
+        var selectAllInput = form.querySelector('input[name="select_all_pages"]');
+
+        if (submitter && (submitter.value === "send_all" || submitter.value === "discard_all")) {
+            if (selectAllInput) {
+                selectAllInput.value = "false";
+            }
+        } else if (submitter && (submitter.value === "send" || submitter.value === "discard")) {
+            if (selectAllInput) {
+                selectAllInput.value = form.dataset.selectAllPages === "true" ? "true" : "false";
+            }
         }
 
-        if (btn.value === "send" || btn.value === "discard") {
-            var originalValue = btn.value;
-            var originalAction = form.getAttribute("action");
-            btn.value = originalValue + "_all";
-
-            var searchParams = new URLSearchParams(window.location.search);
-            searchParams.set("select_all_pages", "true");
-            form.action = (originalAction || "").split("?")[0] + "?" + searchParams.toString();
-
-            setTimeout(function () {
-                btn.value = originalValue;
-                if (originalAction) {
-                    form.setAttribute("action", originalAction);
-                } else {
-                    form.removeAttribute("action");
-                }
-            }, 0);
+        if (window.location.search && (!form.getAttribute("action") || form.getAttribute("action").indexOf("?") === -1)) {
+            var action = form.getAttribute("action") || "";
+            form.action = action.split("?")[0] + window.location.search;
         }
     }
 
     document.addEventListener("submit", onSubmit);
+    document.addEventListener("submit", onBulkFormSubmit);
     document.addEventListener("click", onClick);
     document.addEventListener("click", onBulkButtonClick);
     document.addEventListener("change", onChange);
