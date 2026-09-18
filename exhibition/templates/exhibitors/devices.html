@@ -9,6 +9,7 @@
 {% endblock %}
 
 {% block exhibitors_content %}
+    {% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
     <p>
         {% blocktrans trimmed %}
             Provision check-in app devices for this partner. Each device gets its own single-use setup
@@ -61,7 +62,7 @@
                       data-confirm-class="btn-danger">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="reset">
-                    <button type="submit" class="btn btn-default">
+                    <button type="submit" class="btn btn-default btn-lg">
                         <i class="fa fa-refresh"></i> {% trans "Generate new setup tokens" %}
                     </button>
                 </form>
@@ -82,12 +83,16 @@
             </fieldset>
             <div class="form-group submit-group">
                 <div class="col-md-9 col-md-offset-3">
-                    <button type="submit" class="btn btn-primary">{% trans "Add devices" %}</button>
-                    <a class="btn btn-default" href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}">
-                        {% trans "Back" %}
-                    </a>
+                    <button type="submit" class="btn btn-primary btn-save">{% trans "Add devices" %}</button>
+                    <a class="btn btn-default btn-lg" href="{{ cancel_url }}">{% trans "Cancel" %}</a>
                 </div>
             </div>
         </form>
+    {% else %}
+        <div class="form-group submit-group">
+            <div class="col-md-9 col-md-offset-3">
+                <a class="btn btn-default btn-lg" href="{{ cancel_url }}">{% trans "Cancel" %}</a>
+            </div>
+        </div>
     {% endif %}
 {% endblock %}
