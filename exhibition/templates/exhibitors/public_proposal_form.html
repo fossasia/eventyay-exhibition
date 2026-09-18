@@ -85,6 +85,49 @@
                         {% endif %}
                     </div>
                 </div>
+            {% elif item.kind == 'extra_links' and can_edit %}
+                <div class="form-group {% if extra_links_formset.non_form_errors %}has-error{% endif %}">
+                    <label class="col-md-3 control-label partner-link-group-label">
+                        <span class="label-text">{% trans "Extra Links" %}{% if form.proposal_field_settings.extra_links.required %}<span aria-hidden="true" class="required-indicator text-danger"> *</span><span class="sr-only">, {% trans "required" %}</span>{% endif %}</span>
+                    </label>
+                    <div class="col-md-9">
+                        <div id="extra-links-formset" class="partner-link-formset formset" data-formset-prefix="{{ extra_links_formset.prefix }}">
+                            {{ extra_links_formset.management_form }}
+                            <div data-formset-body>
+                                {% for extra_form in extra_links_formset %}
+                                    <div class="row partner-link-row" data-formset-form>
+                                        <div class="sr-only">{{ extra_form.id }} {{ extra_form.DELETE }}</div>
+                                        <div class="col-md-4">{{ extra_form.label.errors }}{{ extra_form.label }}</div>
+                                        <div class="col-md-7">{{ extra_form.url.errors }}{{ extra_form.url }}</div>
+                                        <div class="col-md-1 text-right">
+                                            <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button><i class="fa fa-minus"></i></button>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <template data-formset-empty-form>
+                                <div class="row partner-link-row" data-formset-form>
+                                    <div class="sr-only">{{ extra_links_formset.empty_form.id }} {{ extra_links_formset.empty_form.DELETE }}</div>
+                                    <div class="col-md-4">{{ extra_links_formset.empty_form.label.errors }}{{ extra_links_formset.empty_form.label }}</div>
+                                    <div class="col-md-7">{{ extra_links_formset.empty_form.url.errors }}{{ extra_links_formset.empty_form.url }}</div>
+                                    <div class="col-md-1 text-right">
+                                        <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button><i class="fa fa-minus"></i></button>
+                                    </div>
+                                </div>
+                            </template>
+                            <div class="partner-link-actions">
+                                <button type="button" class="btn btn-default btn-sm partner-link-add" data-formset-add>
+                                    <i class="fa fa-plus"></i> {% trans "Add extra link" %}
+                                </button>
+                            </div>
+                        </div>
+                        {% if extra_links_formset.non_form_errors %}
+                            <p class="help-block">{{ extra_links_formset.non_form_errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% elif item.kind == 'slides' %}
+                {% bootstrap_field form.slides layout="control" %}
             {% elif item.kind == 'logo' %}
                 <div
                     data-partner-image-source-pair

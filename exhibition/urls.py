@@ -12,7 +12,6 @@ from .api import (
     VoucherRedemptionRetrieveView,
 )
 from .views import (
-    CallTextPreviewView,
     CustomEmailTemplateCreateView,
     CustomEmailTemplateDeleteView,
     DashboardView,
@@ -125,14 +124,14 @@ urlpatterns = [
         name="settings.vouchers",
     ),
     path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/leads",
+        SettingsView.as_view(active_tab="leads"),
+        name="settings.leads",
+    ),
+    path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/call",
         SettingsView.as_view(active_tab="call"),
         name="settings.call",
-    ),
-    path(
-        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/call/preview",
-        CallTextPreviewView.as_view(),
-        name="settings.call.preview",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/toggle-front-page",
@@ -303,6 +302,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/custom-templates/<int:pk>/delete",
         CustomEmailTemplateDeleteView.as_view(),
         name="email.custom_templates.delete",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/preview",
+        EmailEditView.as_view(),
+        name="email.preview",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/edit",

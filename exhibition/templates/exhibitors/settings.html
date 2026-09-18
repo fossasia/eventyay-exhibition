@@ -2,7 +2,6 @@
 {% load i18n %}
 {% load static %}
 {% load bootstrap3 %}
-{% load exhibition_email %}
 {% block title %}
     {% if active_tab == "call" %}
         {% trans "Call for Exhibitors" %}
@@ -10,6 +9,8 @@
         {% trans "Sponsor Settings" %}
     {% elif active_tab == "vouchers" %}
         {% trans "Voucher Settings" %}
+    {% elif active_tab == "leads" %}
+        {% trans "Lead Scanning Settings" %}
     {% else %}
         {% trans "Exhibitor Settings" %}
     {% endif %}
@@ -29,6 +30,8 @@
             {% trans "Sponsor Settings" %}
         {% elif active_tab == "vouchers" %}
             {% trans "Voucher Settings" %}
+        {% elif active_tab == "leads" %}
+            {% trans "Lead Scanning Settings" %}
         {% else %}
             {% trans "Exhibitor Settings" %}
         {% endif %}
@@ -47,38 +50,7 @@
                     <p>{% trans "Publish a login-required application form for exhibitors." %}</p>
                     {% bootstrap_field call_settings_form.call_enabled layout="control" %}
                     {% bootstrap_field call_settings_form.call_headline layout="control" %}
-                    <div id="call_text_panel" class="form-group call-text-group" data-email-preview-wrapper
-                         data-email-preview-url="{% url 'plugins:exhibition:settings.call.preview' organizer=request.event.organizer.slug event=request.event.slug %}">
-                        <label class="col-md-3 control-label" for="{{ call_settings_form.call_text.id_for_label }}">
-                            <span class="label-text">{{ call_settings_form.call_text.label }}</span>
-                            <br><span class="optional">{% trans "Optional" %}</span>
-                        </label>
-                        <div class="col-md-9">
-                            <ul class="nav nav-tabs" role="tablist">
-                                <li role="presentation" class="active">
-                                    <a data-toggle="tab" href="#call_text_edit"><i class="fa fa-pencil-square-o fa-fw"></i> {% trans "Edit" %}</a>
-                                </li>
-                                <li role="presentation">
-                                    <a data-toggle="tab" href="#call_text_preview" data-email-preview-tab><i class="fa fa-tv fa-fw"></i> {% trans "Preview" %}</a>
-                                </li>
-                            </ul>
-                            <div class="tab-content">
-                                <div id="call_text_edit" class="tab-pane fade in active">
-                                    {% bootstrap_field call_settings_form.call_text show_label=False form_group_class="" %}
-                                </div>
-                                <div id="call_text_preview" class="tab-pane">
-                                    <div class="mail-preview-group">
-                                        {% for locale in request.event.settings.locales %}
-                                            <div lang="{{ locale }}" dir="{{ locale|locale_dir }}" class="mail-preview"></div>
-                                        {% endfor %}
-                                    </div>
-                                    <div class="alert alert-info call-text-preview-note">
-                                        {% trans "This panel renders unsaved draft text using the same styling as the live public call page." %}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    {% bootstrap_field call_settings_form.call_text layout="control" %}
                     {% bootstrap_field call_settings_form.call_deadline layout="control" %}
                     {% bootstrap_field call_settings_form.call_hide_after_deadline layout="control" %}
                     {% bootstrap_field call_settings_form.call_private layout="control" %}
@@ -140,24 +112,66 @@
                 <input type="hidden" name="tab" value="vouchers">
                 {% bootstrap_form_errors voucher_defaults_form %}
                 <fieldset>
-                    <legend>{% trans "Voucher defaults" %}</legend>
+                    <legend>{% trans "Voucher pools" %}</legend>
+                    <div class="row">
+                        <div class="col-md-9">
+                            <p>
+                                {% blocktrans trimmed %}
+                                    Create the voucher codes under Tickets → Vouchers and give them a tag, then
+                                    pick that tag here. Exhibitors and sponsors are handed codes from the pool
+                                    you choose. Reload this page to pick up a tag you just created.
+                                {% endblocktrans %}
+                            </p>
+                        </div>
+                        <div class="col-md-3 text-right flip">
+                            <a href="{% url 'control:event.vouchers.bulk' organizer=request.event.organizer.slug event=request.event.slug %}"
+                               target="_blank" rel="noopener">
+                                <strong>{% trans "Create vouchers pool" %}</strong>
+                                <i class="fa fa-external-link" aria-hidden="true"></i>
+                                <span class="sr-only">{% trans "(opens in a new tab)" %}</span>
+                            </a>
+                        </div>
+                    </div>
+                    {% bootstrap_field voucher_defaults_form.voucher_pool_tag layout="control" %}
+                    {% if exhibitor_pool_tag %}
+                        <div class="form-group">
+                            <div class="col-md-9 col-md-offset-3">
+                                <p class="help-block">
+                                    {% blocktrans trimmed count counter=exhibitor_pool_remaining %}
+                                        {{ counter }} voucher in this pool is not assigned to anyone yet.
+                                    {% plural %}
+                                        {{ counter }} vouchers in this pool are not assigned to anyone yet.
+                                    {% endblocktrans %}
+                                </p>
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% bootstrap_field voucher_defaults_form.sponsor_voucher_pool_tag layout="control" %}
+                    {% if sponsor_pool_tag %}
+                        <div class="form-group">
+                            <div class="col-md-9 col-md-offset-3">
+                                <p class="help-block">
+                                    {% blocktrans trimmed count counter=sponsor_pool_remaining %}
+                                        {{ counter }} voucher in this pool is not assigned to anyone yet.
+                                    {% plural %}
+                                        {{ counter }} vouchers in this pool are not assigned to anyone yet.
+                                    {% endblocktrans %}
+                                </p>
+                            </div>
+                        </div>
+                    {% endif %}
+                </fieldset>
+
+                <fieldset>
+                    <legend>{% trans "How many each one gets" %}</legend>
                     <p>
                         {% blocktrans trimmed %}
-                            Used when issuing or sending vouchers for any exhibitor or sponsor that does not
-                            belong to a sponsor group. Sponsor groups can override these on the Sponsors page.
+                            Applies to any exhibitor or sponsor that does not belong to a sponsor group.
+                            Sponsor groups set their own number on the Sponsors page, and an individual
+                            exhibitor or sponsor can be given a different number on their own voucher page.
                         {% endblocktrans %}
                     </p>
                     {% bootstrap_field voucher_defaults_form.voucher_default_count layout="control" %}
-                    {% bootstrap_field voucher_defaults_form.voucher_default_product layout="control" %}
-                    <div class="form-group">
-                        <label class="col-md-3 control-label" for="{{ voucher_defaults_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
-                        <div class="col-md-5">
-                            {% bootstrap_field voucher_defaults_form.voucher_default_price_mode show_label=False form_group_class="" %}
-                        </div>
-                        <div class="col-md-4">
-                            {% bootstrap_field voucher_defaults_form.voucher_default_value show_label=False form_group_class="" %}
-                        </div>
-                    </div>
                 </fieldset>
 
                 <fieldset>
@@ -177,6 +191,31 @@
                 </div>
             </form>
 
+    {% elif active_tab == "leads" %}
+            <form action="" method="post" class="form-horizontal">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save_lead_settings">
+                <input type="hidden" name="tab" value="leads">
+                {% bootstrap_form_errors device_defaults_form %}
+                <fieldset>
+                    <legend>{% trans "Devices" %}</legend>
+                    <p>
+                        {% blocktrans trimmed %}
+                            Each exhibitor uses lead-scanning devices to scan attendee badges at their booth.
+                            The access email carries a setup token and QR code for every device that still
+                            needs setting up, and goes out to the outbox whenever devices are added or their
+                            tokens are regenerated.
+                        {% endblocktrans %}
+                    </p>
+                    {% bootstrap_field device_defaults_form.device_default_count layout="control" %}
+                </fieldset>
+
+                <div class="form-group submit-group">
+                    <div class="col-md-9 col-md-offset-3">
+                        <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+                    </div>
+                </div>
+            </form>
     {% elif active_tab == "exhibitors" %}
             <form action="" method="post" class="form-horizontal">
                 {% csrf_token %}
@@ -229,16 +268,6 @@
                     <fieldset>
                         <legend>{% trans "Voucher defaults for this group" %}</legend>
                         {% bootstrap_field add_group_form.voucher_default_count layout="control" %}
-                        {% bootstrap_field add_group_form.voucher_default_product layout="control" %}
-                        <div class="form-group">
-                            <label class="col-md-3 control-label" for="{{ add_group_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
-                            <div class="col-md-5">
-                                {% bootstrap_field add_group_form.voucher_default_price_mode show_label=False form_group_class="" %}
-                            </div>
-                            <div class="col-md-4">
-                                {% bootstrap_field add_group_form.voucher_default_value show_label=False form_group_class="" %}
-                            </div>
-                        </div>
                     </fieldset>
                     <div class="form-group submit-group sponsor-group-editor-actions">
                         <div class="col-md-9 col-md-offset-3">
@@ -321,16 +350,6 @@
                                             <fieldset>
                                                 <legend>{% trans "Voucher defaults for this group" %}</legend>
                                                 {% bootstrap_field group.edit_form.voucher_default_count layout="control" %}
-                                                {% bootstrap_field group.edit_form.voucher_default_product layout="control" %}
-                                                <div class="form-group">
-                                                    <label class="col-md-3 control-label" for="{{ group.edit_form.voucher_default_price_mode.id_for_label }}">{% trans "Price effect" %}</label>
-                                                    <div class="col-md-5">
-                                                        {% bootstrap_field group.edit_form.voucher_default_price_mode show_label=False form_group_class="" %}
-                                                    </div>
-                                                    <div class="col-md-4">
-                                                        {% bootstrap_field group.edit_form.voucher_default_value show_label=False form_group_class="" %}
-                                                    </div>
-                                                </div>
                                             </fieldset>
                                             <div class="form-group submit-group sponsor-group-editor-actions">
                                                 <div class="col-md-9 col-md-offset-3">

@@ -1,8 +1,16 @@
 import pytest
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
+from django.urls import reverse
+from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget
+from eventyay.base.models import User
 
-from exhibition.forms import ExhibitionQuestionOptionFormSet
-from exhibition.models import ExhibitionQuestion, ExhibitionQuestionOption, ExhibitionQuestionVariant
+from exhibition.forms import ExhibitionQuestionFieldsMixin, ExhibitionQuestionOptionFormSet
+from exhibition.models import (
+    ExhibitionQuestion,
+    ExhibitionQuestionOption,
+    ExhibitionQuestionVariant,
+    ExhibitorSettings,
+)
 from exhibition.views import ExhibitionQuestionOptionFormSetMixin
 
 
@@ -255,3 +263,56 @@ def test_non_choice_question_clears_existing_options(event):
     view.save_option_formset()
 
     assert not question.options.exists()
+
+
+@pytest.mark.django_db
+def test_phone_question_builds_a_form_field(event):
+    question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.PHONE,
+        question={"en": "Contact phone"},
+    )
+
+    field = ExhibitionQuestionFieldsMixin().get_exhibition_question_field(
+        question=question,
+        answer=None,
+        readonly=False,
+    )
+
+    assert isinstance(field.widget, WrappedPhoneNumberPrefixWidget)
+    assert field.widget.render("phone", None)
+
+
+@pytest.mark.django_db
+def test_public_request_form_renders_with_phone_question(event):
+    event.plugins = "exhibition"
+    event.save(update_fields=["plugins"])
+    ExhibitorSettings.objects.create(
+        event=event,
+        call_enabled=True,
+        exhibitors_access_mail_subject="",
+        exhibitors_access_mail_body="",
+    )
+    ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.PHONE,
+        question={"en": "Contact phone"},
+    )
+    applicant = User.objects.create_user(
+        email="applicant@example.com",
+        password="secret",
+        fullname="Applicant",
+        locale="en",
+    )
+    client = Client()
+    client.force_login(applicant)
+
+    response = client.get(
+        reverse(
+            "plugins:exhibition:proposal.add",
+            kwargs={"organizer": event.organizer.slug, "event": event.slug},
+        )
+    )
+
+    assert response.status_code == 200
+    assert "Contact phone" in response.content.decode()

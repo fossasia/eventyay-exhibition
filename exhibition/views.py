@@ -2,6 +2,7 @@ import io
 import json
 
 from defusedcsv import csv
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
@@ -19,7 +20,6 @@ from eventyay.base.services.system_questions import (
     STATE_REQUIRED,
     get_system_question_base_state,
 )
-from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.common.utils.language import localize_event_text
 from eventyay.control.forms.filter import advanced_filter_count, advanced_filters_open_from_get
 from eventyay.control.permissions import EventPermissionRequiredMixin
@@ -39,13 +39,16 @@ from .forms import (
     ExhibitionDefaultFieldForm,
     ExhibitionEmailQueueForm,
     ExhibitionMailTemplatesForm,
+    ExhibitionProposalExtraLinkFormSet,
     ExhibitionProposalForm,
     ExhibitionProposalReviewForm,
     ExhibitionProposalReviewNotesForm,
     ExhibitionProposalSocialLinkFormSet,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
+    ExhibitorDeviceDefaultsForm,
     ExhibitorDeviceProvisionForm,
+    ExhibitorExtraLinkFormSet,
     ExhibitorInfoForm,
     ExhibitorSocialLinkFormSet,
     ExhibitorVoucherBatchForm,
@@ -90,10 +93,13 @@ from .utils import (
     VOUCHER_CSV_FILENAME,
     add_external_image_csp_sources,
     allow_blob_image_previews,
+    build_exhibitor_video_embed,
     build_voucher_csv,
-    event_voucher_settings,
-    generate_exhibitor_vouchers,
+    claim_pool_vouchers,
+    event_exhibitor_settings,
+    pool_remaining,
     provision_exhibitor_devices,
+    public_exhibitor_sessions,
     public_exhibitors_queryset,
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
@@ -135,9 +141,54 @@ def send_proposal_confirmation(event, proposal, requestor):
     )
 
 
-def queue_exhibitor_access_mail(event, exhibitor, requestor):
-    """Queue the access-credentials email for organiser review in the outbox."""
-    return mail_helpers.queue_exhibitor_access_email(event, exhibitor, requestor=requestor)
+def queue_exhibitor_access_mail(request, exhibitor):
+    """Queue the access-credentials email for review, saying so when there is nothing to send."""
+    if not (exhibitor.email or "").strip():
+        messages.warning(
+            request,
+            _("No lead scanning email was queued because this profile has no email address on file."),
+        )
+        return None
+    if not mail_helpers.exhibitor_has_devices(exhibitor):
+        messages.warning(
+            request,
+            _(
+                "No lead scanning email was queued because this profile has no devices yet. "
+                "It will be queued as soon as you add their first device."
+            ),
+        )
+        return None
+    if not mail_helpers.devices_awaiting_setup(exhibitor).exists():
+        messages.info(
+            request,
+            _("No lead scanning email was queued because all of this profile's devices are already set up."),
+        )
+        return None
+    queued = mail_helpers.queue_exhibitor_access_email(request.event, exhibitor, requestor=request.user)
+    if queued:
+        messages.info(request, _("An access-credentials email was placed in the outbox."))
+    return queued
+
+
+def grant_lead_scanning_access(request, exhibitor):
+    """Give a profile the event's default devices if they have none, then queue the access email."""
+    if not exhibitor.lead_scanning_enabled:
+        return None
+    exhibitor = ExhibitorInfo.objects.select_for_update().get(pk=exhibitor.pk)
+    if not mail_helpers.exhibitor_has_devices(exhibitor):
+        count = event_exhibitor_settings(request.event).device_default_count
+        if count:
+            provision_exhibitor_devices(exhibitor, count, user=request.user)
+            messages.info(
+                request,
+                ngettext(
+                    "%(count)d lead-scanning device was created for this profile.",
+                    "%(count)d lead-scanning devices were created for this profile.",
+                    count,
+                )
+                % {"count": count},
+            )
+    return queue_exhibitor_access_mail(request, exhibitor)
 
 
 def access_newly_granted(exhibitor, previous=None):
@@ -188,6 +239,8 @@ class PublicCallEnabledMixin:
 class FilteredListMixin(PaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
+    selection_field = None
+
     def build_filter_form(self):
         raise NotImplementedError
 
@@ -205,6 +258,8 @@ class FilteredListMixin(PaginationMixin):
         context["filter_form"] = self.filter_form
         context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form)
         context["advanced_filter_count"] = advanced_filter_count(self.filter_form)
+        if self.selection_field:
+            context["selectable_ids"] = list(self.object_list.order_by().values_list(self.selection_field, flat=True))
         return context
 
 
@@ -276,7 +331,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
 
     def get_active_tab(self):
         tab = self.request.GET.get("tab") or self.request.POST.get("tab") or self.active_tab
-        if tab not in {"exhibitors", "sponsors", "call", "vouchers"}:
+        if tab not in {"exhibitors", "sponsors", "call", "vouchers", "leads"}:
             return "exhibitors"
         return tab
 
@@ -285,6 +340,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             "call": "plugins:exhibition:settings.call",
             "sponsors": "plugins:exhibition:settings.sponsors",
             "vouchers": "plugins:exhibition:settings.vouchers",
+            "leads": "plugins:exhibition:settings.leads",
         }
         route_name = route_names.get(tab, "plugins:exhibition:settings.exhibitors")
         return reverse(
@@ -297,6 +353,9 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         ctx["settings"] = settings
         ctx["data_access_fields"] = self.get_data_access_fields(settings)
+        ctx["device_defaults_form"] = kwargs.get("device_defaults_form") or ExhibitorDeviceDefaultsForm(
+            instance=settings
+        )
         ctx["active_tab"] = self.get_active_tab()
 
         edit_group_forms = kwargs.get("edit_group_forms", {})
@@ -326,6 +385,10 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             instance=settings,
             event=self.request.event,
         )
+        ctx["exhibitor_pool_tag"] = settings.voucher_pool_tag
+        ctx["exhibitor_pool_remaining"] = pool_remaining(self.request.event, settings.voucher_pool_tag)
+        ctx["sponsor_pool_tag"] = settings.sponsor_voucher_pool_tag
+        ctx["sponsor_pool_remaining"] = pool_remaining(self.request.event, settings.sponsor_voucher_pool_tag)
         ctx["show_add_group_form"] = kwargs.get("show_add_group_form", False)
         ctx["expanded_group_pk"] = kwargs.get("expanded_group_pk")
         return ctx
@@ -386,6 +449,20 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("exhibitors"))
+
+        if action == "save_lead_settings":
+            device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
+            if not device_defaults_form.is_valid():
+                self.object_list = self.get_queryset()
+                return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
+            device_defaults_form.save()
+            settings.log_action(
+                LOG_SETTINGS_CHANGED,
+                data={"changed": device_defaults_form.changed_data},
+                user=request.user,
+            )
+            messages.success(self.request, _("Settings have been saved."))
+            return redirect(self.get_settings_url("leads"))
 
         if action == "save_voucher_settings":
             voucher_defaults_form = ExhibitorVoucherDefaultsForm(
@@ -497,6 +574,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
     permission = ("can_change_event_settings", "can_view_orders")
     template_name = "exhibitors/exhibitor_info.html"
     context_object_name = "exhibitors"
+    selection_field = "pk"
     partner_type = None
 
     def build_filter_form(self):
@@ -526,7 +604,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         return super().get(request, *args, **kwargs)
 
     def download_keys_csv(self):
-        queryset = self.get_queryset()
+        queryset = self.get_queryset().prefetch_related("source_proposals__user")
         selected_pks = self.request.GET.getlist("pk")
         if selected_pks:
             queryset = queryset.filter(pk__in=selected_pks)
@@ -540,7 +618,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
                     localize_event_text(exhibitor.name) or str(exhibitor.name),
                     exhibitor.booth_id or "",
                     exhibitor.localized_booth_name,
-                    exhibitor.email or "",
+                    exhibitor.recipient_email,
                     exhibitor.key,
                 ]
             )
@@ -611,6 +689,11 @@ class PublicExhibitorListView(ListView):
     def filter_form(self):
         return PublicExhibitorFilterForm(data=self.request.GET, event=self.request.event)
 
+    def get(self, request, *args, **kwargs):
+        if "clear" in request.GET:
+            return redirect(request.path)
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
         return self.filter_form.filter_qs(public_exhibitors_queryset(self.request.event))
 
@@ -656,6 +739,10 @@ class PublicExhibitorDetailView(DetailView):
             context["next_exhibitor"] = None
 
         context["social_links"] = [serialize_social_link(link) for link in self.object.social_links.all()]
+        context["extra_links"] = list(self.object.extra_links.all())
+        context["video_embed"] = build_exhibitor_video_embed(self.object.video_url or "")
+        context["slides_document_url"] = self.object.visible_slides_url
+        context["related_sessions"] = public_exhibitor_sessions(self.object, self.request.user)
 
         add_external_image_csp_sources(
             self.request,
@@ -749,6 +836,7 @@ def formset_has_entries(formset):
 
 class ProposalLinkFormsetMixin:
     social_formset_prefix = "social_links"
+    extra_formset_prefix = "extra_links"
 
     def get_proposal_field_settings(self):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
@@ -773,11 +861,25 @@ class ProposalLinkFormsetMixin:
             prefix=self.social_formset_prefix,
         )
 
+    def get_extra_link_formset(self):
+        return ExhibitionProposalExtraLinkFormSet(
+            data=self.request.POST if self.request.method == "POST" else None,
+            instance=self.get_formset_instance(),
+            prefix=self.extra_formset_prefix,
+        )
+
     def post_with_formsets(self):
         form = self.get_form()
         self.social_media_formset = self.get_social_formset() if self.proposal_field_is_active("social_links") else None
+        self.extra_links_formset = (
+            self.get_extra_link_formset() if self.proposal_field_is_active("extra_links") else None
+        )
 
-        valid = form.is_valid() and (self.social_media_formset is None or self.social_media_formset.is_valid())
+        valid = (
+            form.is_valid()
+            and (self.social_media_formset is None or self.social_media_formset.is_valid())
+            and (self.extra_links_formset is None or self.extra_links_formset.is_valid())
+        )
 
         if (
             valid
@@ -786,6 +888,15 @@ class ProposalLinkFormsetMixin:
         ):
             self.social_media_formset._non_form_errors = self.social_media_formset.error_class(
                 [_("Add at least one social media link.")]
+            )
+            valid = False
+        if (
+            valid
+            and self.proposal_field_is_required("extra_links")
+            and not formset_has_entries(self.extra_links_formset)
+        ):
+            self.extra_links_formset._non_form_errors = self.extra_links_formset.error_class(
+                [_("Add at least one extra link.")]
             )
             valid = False
 
@@ -800,6 +911,10 @@ class ProposalLinkFormsetMixin:
             "social_media_formset",
             getattr(self, "social_media_formset", None) or self.get_social_formset(),
         )
+        context["extra_links_formset"] = kwargs.get(
+            "extra_links_formset",
+            getattr(self, "extra_links_formset", None) or self.get_extra_link_formset(),
+        )
         context["social_link_prefixes"] = social_link_prefixes()
         context["settings"] = self.get_exhibition_settings()
         context.setdefault("can_edit", True)
@@ -813,6 +928,9 @@ class ProposalLinkFormsetMixin:
         if self.social_media_formset is not None:
             self.social_media_formset.instance = self.object
             self.social_media_formset.save()
+        if self.extra_links_formset is not None:
+            self.extra_links_formset.instance = self.object
+            self.extra_links_formset.save()
 
 
 class UserProposalCreateView(
@@ -1036,6 +1154,7 @@ class UserProposalReinstateView(PublicCallEnabledMixin, PublicEventLoginRequired
 
 class ExhibitorLinkFormsetMixin:
     social_formset_prefix = "social_links"
+    extra_formset_prefix = "extra_links"
 
     def get_proposal_field_settings(self):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
@@ -1058,11 +1177,25 @@ class ExhibitorLinkFormsetMixin:
             prefix=self.social_formset_prefix,
         )
 
+    def get_extra_link_formset(self):
+        return ExhibitorExtraLinkFormSet(
+            data=self.request.POST if self.request.method == "POST" else None,
+            instance=self.get_formset_instance(),
+            prefix=self.extra_formset_prefix,
+        )
+
     def post_with_formsets(self):
         form = self.get_form()
         self.social_media_formset = self.get_social_formset() if self.proposal_field_is_active("social_links") else None
+        self.extra_links_formset = (
+            self.get_extra_link_formset() if self.proposal_field_is_active("extra_links") else None
+        )
 
-        valid = form.is_valid() and (self.social_media_formset is None or self.social_media_formset.is_valid())
+        valid = (
+            form.is_valid()
+            and (self.social_media_formset is None or self.social_media_formset.is_valid())
+            and (self.extra_links_formset is None or self.extra_links_formset.is_valid())
+        )
 
         if (
             valid
@@ -1071,6 +1204,15 @@ class ExhibitorLinkFormsetMixin:
         ):
             self.social_media_formset._non_form_errors = self.social_media_formset.error_class(
                 [_("Add at least one social media link.")]
+            )
+            valid = False
+        if (
+            valid
+            and self.proposal_field_is_required("extra_links")
+            and not formset_has_entries(self.extra_links_formset)
+        ):
+            self.extra_links_formset._non_form_errors = self.extra_links_formset.error_class(
+                [_("Add at least one extra link.")]
             )
             valid = False
 
@@ -1082,9 +1224,14 @@ class ExhibitorLinkFormsetMixin:
         context = super().get_context_data(**kwargs)
         allow_blob_image_previews(self.request)
         show_social_links = self.proposal_field_is_active("social_links")
+        show_extra_links = self.proposal_field_is_active("extra_links")
         context["social_media_formset"] = kwargs.get(
             "social_media_formset",
             getattr(self, "social_media_formset", self.get_social_formset() if show_social_links else None),
+        )
+        context["extra_links_formset"] = kwargs.get(
+            "extra_links_formset",
+            getattr(self, "extra_links_formset", self.get_extra_link_formset() if show_extra_links else None),
         )
         context["social_link_prefixes"] = social_link_prefixes()
         return context
@@ -1094,9 +1241,11 @@ class ExhibitorLinkFormsetMixin:
         return self.render_to_response(self.get_context_data(form=form))
 
     def save_link_formsets(self):
-        if self.social_media_formset is not None:
-            self.social_media_formset.instance = self.object
-            self.social_media_formset.save()
+        for formset in (self.social_media_formset, self.extra_links_formset):
+            if formset is None:
+                continue
+            formset.instance = self.object
+            formset.save()
 
 
 class SponsorGroupFrontPageToggleView(EventPermissionRequiredMixin, View):
@@ -1205,30 +1354,12 @@ class SponsorReorderView(PartnerReorderMixin):
         return queryset.filter(sponsor_group_id=group_id)
 
 
-class CallTextPreviewView(EventPermissionRequiredMixin, View):
-    """Render draft Call text with the same styling as the public call page.
-
-    Consumed by core's shared ``richtextPreview.js`` (``data-email-preview-*``
-    attributes): the body text is posted as one ``body_<locale>`` field per
-    rendered locale.
-    """
-
-    permission = "can_change_settings"
-
-    def post(self, request, *args, **kwargs):
-        event_locales = request.event.settings.locales
-        previews = {}
-        for locale in event_locales:
-            text = request.POST.get(f"body_{locale}", "")
-            previews[locale] = str(rich_text(text)) if text else ""
-        return JsonResponse({"previews": previews})
-
-
 class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView):
     model = ExhibitionProposal
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_list.html"
     context_object_name = "proposals"
+    selection_field = "code"
 
     @cached_property
     def hide_applicant_emails(self):
@@ -1306,6 +1437,7 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
                 "answers__options",
                 "answers__question",
                 "social_links",
+                "extra_links",
             )
         )
 
@@ -1485,12 +1617,13 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
     context_object_name = "questions"
 
     def get_queryset(self):
-        return ExhibitionQuestion.objects.filter(event=self.request.event)
+        return ExhibitionQuestion.objects.filter(event=self.request.event).annotate(answer_count=Count("answers"))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         field_settings = settings.normalized_proposal_field_settings
+        answer_counts = self.get_default_field_answer_counts()
         field_definitions = {field["key"]: field for field in PROPOSAL_DEFAULT_FIELDS}
 
         rows = []
@@ -1508,7 +1641,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": definition.get("supports_required", True),
                     "active_locked": definition.get("active_locked", False),
                     "required_locked": definition.get("required_locked", False),
-                    "lock_notice": field_settings[key]["lock_notice"],
+                    "answer_count": answer_counts.get(key, 0),
                     "is_custom": False,
                 }
             )
@@ -1525,7 +1658,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": True,
                     "active_locked": False,
                     "required_locked": False,
-                    "lock_notice": "",
+                    "answer_count": question.answer_count,
                     "is_custom": True,
                     "pk": question.pk,
                 }
@@ -1533,6 +1666,39 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
         rows.sort(key=lambda row: (row["sort_position"], row["sort_kind"]))
         context["proposal_fields"] = rows
         return context
+
+    def get_default_field_answer_counts(self):
+        proposals = ExhibitionProposal.objects.filter(event=self.request.event).exclude(
+            state=ExhibitionProposalState.DRAFT
+        )
+        file_has_value = {
+            "slides": (Q(slides__isnull=False) & ~Q(slides="")) | (Q(slides_url__isnull=False) & ~Q(slides_url="")),
+            "logo": (Q(logo__isnull=False) & ~Q(logo="")) | (Q(logo_url__isnull=False) & ~Q(logo_url="")),
+            "header_image": (Q(header_image__isnull=False) & ~Q(header_image=""))
+            | (Q(header_image_url__isnull=False) & ~Q(header_image_url="")),
+        }
+        text_fields = (
+            "description",
+            "email",
+            "url",
+            "contact_url",
+            "video_url",
+            "booth_name",
+            "notes",
+        )
+        counts = {
+            "name": proposals.count(),
+            "social_links": proposals.filter(social_links__isnull=False).distinct().count(),
+            "extra_links": proposals.filter(extra_links__isnull=False).distinct().count(),
+        }
+        counts.update({key: proposals.filter(condition).count() for key, condition in file_has_value.items()})
+        counts.update(
+            {
+                field: proposals.exclude(**{f"{field}__isnull": True}).exclude(**{field: ""}).count()
+                for field in text_fields
+            }
+        )
+        return counts
 
     def post(self, request, *args, **kwargs):
         settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
@@ -1852,10 +2018,8 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
             data={"name": localize_event_text(self.object.name), "booth_id": self.object.booth_id},
             user=self.request.user,
         )
-        if access_newly_granted(form.instance) and queue_exhibitor_access_mail(
-            self.request.event, self.object, self.request.user
-        ):
-            messages.info(self.request, _("An access-credentials email was placed in the outbox."))
+        if access_newly_granted(form.instance):
+            grant_lead_scanning_access(self.request, self.object)
         return response
 
     def get_context_data(self, **kwargs):
@@ -1923,10 +2087,8 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
                 data={"changed_questions": question_changes},
                 user=self.request.user,
             )
-        if access_newly_granted(form.instance, previous) and queue_exhibitor_access_mail(
-            self.request.event, self.object, self.request.user
-        ):
-            messages.info(self.request, _("An access-credentials email was placed in the outbox."))
+        if access_newly_granted(form.instance, previous):
+            grant_lead_scanning_access(self.request, self.object)
         return response
 
     def get_context_data(self, **kwargs):
@@ -2006,9 +2168,11 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        default_count = resolve_voucher_defaults(self.object)["count"]
-        context.setdefault("form", ExhibitorVoucherBatchForm(initial={"count": default_count}))
+        defaults = resolve_voucher_defaults(self.object)
+        context.setdefault("form", ExhibitorVoucherBatchForm(initial={"count": defaults["count"]}))
         context["vouchers"] = self.voucher_links()
+        context["pool_tag"] = defaults["pool_tag"]
+        context["pool_remaining"] = pool_remaining(self.request.event, defaults["pool_tag"])
         emails = ExhibitionEmailQueue.objects.filter(exhibitor=self.object, role=mail_helpers.VOUCHERS)
         context["voucher_sent_at"] = emails.filter(sent_at__isnull=False).aggregate(last=Max("sent_at"))["last"]
         context["voucher_pending"] = emails.filter(sent_at__isnull=True).exists()
@@ -2037,16 +2201,50 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             return self.send_vouchers(request)
         return self.create_vouchers(request)
 
+    @transaction.atomic
     def remove_voucher(self, request):
-        link = get_object_or_404(ExhibitorVoucher, pk=request.POST.get("voucher"), exhibitor=self.object)
+        """Return a voucher to the pool by unlinking it; the code itself stays in Tickets."""
+        link = get_object_or_404(
+            ExhibitorVoucher.objects.select_for_update(),
+            pk=request.POST.get("voucher"),
+            exhibitor=self.object,
+        )
         if link.voucher.redeemed:
-            messages.error(request, _("This voucher has already been redeemed and cannot be removed."))
+            messages.error(request, _("This voucher has already been redeemed and cannot be returned."))
             return redirect(self.get_success_url())
-        voucher = link.voucher
+        if self.was_already_emailed(link):
+            messages.error(
+                request,
+                _(
+                    "This code was already included in a voucher email to this partner, so it cannot be "
+                    "returned to the pool. Delete it under Tickets → Vouchers instead."
+                ),
+            )
+            return redirect(self.get_success_url())
         link.delete()
-        voucher.delete()
-        messages.success(request, _("Voucher removed."))
+        messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
+
+    def lock_voucher_links(self):
+        """Hold this partner's links so a concurrent return cannot drop a code we are about to email."""
+        return list(
+            ExhibitorVoucher.objects.filter(exhibitor=self.object)
+            .select_for_update()
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+
+    def was_already_emailed(self, link):
+        """Whether a voucher email went out after this code was assigned, and so lists it.
+
+        Returning such a code would hand it to somebody else while the first recipient still
+        holds it in their inbox.
+        """
+        return ExhibitionEmailQueue.objects.filter(
+            exhibitor=self.object,
+            role=mail_helpers.VOUCHERS,
+            created__gte=link.created,
+        ).exists()
 
     @transaction.atomic
     def create_vouchers(self, request):
@@ -2055,40 +2253,53 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             return self.render_to_response(self.get_context_data(form=form))
         count = form.cleaned_data["count"]
         if not count:
-            form.add_error("count", _("Enter how many vouchers to create."))
+            form.add_error("count", _("Enter how many vouchers to take from the pool."))
             return self.render_to_response(self.get_context_data(form=form))
-        self.issue_vouchers(count)
+        if not self.claim_vouchers(count):
+            form.add_error("count", self.pool_short_message(count))
+            return self.render_to_response(self.get_context_data(form=form))
         messages.success(
             request,
-            ngettext("%(count)d voucher created.", "%(count)d vouchers created.", count) % {"count": count},
+            ngettext(
+                "%(count)d voucher taken from the pool.",
+                "%(count)d vouchers taken from the pool.",
+                count,
+            )
+            % {"count": count},
         )
         return redirect(self.get_success_url())
 
-    def issue_vouchers(self, count):
+    def claim_vouchers(self, count):
         defaults = resolve_voucher_defaults(self.object)
-        return generate_exhibitor_vouchers(
-            self.object,
-            product=defaults["product"],
-            count=count,
-            price_mode=defaults["price_mode"],
-            value=defaults["value"],
-        )
+        return claim_pool_vouchers(self.object, count, pool_tag=defaults["pool_tag"])
+
+    def pool_short_message(self, count):
+        defaults = resolve_voucher_defaults(self.object)
+        if not defaults["pool_tag"]:
+            return _("No voucher pool is selected yet. Choose one under Settings → Vouchers.")
+        remaining = pool_remaining(self.request.event, defaults["pool_tag"])
+        return _("The pool only has %(remaining)d voucher(s) left, so %(count)d cannot be taken.") % {
+            "remaining": remaining,
+            "count": count,
+        }
 
     @transaction.atomic
     def send_vouchers(self, request):
-        """Create any requested vouchers, then outbox an email with the complete list of codes."""
+        """Take any requested vouchers from the pool, then outbox an email with the complete list."""
         form = ExhibitorVoucherBatchForm(request.POST)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
-        if not (self.object.email or "").strip():
+        if not self.object.recipient_email:
             messages.error(request, _("No email address is on file, so vouchers cannot be emailed."))
             return redirect(self.get_success_url())
         count = form.cleaned_data["count"]
-        if count:
-            self.issue_vouchers(count)
+        if count and not self.claim_vouchers(count):
+            form.add_error("count", self.pool_short_message(count))
+            return self.render_to_response(self.get_context_data(form=form))
+        self.lock_voucher_links()
         vouchers = [link.voucher for link in self.voucher_links()]
         if not vouchers:
-            form.add_error("count", _("There are no vouchers yet, so there is nothing to email."))
+            form.add_error("count", _("This partner holds no vouchers yet, so there is nothing to email."))
             return self.render_to_response(self.get_context_data(form=form))
         mail_helpers.queue_voucher_email(request.event, self.object, vouchers, requestor=request.user)
         messages.success(
@@ -2110,7 +2321,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
     partner_type = None
 
     def target_queryset(self):
-        queryset = ExhibitorInfo.objects.filter(event=self.request.event)
+        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("source_proposals__user")
         if self.partner_type == "sponsor":
             queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
         elif self.partner_type == "exhibitor":
@@ -2130,30 +2341,41 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         return partner_list_url(self.request.event, self.partner_type)
 
     def preview(self, exhibitors):
-        """Split the list into who will be emailed and who cannot be, without creating anything.
+        """Split the list into who will be emailed and who cannot be, without claiming anything.
 
-        Anyone holding no vouchers is still sendable when their defaults would issue some; the
-        counts annotated here are what the confirmation page reports.
+        Anyone holding no vouchers is still sendable when their pool can cover their share; the
+        pool is drawn down as we go, so the preview reflects what the whole run would consume.
         """
-        event_settings = event_voucher_settings(self.request.event)
-        sendable, no_email, no_vouchers = [], [], []
+        event_settings = event_exhibitor_settings(self.request.event)
+        remaining = {}
+        sendable, no_email, no_vouchers, pool_short = [], [], [], []
         for exhibitor in exhibitors:
-            if not (exhibitor.email or "").strip():
+            if not exhibitor.recipient_email:
                 no_email.append(exhibitor)
                 continue
             existing = len(mail_helpers.exhibitor_vouchers(exhibitor))
-            planned = 0 if existing else resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
-            if not existing and not planned:
+            if existing:
+                exhibitor.voucher_total, exhibitor.voucher_new = existing, 0
+                sendable.append(exhibitor)
+                continue
+            defaults = resolve_voucher_defaults(exhibitor, event_settings=event_settings)
+            planned, pool_tag = defaults["count"], defaults["pool_tag"]
+            if not planned:
                 no_vouchers.append(exhibitor)
                 continue
-            exhibitor.voucher_total = existing or planned
-            exhibitor.voucher_new = planned
+            if pool_tag not in remaining:
+                remaining[pool_tag] = pool_remaining(self.request.event, pool_tag)
+            if remaining[pool_tag] < planned:
+                pool_short.append(exhibitor)
+                continue
+            remaining[pool_tag] -= planned
+            exhibitor.voucher_total = exhibitor.voucher_new = planned
             sendable.append(exhibitor)
-        return sendable, no_email, no_vouchers
+        return sendable, no_email, no_vouchers, pool_short
 
     def post(self, request, *args, **kwargs):
         exhibitors = list(self.target_queryset())
-        sendable, no_email, no_vouchers = self.preview(exhibitors)
+        sendable, no_email, no_vouchers, pool_short = self.preview(exhibitors)
 
         if not request.POST.get("confirmed"):
             return render(
@@ -2164,6 +2386,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                     "sendable": sendable,
                     "no_email": no_email,
                     "no_vouchers": no_vouchers,
+                    "pool_short": pool_short,
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
@@ -2189,6 +2412,17 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
             messages.warning(request, self.skipped_no_email_message(missing_email))
         if missing_vouchers:
             messages.warning(request, self.skipped_no_vouchers_message(missing_vouchers))
+        short = len(pool_short) + len(skipped[mail_helpers.VOUCHER_SKIP_POOL_EMPTY])
+        if short:
+            messages.warning(
+                request,
+                ngettext(
+                    "%(count)d was skipped because no unassigned codes were available from their pool.",
+                    "%(count)d were skipped because no unassigned codes were available from their pool.",
+                    short,
+                )
+                % {"count": short},
+            )
         return redirect(self.list_url())
 
     @transaction.atomic
@@ -2213,14 +2447,14 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
     def skipped_no_vouchers_message(self, count):
         if self.partner_type == "sponsor":
             text = ngettext(
-                "%(count)d sponsor was skipped because their default number of vouchers is 0.",
-                "%(count)d sponsors were skipped because their default number of vouchers is 0.",
+                "%(count)d sponsor was skipped because their voucher count is set to 0.",
+                "%(count)d sponsors were skipped because their voucher count is set to 0.",
                 count,
             )
         else:
             text = ngettext(
-                "%(count)d exhibitor was skipped because their default number of vouchers is 0.",
-                "%(count)d exhibitors were skipped because their default number of vouchers is 0.",
+                "%(count)d exhibitor was skipped because their voucher count is set to 0.",
+                "%(count)d exhibitors were skipped because their voucher count is set to 0.",
                 count,
             )
         return text % {"count": count}
@@ -2233,7 +2467,7 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
     context_object_name = "exhibitor"
 
     def get_queryset(self):
-        return ExhibitorInfo.objects.filter(event=self.request.event)
+        return ExhibitorInfo.objects.filter(event=self.request.event, is_exhibitor=True)
 
     def can_provision(self):
         return self.request.user.has_organizer_permission(
@@ -2270,11 +2504,14 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
         count = form.cleaned_data["count"]
-        provision_exhibitor_devices(self.object, count, user=request.user)
+        exhibitor = self.get_queryset().select_for_update().get(pk=self.object.pk)
+        provision_exhibitor_devices(exhibitor, count, user=request.user)
         messages.success(
             request,
             ngettext("%(count)d device added.", "%(count)d devices added.", count) % {"count": count},
         )
+        if exhibitor.lead_scanning_enabled:
+            queue_exhibitor_access_mail(request, exhibitor)
         return redirect(self.get_success_url())
 
     @transaction.atomic
@@ -2294,6 +2531,8 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
             )
         else:
             messages.success(request, _("New setup tokens generated."))
+        if self.object.lead_scanning_enabled:
+            queue_exhibitor_access_mail(request, self.object)
         return redirect(self.get_success_url())
 
 
@@ -2472,6 +2711,17 @@ class EmailListMixin(FilteredListMixin):
         return [self.template_name]
 
 
+def bulk_email_selection_limit():
+    """Most rows a bulk email request can carry, or ``None`` when Django sets no cap.
+
+    Each selected row is its own POST field, and Django rejects a request with
+    more than ``DATA_UPLOAD_MAX_NUMBER_FIELDS`` of them. The discard confirmation
+    re-posts the selection alongside the CSRF token, ``op`` and ``confirmed``.
+    """
+    limit = django_settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+    return None if limit is None else limit - 3
+
+
 class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
     """Unsent queued emails awaiting organiser review."""
 
@@ -2480,9 +2730,15 @@ class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView
     template_name = "exhibitors/email_outbox.html"
     partial_template_name = "exhibitors/_email_outbox_body.html"
     date_field = "created"
+    selection_field = "pk"
 
     def base_queryset(self):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["selection_limit"] = bulk_email_selection_limit()
+        return context
 
 
 class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
@@ -2499,7 +2755,7 @@ class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
 
 
 class EmailEditView(EventPermissionRequiredMixin, UpdateView):
-    """Preview and edit a queued (unsent) email before sending."""
+    """Preview and edit a queued (unsent) email before sending, or view a sent email."""
 
     model = ExhibitionEmailQueue
     form_class = ExhibitionEmailQueueForm
@@ -2508,7 +2764,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
     context_object_name = "email"
 
     def get_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+        return ExhibitionEmailQueue.objects.filter(event=self.request.event)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -2516,9 +2772,13 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         return kwargs
 
     def batch_queryset(self):
-        return ExhibitionEmailQueue.objects.filter(
-            event=self.request.event, batch=self.object.batch, sent_at__isnull=True
-        )
+        qs = ExhibitionEmailQueue.objects.filter(event=self.request.event, batch=self.object.batch)
+        if self.object.sent_at is not None:
+            qs = qs.filter(sent_at__isnull=False)
+        return qs
+
+    def editable_batch_queryset(self):
+        return self.batch_queryset().filter(sent_at__isnull=True)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -2526,6 +2786,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
             context["recipients"] = list(self.batch_queryset().values_list("to_email", flat=True))
         else:
             context["recipients"] = [self.object.to_email]
+        context["is_sent"] = self.object.sent_at is not None
         return context
 
     def reschedule(self, rows, scheduled_at):
@@ -2544,8 +2805,8 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
         reschedule = "scheduled_at" in form.changed_data
 
         if self.object.batch:
-            rows = list(self.batch_queryset())
-            self.batch_queryset().update(subject=subject, body=body, scheduled_at=scheduled_at)
+            rows = list(self.editable_batch_queryset())
+            self.editable_batch_queryset().update(subject=subject, body=body, scheduled_at=scheduled_at)
             if "_send" in self.request.POST:
                 for row in rows:
                     row.subject = subject
@@ -2568,7 +2829,17 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
             messages.success(self.request, _("The email has been saved."))
         return redirect(self.get_success_url())
 
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.sent_at is not None:
+            messages.error(self.request, _("Cannot edit a sent email."))
+            return redirect(self.get_success_url())
+        return super().post(request, *args, **kwargs)
+
     def get_success_url(self):
+        self.object.refresh_from_db()
+        if self.object.sent_at is not None:
+            return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
         return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
 
 
@@ -2634,9 +2905,18 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
 
     permission = EMAIL_MANAGE_PERMISSION
 
-    def outbox_redirect(self, request):
+    def outbox_redirect(self, request, done=False):
+        """Back to the outbox. ``?bulk=done`` tells the page its selection was consumed.
+
+        Only set it once rows have actually been sent or discarded, so a cancelled
+        confirmation or a request that did nothing leaves the selection to retry.
+        """
         query_params = request.GET.copy()
         query_params.pop("select_all_pages", None)
+        if done:
+            query_params["bulk"] = "done"
+        else:
+            query_params.pop("bulk", None)
         query_string = query_params.urlencode()
         url = reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(request.event))
         if query_string:
@@ -2682,7 +2962,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return self.outbox_redirect(request)
+            return self.outbox_redirect(request, done=bool(count))
 
         if request.POST.get("confirmed"):
             count = rows.count()
@@ -2695,7 +2975,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return self.outbox_redirect(request)
+            return self.outbox_redirect(request, done=bool(count))
 
         count = rows.count()
         if not count:

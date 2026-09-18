@@ -3,15 +3,20 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.db import IntegrityError, transaction
 from django.test import RequestFactory
+from django.utils.timezone import now
 from django_scopes import scopes_disabled
-from eventyay.base.models import PriceModeChoices, Product, Voucher
+from eventyay.base.models import Event, Organizer, Product, Voucher
+from eventyay.base.models.auth import User
 
 from exhibition import mail as mail_helpers
 from exhibition.api import VoucherRedemptionRetrieveView, get_allowed_attendee_data
 from exhibition.forms import ExhibitorVoucherBatchForm, ExhibitorVoucherDefaultsForm
 from exhibition.models import (
     ExhibitionEmailQueue,
+    ExhibitionProposal,
+    ExhibitionProposalState,
     ExhibitorInfo,
     ExhibitorSettings,
     ExhibitorVoucher,
@@ -20,12 +25,14 @@ from exhibition.models import (
 from exhibition.utils import (
     VOUCHER_CSV_FILENAME,
     build_voucher_csv,
-    generate_exhibitor_vouchers,
+    claim_pool_vouchers,
+    pool_remaining,
+    pool_tag_choices,
     resolve_voucher_defaults,
     store_voucher_csv,
     voucher_redeem_url,
 )
-from exhibition.views import ExhibitorVoucherBulkSendView
+from exhibition.views import ExhibitorVoucherBulkSendView, ExhibitorVoucherManageView
 
 
 def _exhibitor(event, **kwargs):
@@ -44,25 +51,70 @@ def _retrieve(event, key):
     return view.get(request, organizer=event.organizer.slug, event=event.slug)
 
 
+POOL = "exhibitor-pool"
+
+
+def _pool(event, count=5, *, tag=POOL, product=None):
+    """Vouchers created in Tickets and tagged as a pool, as an organizer would."""
+    return [Voucher.objects.create(event=event, product=product, tag=tag) for _ in range(count)]
+
+
 @pytest.mark.django_db
-def test_generate_exhibitor_vouchers_creates_links_and_vouchers(event):
+def test_claim_pool_vouchers_links_codes_without_creating_any(event):
     with scopes_disabled():
+        ExhibitorSettings.objects.create(event=event, voucher_pool_tag=POOL)
+        _pool(event, 5)
         exhibitor = _exhibitor(event)
-        product = _product(event)
-        generate_exhibitor_vouchers(
-            exhibitor,
-            product=product,
-            count=3,
-            price_mode=PriceModeChoices.PERCENT,
-            value=100,
-        )
-        links = ExhibitorVoucher.objects.filter(exhibitor=exhibitor)
-        assert links.count() == 3
-        voucher = links.first().voucher
-        assert voucher.max_usages == 1
-        assert voucher.price_mode == PriceModeChoices.PERCENT
-        assert voucher.tag == f"exhibitor-{exhibitor.key}"
-        assert Voucher.objects.filter(event=event).count() == 3
+
+        claimed = claim_pool_vouchers(exhibitor, 3)
+
+        assert len(claimed) == 3
+        assert ExhibitorVoucher.objects.filter(exhibitor=exhibitor).count() == 3
+        assert Voucher.objects.filter(event=event).count() == 5
+        assert pool_remaining(event, POOL) == 2
+
+
+@pytest.mark.django_db
+def test_claim_pool_vouchers_takes_nothing_when_the_pool_is_short(event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=event, voucher_pool_tag=POOL)
+        _pool(event, 2)
+        exhibitor = _exhibitor(event)
+
+        assert claim_pool_vouchers(exhibitor, 3) == []
+        assert pool_remaining(event, POOL) == 2
+
+
+@pytest.mark.django_db
+def test_claim_pool_vouchers_never_hands_out_the_same_code_twice(event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=event, voucher_pool_tag=POOL)
+        _pool(event, 5)
+        first = _exhibitor(event, name="First")
+        second = _exhibitor(event, name="Second")
+
+        claim_pool_vouchers(first, 3)
+        claim_pool_vouchers(second, 2)
+
+        codes = {link.voucher_id for link in ExhibitorVoucher.objects.all()}
+        assert len(codes) == 5
+        assert pool_remaining(event, POOL) == 0
+
+
+@pytest.mark.django_db
+def test_claim_pool_vouchers_ignores_other_pools(event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=event, voucher_pool_tag=POOL)
+        _pool(event, 2, tag="something-else")
+        exhibitor = _exhibitor(event)
+
+        assert claim_pool_vouchers(exhibitor, 1) == []
+
+
+@pytest.mark.django_db
+def test_pool_remaining_is_zero_without_a_pool(event):
+    with scopes_disabled():
+        assert pool_remaining(event, "") == 0
 
 
 def test_batch_form_accepts_zero_to_email_existing_codes():
@@ -71,22 +123,32 @@ def test_batch_form_accepts_zero_to_email_existing_codes():
 
 
 @pytest.mark.django_db
-def test_voucher_defaults_form_requires_value_for_non_none_price_mode(event):
+def test_pool_tag_choices_lists_event_tags_once(event):
     with scopes_disabled():
-        form = ExhibitorVoucherDefaultsForm(
-            data={"voucher_default_count": 1, "voucher_default_price_mode": PriceModeChoices.PERCENT},
-            event=event,
-        )
-        assert not form.is_valid()
-        assert "voucher_default_value" in form.errors
+        _pool(event, 3, tag="gold")
+        _pool(event, 2, tag="silver")
+        Voucher.objects.create(event=event, tag="")
+
+        assert pool_tag_choices(event) == ["gold", "silver"]
 
 
 @pytest.mark.django_db
-def test_voucher_defaults_form_limits_products_to_event(event):
+def test_voucher_defaults_form_offers_the_event_pools(event):
     with scopes_disabled():
-        product = _product(event)
+        _pool(event, 1, tag="gold")
         form = ExhibitorVoucherDefaultsForm(event=event)
-        assert list(form.fields["voucher_default_product"].queryset) == [product]
+
+        assert [value for value, _label in form.fields["voucher_pool_tag"].choices] == ["", "gold"]
+        assert [value for value, _label in form.fields["sponsor_voucher_pool_tag"].choices] == ["", "gold"]
+
+
+@pytest.mark.django_db
+def test_voucher_defaults_form_keeps_a_pool_that_no_longer_has_vouchers(event):
+    with scopes_disabled():
+        settings = ExhibitorSettings.objects.create(event=event, voucher_pool_tag="emptied")
+        form = ExhibitorVoucherDefaultsForm(instance=settings, event=event)
+
+        assert "emptied" in [value for value, _label in form.fields["voucher_pool_tag"].choices]
 
 
 @pytest.mark.django_db
@@ -103,8 +165,41 @@ def test_resolve_voucher_defaults_falls_back_without_settings_row(event):
     with scopes_disabled():
         defaults = resolve_voucher_defaults(_exhibitor(event))
         assert defaults["count"] == 1
-        assert defaults["product"] is None
+        assert defaults["pool_tag"] == ""
         assert not ExhibitorSettings.objects.filter(event=event).exists()
+
+
+@pytest.mark.django_db
+def test_sponsors_use_the_sponsor_pool_when_one_is_set(event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(
+            event=event, voucher_pool_tag="exhibitors", sponsor_voucher_pool_tag="sponsors"
+        )
+        sponsor = _exhibitor(event, name="Gold", is_exhibitor=False, is_sponsor=True)
+        booth = _exhibitor(event, name="Booth", is_exhibitor=True, is_sponsor=False)
+
+        assert resolve_voucher_defaults(sponsor)["pool_tag"] == "sponsors"
+        assert resolve_voucher_defaults(booth)["pool_tag"] == "exhibitors"
+
+
+@pytest.mark.django_db
+def test_sponsors_share_the_exhibitor_pool_when_no_sponsor_pool_is_set(event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=event, voucher_pool_tag="shared")
+        sponsor = _exhibitor(event, name="Gold", is_exhibitor=False, is_sponsor=True)
+
+        assert resolve_voucher_defaults(sponsor)["pool_tag"] == "shared"
+
+
+@pytest.mark.django_db
+def test_a_partner_that_is_both_draws_from_the_exhibitor_pool(event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(
+            event=event, voucher_pool_tag="exhibitors", sponsor_voucher_pool_tag="sponsors"
+        )
+        both = _exhibitor(event, name="Both", is_exhibitor=True, is_sponsor=True)
+
+        assert resolve_voucher_defaults(both)["pool_tag"] == "exhibitors"
 
 
 def _settings(*allowed):
@@ -176,8 +271,10 @@ def _mailed_exhibitor(event, **kwargs):
     return _exhibitor(event, **kwargs)
 
 
-def _issue(exhibitor, count=2, *, product=None, price_mode=PriceModeChoices.NONE, value=None):
-    generate_exhibitor_vouchers(exhibitor, product=product, count=count, price_mode=price_mode, value=value)
+def _issue(exhibitor, count=2, *, product=None):
+    """Give this exhibitor `count` codes, topping the pool up first so the claim always succeeds."""
+    _pool(exhibitor.event, count, product=product)
+    claim_pool_vouchers(exhibitor, count, pool_tag=POOL)
     return [link.voucher for link in ExhibitorVoucher.objects.filter(exhibitor=exhibitor)]
 
 
@@ -319,44 +416,51 @@ def test_send_passes_no_attachment_when_there_is_none(voucher_event):
 
 
 @pytest.mark.django_db
-def test_issue_default_vouchers_uses_the_resolved_defaults(voucher_event):
+def test_claim_default_vouchers_takes_the_resolved_count_from_the_pool(voucher_event):
     with scopes_disabled():
         product = _product(voucher_event)
-        ExhibitorSettings.objects.create(
-            event=voucher_event,
-            voucher_default_count=4,
-            voucher_default_product=product,
-            voucher_default_price_mode=PriceModeChoices.PERCENT,
-            voucher_default_value=50,
-        )
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
+        _pool(voucher_event, 6, product=product)
         exhibitor = _mailed_exhibitor(voucher_event)
-        created = mail_helpers.issue_default_vouchers(exhibitor)
-        vouchers = [link.voucher for link in ExhibitorVoucher.objects.filter(exhibitor=exhibitor)]
 
-    assert len(created) == 4
-    assert len(vouchers) == 4
-    assert vouchers[0].product == product
-    assert vouchers[0].price_mode == PriceModeChoices.PERCENT
+        claimed = mail_helpers.claim_default_vouchers(exhibitor)
+
+        assert len(claimed) == 4
+        assert pool_remaining(voucher_event, POOL) == 2
+        assert ExhibitorVoucher.objects.filter(exhibitor=exhibitor).first().voucher.product == product
 
 
 @pytest.mark.django_db
-def test_issue_default_vouchers_prefers_the_sponsor_group(voucher_event):
+def test_claim_default_vouchers_prefers_the_sponsor_group_count(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1, voucher_pool_tag=POOL)
+        _pool(voucher_event, 10)
         group = SponsorGroup.objects.create(event=voucher_event, name="Gold", voucher_default_count=5)
         exhibitor = _mailed_exhibitor(voucher_event, sponsor_group=group)
 
-        assert len(mail_helpers.issue_default_vouchers(exhibitor)) == 5
+        assert len(mail_helpers.claim_default_vouchers(exhibitor)) == 5
 
 
 @pytest.mark.django_db
-def test_issue_default_vouchers_creates_nothing_when_the_default_is_zero(voucher_event):
+def test_claim_default_vouchers_takes_nothing_when_the_count_is_zero(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=0)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=0, voucher_pool_tag=POOL)
+        _pool(voucher_event, 5)
         exhibitor = _mailed_exhibitor(voucher_event)
 
-        assert mail_helpers.issue_default_vouchers(exhibitor) == []
-        assert not ExhibitorVoucher.objects.filter(exhibitor=exhibitor).exists()
+        assert mail_helpers.claim_default_vouchers(exhibitor) == []
+        assert pool_remaining(voucher_event, POOL) == 5
+
+
+@pytest.mark.django_db
+def test_claim_default_vouchers_takes_nothing_when_the_pool_is_short(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
+        _pool(voucher_event, 2)
+        exhibitor = _mailed_exhibitor(voucher_event)
+
+        assert mail_helpers.claim_default_vouchers(exhibitor) == []
+        assert pool_remaining(voucher_event, POOL) == 2
 
 
 @pytest.mark.django_db
@@ -370,9 +474,10 @@ def test_queue_voucher_emails_skips_the_voucherless_without_issue_missing(vouche
 
 
 @pytest.mark.django_db
-def test_queue_voucher_emails_issues_defaults_when_missing(voucher_event):
+def test_queue_voucher_emails_claims_from_the_pool_when_missing(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=3)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=3, voucher_pool_tag=POOL)
+        _pool(voucher_event, 3)
         exhibitor = _mailed_exhibitor(voucher_event)
 
         queued, skipped = mail_helpers.queue_voucher_emails(voucher_event, [exhibitor], issue_missing=True)
@@ -387,7 +492,7 @@ def test_queue_voucher_emails_issues_defaults_when_missing(voucher_event):
 @pytest.mark.django_db
 def test_queue_voucher_emails_does_not_top_up_existing_vouchers(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=5)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=5, voucher_pool_tag=POOL)
         exhibitor = _mailed_exhibitor(voucher_event)
         _issue(exhibitor, count=2)
 
@@ -399,7 +504,8 @@ def test_queue_voucher_emails_does_not_top_up_existing_vouchers(voucher_event):
 @pytest.mark.django_db
 def test_queue_voucher_emails_still_skips_a_zero_default(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=0)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=0, voucher_pool_tag=POOL)
+        _pool(voucher_event, 5)
         exhibitor = _mailed_exhibitor(voucher_event)
 
         queued, skipped = mail_helpers.queue_voucher_emails(voucher_event, [exhibitor], issue_missing=True)
@@ -411,7 +517,8 @@ def test_queue_voucher_emails_still_skips_a_zero_default(voucher_event):
 @pytest.mark.django_db
 def test_queue_voucher_emails_reports_the_addressless_separately(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2, voucher_pool_tag=POOL)
+        _pool(voucher_event, 2)
         no_address = _exhibitor(voucher_event, name="No Address", email="")
         mailable = _mailed_exhibitor(voucher_event, name="Acme")
 
@@ -440,10 +547,10 @@ def test_bulk_preview_counts_existing_vouchers(voucher_event):
         exhibitor = _mailed_exhibitor(voucher_event)
         _issue(exhibitor, count=3)
         view, _request = _bulk_view(voucher_event)
-        sendable, no_email, no_vouchers = view.preview([exhibitor])
+        sendable, no_email, no_vouchers, pool_short = view.preview([exhibitor])
 
     assert sendable == [exhibitor]
-    assert (no_email, no_vouchers) == ([], [])
+    assert (no_email, no_vouchers, pool_short) == ([], [], [])
     assert exhibitor.voucher_total == 3
     assert exhibitor.voucher_new == 0
 
@@ -451,10 +558,11 @@ def test_bulk_preview_counts_existing_vouchers(voucher_event):
 @pytest.mark.django_db
 def test_bulk_preview_keeps_the_voucherless_sendable(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
+        _pool(voucher_event, 4)
         exhibitor = _mailed_exhibitor(voucher_event)
         view, _request = _bulk_view(voucher_event)
-        sendable, _no_email, no_vouchers = view.preview([exhibitor])
+        sendable, _no_email, no_vouchers, _pool_short = view.preview([exhibitor])
 
     assert sendable == [exhibitor]
     assert no_vouchers == []
@@ -465,7 +573,8 @@ def test_bulk_preview_keeps_the_voucherless_sendable(voucher_event):
 @pytest.mark.django_db
 def test_bulk_preview_creates_nothing(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
+        _pool(voucher_event, 4)
         exhibitor = _mailed_exhibitor(voucher_event)
         view, _request = _bulk_view(voucher_event)
         view.preview([exhibitor])
@@ -476,11 +585,11 @@ def test_bulk_preview_creates_nothing(voucher_event):
 @pytest.mark.django_db
 def test_bulk_preview_sorts_the_unsendable_into_buckets(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=0)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=0, voucher_pool_tag=POOL)
         no_address = _exhibitor(voucher_event, name="No Address", email="")
         zero_default = _mailed_exhibitor(voucher_event, name="Zero Default")
         view, _request = _bulk_view(voucher_event)
-        sendable, no_email, no_vouchers = view.preview([no_address, zero_default])
+        sendable, no_email, no_vouchers, _pool_short = view.preview([no_address, zero_default])
 
     assert sendable == []
     assert no_email == [no_address]
@@ -490,7 +599,8 @@ def test_bulk_preview_sorts_the_unsendable_into_buckets(voucher_event):
 @pytest.mark.django_db
 def test_bulk_send_issues_defaults_and_queues_one_email_each(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2, voucher_pool_tag=POOL)
+        _pool(voucher_event, 4)
         first = _mailed_exhibitor(voucher_event, name="First", email="first@example.com")
         second = _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
         view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
@@ -503,12 +613,14 @@ def test_bulk_send_issues_defaults_and_queues_one_email_each(voucher_event):
         assert all(row.sent_at is None for row in outbox)
         assert ExhibitorVoucher.objects.filter(exhibitor=first).count() == 2
         assert ExhibitorVoucher.objects.filter(exhibitor=second).count() == 2
+        assert pool_remaining(voucher_event, POOL) == 0
 
 
 @pytest.mark.django_db
 def test_bulk_send_only_targets_its_own_partner_type(voucher_event):
     with scopes_disabled():
-        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1)
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1, voucher_pool_tag=POOL)
+        _pool(voucher_event, 4)
         _exhibitor(voucher_event, name="Booth", email="booth@example.com", is_exhibitor=True, is_sponsor=False)
         _exhibitor(voucher_event, name="Gold", email="gold@example.com", is_exhibitor=False, is_sponsor=True)
         view, request = _bulk_view(voucher_event, partner_type="sponsor", data={"confirmed": "1"})
@@ -600,3 +712,240 @@ def test_voucher_email_under_the_limit_is_unchanged_by_the_cap(voucher_event):
 
     assert all(voucher.code in queued.body for voucher in vouchers)
     assert "more voucher" not in queued.body
+
+
+@pytest.mark.django_db
+def test_bulk_preview_skips_whoever_the_pool_cannot_cover(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
+        _pool(voucher_event, 6)
+        first = _mailed_exhibitor(voucher_event, name="First", email="first@example.com")
+        second = _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
+        view, _request = _bulk_view(voucher_event)
+
+        sendable, _no_email, _no_vouchers, pool_short = view.preview([first, second])
+
+    assert sendable == [first]
+    assert pool_short == [second]
+
+
+@pytest.mark.django_db
+def test_bulk_preview_draws_the_pool_down_across_the_run(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2, voucher_pool_tag=POOL)
+        _pool(voucher_event, 5)
+        people = [
+            _mailed_exhibitor(voucher_event, name=f"Org {index}", email=f"org{index}@example.com") for index in range(3)
+        ]
+        view, _request = _bulk_view(voucher_event)
+
+        sendable, _no_email, _no_vouchers, pool_short = view.preview(people)
+
+    assert len(sendable) == 2
+    assert pool_short == [people[2]]
+
+
+@pytest.mark.django_db
+def test_bulk_preview_skips_everyone_when_no_pool_is_chosen(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        view, _request = _bulk_view(voucher_event)
+
+        sendable, _no_email, _no_vouchers, pool_short = view.preview([exhibitor])
+
+    assert sendable == []
+    assert pool_short == [exhibitor]
+
+
+@pytest.mark.django_db
+def test_bulk_send_leaves_the_pool_alone_for_whoever_it_skips(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
+        _pool(voucher_event, 6)
+        _mailed_exhibitor(voucher_event, name="First", email="first@example.com")
+        _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+
+        view.post(request)
+
+        assert ExhibitionEmailQueue.objects.filter(event=voucher_event).count() == 1
+        assert pool_remaining(voucher_event, POOL) == 2
+
+
+def _applied_via(exhibitor, *, login, contact=""):
+    """Approve a proposal onto this exhibitor, as the call-for-exhibitors flow does."""
+    user = User.objects.create_user(email=login, password="pw")
+    return ExhibitionProposal.objects.create(
+        event=exhibitor.event,
+        user=user,
+        name="Acme Corp",
+        email=contact,
+        state=ExhibitionProposalState.ACCEPTED,
+        approved_exhibitor=exhibitor,
+    )
+
+
+@pytest.mark.django_db
+def test_recipient_email_prefers_the_stored_address(voucher_event):
+    with scopes_disabled():
+        exhibitor = _exhibitor(voucher_event, email="stored@example.com")
+        _applied_via(exhibitor, login="login@example.com")
+
+        assert exhibitor.recipient_email == "stored@example.com"
+
+
+@pytest.mark.django_db
+def test_recipient_email_falls_back_to_the_login_address(voucher_event):
+    with scopes_disabled():
+        exhibitor = _exhibitor(voucher_event, email="")
+        _applied_via(exhibitor, login="login@example.com")
+
+        assert exhibitor.recipient_email == "login@example.com"
+
+
+@pytest.mark.django_db
+def test_recipient_email_prefers_the_proposal_contact_over_the_login(voucher_event):
+    with scopes_disabled():
+        exhibitor = _exhibitor(voucher_event, email="")
+        _applied_via(exhibitor, login="login@example.com", contact="contact@example.com")
+
+        assert exhibitor.recipient_email == "contact@example.com"
+
+
+@pytest.mark.django_db
+def test_recipient_email_is_blank_for_a_manually_added_partner(voucher_event):
+    with scopes_disabled():
+        assert _exhibitor(voucher_event, email="").recipient_email == ""
+
+
+@pytest.mark.django_db
+def test_voucher_email_goes_to_the_login_address_when_none_is_stored(voucher_event):
+    with scopes_disabled():
+        exhibitor = _exhibitor(voucher_event, email="")
+        _applied_via(exhibitor, login="login@example.com")
+        queued = mail_helpers.queue_voucher_email(voucher_event, exhibitor, _issue(exhibitor))
+
+    assert queued is not None
+    assert queued.to_email == "login@example.com"
+
+
+@pytest.mark.django_db
+def test_bulk_send_reaches_partners_with_only_a_login_address(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=2, voucher_pool_tag=POOL)
+        _pool(voucher_event, 2)
+        exhibitor = _exhibitor(voucher_event, email="")
+        _applied_via(exhibitor, login="login@example.com")
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+
+        view.post(request)
+
+        outbox = ExhibitionEmailQueue.objects.filter(event=voucher_event, role=mail_helpers.VOUCHERS)
+        assert [row.to_email for row in outbox] == ["login@example.com"]
+
+
+@pytest.mark.django_db
+def test_a_voucher_cannot_be_linked_to_two_exhibitors(voucher_event):
+    """The pool's real guarantee: the link table refuses a code that is already handed out."""
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        voucher = _pool(voucher_event, 1)[0]
+        first = _exhibitor(voucher_event, name="First")
+        second = _exhibitor(voucher_event, name="Second")
+
+        ExhibitorVoucher.objects.create(exhibitor=first, voucher=voucher)
+        with pytest.raises(IntegrityError), transaction.atomic():
+            ExhibitorVoucher.objects.create(exhibitor=second, voucher=voucher)
+
+
+@pytest.mark.django_db
+def test_a_claimed_code_leaves_the_pool_for_everyone_else(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        _pool(voucher_event, 3)
+        first = _exhibitor(voucher_event, name="First")
+        second = _exhibitor(voucher_event, name="Second")
+
+        taken = {link.voucher_id for link in claim_pool_vouchers(first, 2, pool_tag=POOL)}
+        left = {link.voucher_id for link in claim_pool_vouchers(second, 1, pool_tag=POOL)}
+
+    assert len(taken) == 2
+    assert len(left) == 1
+    assert not taken & left
+
+
+def _voucher_view(exhibitor, data):
+    request = RequestFactory().post("/vouchers", data=data)
+    request.event = exhibitor.event
+    request.user = None
+    request.session = {}
+    request._messages = FallbackStorage(request)
+    view = ExhibitorVoucherManageView()
+    view.request = request
+    view.object = exhibitor
+    view.kwargs = {"pk": exhibitor.pk}
+    return view, request
+
+
+@pytest.mark.django_db
+def test_an_unemailed_code_goes_back_to_the_pool(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        _issue(exhibitor, count=2)
+        link = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).first()
+        view, request = _voucher_view(exhibitor, {"action": "delete", "voucher": link.pk})
+
+        view.remove_voucher(request)
+
+        assert not ExhibitorVoucher.objects.filter(pk=link.pk).exists()
+        assert pool_remaining(voucher_event, POOL) == 1
+
+
+@pytest.mark.django_db
+def test_an_emailed_code_cannot_go_back_to_the_pool(voucher_event):
+    """Returning it would hand the code to someone else while the first partner still holds it."""
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        vouchers = _issue(exhibitor, count=2)
+        mail_helpers.queue_voucher_email(voucher_event, exhibitor, vouchers)
+        link = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).first()
+        view, request = _voucher_view(exhibitor, {"action": "delete", "voucher": link.pk})
+
+        view.remove_voucher(request)
+
+        assert ExhibitorVoucher.objects.filter(pk=link.pk).exists()
+        assert pool_remaining(voucher_event, POOL) == 0
+
+
+@pytest.mark.django_db
+def test_a_code_assigned_after_the_last_email_still_goes_back(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        mail_helpers.queue_voucher_email(voucher_event, exhibitor, _issue(exhibitor, count=1))
+        _pool(voucher_event, 1)
+        later = claim_pool_vouchers(exhibitor, 1, pool_tag=POOL)[0]
+        view, request = _voucher_view(exhibitor, {"action": "delete", "voucher": later.pk})
+
+        view.remove_voucher(request)
+
+        assert not ExhibitorVoucher.objects.filter(pk=later.pk).exists()
+
+
+@pytest.mark.django_db
+def test_pool_lookup_ignores_links_from_other_events(voucher_event):
+    with scopes_disabled():
+        other = Organizer.objects.create(name="Other", slug="other-org")
+        other_event = Event.objects.create(
+            organizer=other, name="Other Event", slug="other-event", live=True, date_from=now()
+        )
+        _pool(other_event, 2)
+        other_exhibitor = _exhibitor(other_event, name="Elsewhere")
+        claim_pool_vouchers(other_exhibitor, 2, pool_tag=POOL)
+
+        _pool(voucher_event, 3)
+
+        assert pool_remaining(voucher_event, POOL) == 3

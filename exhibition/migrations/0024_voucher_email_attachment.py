@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("base", "0001_initial"),
-        ("exhibition", "0024_remove_optional_profile_fields"),
+        ("exhibition", "0023_voucher_defaults_and_email_role"),
     ]
 
     operations = [

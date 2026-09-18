@@ -3,13 +3,14 @@ import secrets
 import string
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.db.models import Max, Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
-from eventyay.base.models import Device, Event, PriceModeChoices, Product, Voucher
+from eventyay.base.models import Device, Event, Voucher
 from eventyay.base.models.base import LoggedModel
 from eventyay.common.utils.language import localize_event_text
 from i18nfield.fields import I18nCharField, I18nTextField
@@ -93,6 +94,15 @@ def exhibitor_header_image_path(instance, filename):
     return os.path.join("exhibitors", "headers", str(name), filename)
 
 
+def exhibitor_slides_path(instance, filename):
+    name = instance.name
+    if isinstance(name, LazyI18nString):
+        event = getattr(instance, "event", None)
+        locale = getattr(event, "locale", None) if event is not None else None
+        name = name.localize(locale) if locale else str(name)
+    return os.path.join("exhibitors", "slides", str(name), filename)
+
+
 def proposal_file_path(instance, filename, file_type):
     code = instance.code or "new"
     return os.path.join("exhibition-proposals", str(code), file_type, filename)
@@ -111,13 +121,9 @@ def exhibition_answer_path(instance, filename):
     return os.path.join("exhibition-proposals", str(code), "answers", str(instance.question_id), filename)
 
 
-LOCKED_FIELD_NOTICE = _(
-    "This field is required for the exhibitor profile to display on the public event page and cannot be removed."
-)
+def proposal_slides_path(instance, filename):
+    return proposal_file_path(instance, filename, "slides")
 
-LOGO_HELP_TEXT = _("PNG, JPG or SVG, up to 10 MB. A square image of at least 400 × 400 pixels works best.")
-
-HEADER_IMAGE_HELP_TEXT = _("PNG, JPG or SVG, up to 10 MB. A wide image of at least 1200 × 400 pixels works best.")
 
 PROPOSAL_DEFAULT_FIELDS = (
     {
@@ -128,40 +134,40 @@ PROPOSAL_DEFAULT_FIELDS = (
         "active_locked": True,
         "required_locked": True,
     },
-    {"key": "description", "label": _("Organization description"), "active": True, "required": True},
-    {"key": "url", "label": _("Organization website"), "active": True, "required": True},
-    {
-        "key": "logo",
-        "label": _("Logo"),
-        "help_text": LOGO_HELP_TEXT,
-        "lock_notice": LOCKED_FIELD_NOTICE,
-        "active": True,
-        "required": True,
-        "active_locked": True,
-        "required_locked": True,
-    },
+    {"key": "description", "label": _("Organization description"), "active": True},
+    {"key": "email", "label": _("Contact email"), "active": False},
+    {"key": "url", "label": _("Organization website"), "active": False},
+    {"key": "contact_url", "label": _("Contact page URL"), "active": False},
+    {"key": "video_url", "label": _("Promotional video URL"), "active": False},
+    {"key": "slides", "label": _("Promotional slides"), "active": False},
+    {"key": "logo", "label": _("Logo"), "active": False},
     {
         "key": "header_image",
         "label": _("Header image"),
-        "help_text": HEADER_IMAGE_HELP_TEXT,
-        "lock_notice": LOCKED_FIELD_NOTICE,
-        "active": True,
-        "required": True,
-        "active_locked": True,
-        "required_locked": True,
+        "active": False,
+    },
+    {"key": "booth_name", "label": _("Preferred booth name"), "active": False},
+    {
+        "key": "notes",
+        "label": _("Message to the organizers"),
+        "active": False,
     },
     {
         "key": "social_links",
         "label": _("Social media"),
-        "active": True,
-        "required": True,
+        "active": False,
+    },
+    {
+        "key": "extra_links",
+        "label": _("Extra links"),
+        "active": False,
     },
 )
 
 
 PROPOSAL_DEFAULT_FIELD_KEYS = tuple(field["key"] for field in PROPOSAL_DEFAULT_FIELDS)
 
-PROPOSAL_FORMSET_FIELD_KEYS = ("social_links",)
+PROPOSAL_FORMSET_FIELD_KEYS = ("social_links", "extra_links")
 
 
 def default_proposal_field_settings():
@@ -200,32 +206,11 @@ def default_allowed_fields():
 
 
 class VoucherDefaultsMixin(models.Model):
-    """Default voucher settings applied when issuing/sending vouchers without overriding them."""
+    """How many pool vouchers an exhibitor or sponsor receives when none is set on them directly."""
 
     voucher_default_count = models.PositiveIntegerField(
         default=1,
-        verbose_name=_("Default number of vouchers"),
-    )
-    voucher_default_product = models.ForeignKey(
-        Product,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        verbose_name=_("Default ticket product"),
-    )
-    voucher_default_price_mode = models.CharField(
-        max_length=20,
-        choices=PriceModeChoices.choices,
-        default=PriceModeChoices.NONE,
-        verbose_name=_("Default price effect"),
-    )
-    voucher_default_value = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        verbose_name=_("Default value"),
+        verbose_name=_("Vouchers per exhibitor"),
     )
 
     class Meta:
@@ -234,12 +219,35 @@ class VoucherDefaultsMixin(models.Model):
 
 class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     event = models.ForeignKey("base.Event", on_delete=models.CASCADE)
+    voucher_pool_tag = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Exhibitor voucher pool"),
+        help_text=_("The voucher tag created under Tickets → Vouchers that exhibitors draw their codes from."),
+    )
+    sponsor_voucher_pool_tag = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Sponsor voucher pool"),
+        help_text=_("Leave empty to draw sponsor codes from the exhibitor pool as well."),
+    )
     exhibitors_access_mail_subject = models.CharField(max_length=255)
     exhibitors_access_mail_body = models.TextField()
     voucher_attach_csv = models.BooleanField(
         default=True,
         verbose_name=_("Attach voucher list as CSV"),
         help_text=_("Adds a spreadsheet of the recipient's own voucher codes to the voucher email."),
+    )
+    device_default_count = models.PositiveIntegerField(
+        default=1,
+        validators=[MaxValueValidator(50)],
+        verbose_name=_("Devices per profile"),
+        help_text=_(
+            "Created automatically when lead scanning is enabled for an exhibitor or sponsor that has no "
+            "devices yet, and the access email is queued right away. Set to 0 to add devices by hand."
+        ),
     )
     allowed_fields = models.JSONField(default=default_allowed_fields)
     call_enabled = models.BooleanField(default=False)
@@ -291,10 +299,8 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
             normalized[key]["custom_label"] = custom_label
             normalized[key]["custom_help_text"] = custom_help_text
             normalized[key]["label"] = custom_label or field["label"]
-            normalized[key]["help_text"] = custom_help_text or field.get("help_text") or ""
+            normalized[key]["help_text"] = custom_help_text or ""
             normalized[key]["default_label"] = field["label"]
-            normalized[key]["default_help_text"] = field.get("help_text") or ""
-            normalized[key]["lock_notice"] = field.get("lock_notice") or ""
             if field.get("active_locked"):
                 normalized[key]["active"] = True
             if field.get("required_locked"):
@@ -350,6 +356,15 @@ class ExhibitorInfo(LoggedModel):
     description = I18nTextField(verbose_name=_("Description"), null=True, blank=True)
     url = models.URLField(verbose_name=_("URL"), null=True, blank=True)
     email = models.EmailField(verbose_name=_("Email"), null=True, blank=True)
+    contact_url = models.URLField(verbose_name=_("Contact URL"), null=True, blank=True)
+    video_url = models.URLField(verbose_name=_("Video URL"), null=True, blank=True)
+    slides = models.FileField(
+        upload_to=exhibitor_slides_path,
+        verbose_name=_("Slides"),
+        null=True,
+        blank=True,
+    )
+    slides_url = models.URLField(verbose_name=_("Slides URL"), null=True, blank=True)
     logo = models.ImageField(upload_to=exhibitor_logo_path, null=True, blank=True)
     logo_url = models.URLField(verbose_name=_("Logo URL"), null=True, blank=True)
     header_image = models.ImageField(upload_to=exhibitor_header_image_path, null=True, blank=True)
@@ -384,6 +399,12 @@ class ExhibitorInfo(LoggedModel):
     lead_scanning_scope_by_device = models.BooleanField(default=False)
     exhibitor_position = models.IntegerField(default=0)
     sponsor_position = models.IntegerField(default=0)
+    sessions = models.ManyToManyField(
+        "base.Submission",
+        blank=True,
+        related_name="exhibitors",
+        verbose_name=_("Related sessions"),
+    )
 
     class Meta:
         ordering = ("name",)
@@ -405,6 +426,23 @@ class ExhibitorInfo(LoggedModel):
             if self.is_sponsor and not self.sponsor_position:
                 self.sponsor_position = get_next_sponsor_position(self.event, self.sponsor_group)
         super().save(*args, **kwargs)
+
+    @property
+    def recipient_email(self):
+        """Where mail for this partner goes.
+
+        Their own address when one was stored, otherwise the account that applied for them —
+        the same fallback the lifecycle emails use, since the address is no longer editable on
+        the profile form and manually created partners never get one.
+        """
+        stored = (self.email or "").strip()
+        if stored:
+            return stored
+        proposals = sorted(self.source_proposals.all(), key=lambda proposal: proposal.pk, reverse=True)
+        if not proposals:
+            return ""
+        latest = proposals[0]
+        return (latest.email or "").strip() or (latest.user.email if latest.user_id else "")
 
     @property
     def localized_booth_name(self):
@@ -430,6 +468,14 @@ class ExhibitorInfo(LoggedModel):
             return self.header_image.url
         return ""
 
+    @property
+    def visible_slides_url(self):
+        if self.slides_url:
+            return self.slides_url
+        if self.slides:
+            return self.slides.url
+        return ""
+
 
 class ExhibitorSocialLink(models.Model):
     exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="social_links")
@@ -445,6 +491,18 @@ class ExhibitorSocialLink(models.Model):
 
     def __str__(self):
         return f"{self.get_network_display()}: {self.url}"
+
+
+class ExhibitorExtraLink(models.Model):
+    exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="extra_links")
+    label = models.CharField(max_length=120, verbose_name=_("Label"))
+    url = models.URLField(verbose_name=_("URL"))
+
+    class Meta:
+        ordering = ("label", "url")
+
+    def __str__(self):
+        return f"{self.label}: {self.url}"
 
 
 class ExhibitionProposalState(models.TextChoices):
@@ -518,10 +576,17 @@ LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
 
 SUBMITTER_PROFILE_FIELD_LABELS = {
     "description": _("Organization Description"),
+    "email": _("Contact email"),
     "url": _("Organization Website"),
+    "contact_url": _("Contact Page URL"),
+    "video_url": _("Promotional Video URL"),
+    "slides": _("Promotional Slides"),
     "logo": _("Logo"),
     "header_image": _("Header Image"),
+    "booth_name": _("Preferred booth name"),
+    "notes": _("Message to the organizers"),
     "social_links": _("Social Media"),
+    "extra_links": _("Extra Links"),
 }
 
 
@@ -563,6 +628,15 @@ class ExhibitionProposal(LoggedModel):
     )
     url = models.URLField(verbose_name=_("URL"), null=True, blank=True)
     email = models.EmailField(verbose_name=_("Email"), null=True, blank=True)
+    contact_url = models.URLField(verbose_name=_("Contact URL"), null=True, blank=True)
+    video_url = models.URLField(verbose_name=_("Video URL"), null=True, blank=True)
+    slides = models.FileField(
+        upload_to=proposal_slides_path,
+        verbose_name=_("Slides"),
+        null=True,
+        blank=True,
+    )
+    slides_url = models.URLField(verbose_name=_("Slides URL"), null=True, blank=True)
     logo = models.ImageField(upload_to=proposal_logo_path, null=True, blank=True)
     logo_url = models.URLField(verbose_name=_("Logo URL"), null=True, blank=True)
     header_image = models.ImageField(upload_to=proposal_header_image_path, null=True, blank=True)
@@ -585,6 +659,11 @@ class ExhibitionProposal(LoggedModel):
         max_length=100,
         verbose_name=_("Booth name"),
         blank=True,
+    )
+    notes = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name=_("Message to the organizers"),
     )
     review_notes = models.TextField(
         null=True,
@@ -696,10 +775,17 @@ class ExhibitionProposal(LoggedModel):
         """Serialise the submitter-owned profile fields into a comparable {key: text} mapping."""
         values = {
             "description": localize_event_text(self.description) or "",
+            "email": self.email or "",
             "url": self.url or "",
+            "contact_url": self.contact_url or "",
+            "video_url": self.video_url or "",
+            "slides": self.visible_slides_url,
             "logo": self.visible_logo_url,
             "header_image": self.visible_header_image_url,
+            "booth_name": self.localized_booth_name,
+            "notes": self.notes or "",
             "social_links": "\n".join(f"{link.get_network_display()}: {link.url}" for link in self.social_links.all()),
+            "extra_links": "\n".join(f"{link.label}: {link.url}" for link in self.extra_links.all()),
         }
         for answer in self.answers.all():
             values[f"answer_{answer.question_id}"] = str(answer.answer_string)
@@ -778,6 +864,14 @@ class ExhibitionProposal(LoggedModel):
             return self.header_image.url
         return ""
 
+    @property
+    def visible_slides_url(self):
+        if self.slides_url:
+            return self.slides_url
+        if self.slides:
+            return self.slides.url
+        return ""
+
 
 class ExhibitionProposalSocialLink(models.Model):
     proposal = models.ForeignKey(ExhibitionProposal, on_delete=models.CASCADE, related_name="social_links")
@@ -793,6 +887,18 @@ class ExhibitionProposalSocialLink(models.Model):
 
     def __str__(self):
         return f"{self.get_network_display()}: {self.url}"
+
+
+class ExhibitionProposalExtraLink(models.Model):
+    proposal = models.ForeignKey(ExhibitionProposal, on_delete=models.CASCADE, related_name="extra_links")
+    label = models.CharField(max_length=120, verbose_name=_("Label"))
+    url = models.URLField(verbose_name=_("URL"))
+
+    class Meta:
+        ordering = ("label", "url")
+
+    def __str__(self):
+        return f"{self.label}: {self.url}"
 
 
 class ExhibitionQuestionVariant(models.TextChoices):

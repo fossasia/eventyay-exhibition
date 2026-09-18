@@ -7,6 +7,7 @@
 {% block custom_header %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/history-panel.css' %}">
+    <script defer src="{% static 'exhibition/js/proposal-review.js' %}"></script>
 {% endblock %}
 
 {% block title %}{{ request.event.name }} - {% trans "Review exhibition request" %}{% endblock %}
@@ -74,6 +75,14 @@
                         {{ proposal.user.get_display_name|default:proposal.user.email }}
                     {% endif %}
                 </dd>
+                <dt>{% trans "Email" %}</dt>
+                <dd>
+                    {% if hide_applicant_emails %}
+                        <span class="text-muted">{% trans "Hidden" %}</span>
+                    {% else %}
+                        {{ proposal.email|default:"-" }}
+                    {% endif %}
+                </dd>
                 <dt>{% trans "State" %}</dt>
                 <dd>{{ proposal.get_state_display }}</dd>
                 {% if request.event.is_multilingual %}
@@ -94,6 +103,12 @@
                 </dd>
                 <dt>{% trans "URL" %}</dt>
                 <dd>{% if proposal.url %}<a href="{{ proposal.url }}">{{ proposal.url }}</a>{% else %}-{% endif %}</dd>
+                <dt>{% trans "Contact URL" %}</dt>
+                <dd>{% if proposal.contact_url %}<a href="{{ proposal.contact_url }}">{{ proposal.contact_url }}</a>{% else %}-{% endif %}</dd>
+                <dt>{% trans "Video URL" %}</dt>
+                <dd>{% if proposal.video_url %}<a href="{{ proposal.video_url }}">{{ proposal.video_url }}</a>{% else %}-{% endif %}</dd>
+                <dt>{% trans "Slides" %}</dt>
+                <dd>{% if proposal.visible_slides_url %}<a href="{{ proposal.visible_slides_url }}">{{ proposal.visible_slides_url }}</a>{% else %}-{% endif %}</dd>
                 <dt>{% trans "Logo" %}</dt>
                 <dd>{% if proposal.visible_logo_url %}<a href="{{ proposal.visible_logo_url }}">{{ proposal.visible_logo_url }}</a>{% else %}-{% endif %}</dd>
                 <dt>{% trans "Header image" %}</dt>
@@ -103,10 +118,14 @@
                 <h4>{% trans "Description" %}</h4>
                 <p>{{ proposal.description|event_localize|linebreaksbr }}</p>
             {% endif %}
+            {% if proposal.notes %}
+                <h4>{% trans "Message to organizers" %}</h4>
+                <p>{{ proposal.notes|linebreaksbr }}</p>
+            {% endif %}
         </div>
     </div>
 
-    {% if proposal.social_links.all %}
+    {% if proposal.social_links.all or proposal.extra_links.all %}
         <div class="panel panel-default">
             <div class="panel-heading"><h3 class="panel-title">{% trans "Links" %}</h3></div>
             <div class="panel-body">
@@ -115,6 +134,14 @@
                     <ul>
                         {% for link in proposal.social_links.all %}
                             <li>{{ link.get_network_display }}: <a href="{{ link.url }}">{{ link.url }}</a></li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                {% if proposal.extra_links.all %}
+                    <h4>{% trans "Extra links" %}</h4>
+                    <ul>
+                        {% for link in proposal.extra_links.all %}
+                            <li>{{ link.label }}: <a href="{{ link.url }}">{{ link.url }}</a></li>
                         {% endfor %}
                     </ul>
                 {% endif %}
@@ -151,9 +178,13 @@
             {% if can_review %}
                 {% bootstrap_field form.is_exhibitor layout="control" %}
                 {% bootstrap_field form.is_sponsor layout="control" %}
-                {% bootstrap_field form.sponsor_group layout="control" %}
-                {% bootstrap_field form.booth_id layout="control" %}
-                {% bootstrap_field form.booth_name layout="control" %}
+                <div data-partner-type-field="sponsor">
+                    {% bootstrap_field form.sponsor_group layout="control" %}
+                </div>
+                <div data-partner-type-field="exhibitor">
+                    {% bootstrap_field form.booth_id layout="control" %}
+                    {% bootstrap_field form.booth_name layout="control" %}
+                </div>
             {% endif %}
             {% bootstrap_field form.review_notes layout="control" %}
         </fieldset>

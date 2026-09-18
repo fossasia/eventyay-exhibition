@@ -263,14 +263,21 @@ def _render_device_block(name, setup_url, token):
     )
 
 
-def render_device_tokens(exhibitor):
-    """One setup URL, token and QR code per lead-scanning device linked to the exhibitor."""
+def devices_awaiting_setup(exhibitor):
+    """Linked devices whose setup token has not been used yet."""
     from .models import ExhibitorDevice
 
+    return ExhibitorDevice.objects.filter(exhibitor=exhibitor, device__initialized__isnull=True).select_related(
+        "device"
+    )
+
+
+def render_device_tokens(exhibitor):
+    """One setup URL, token and QR code per device that still needs setting up."""
     setup_url = device_setup_url()
     blocks = [
         _render_device_block(link.device.name, setup_url, link.device.initialization_token)
-        for link in ExhibitorDevice.objects.filter(exhibitor=exhibitor).select_related("device")
+        for link in devices_awaiting_setup(exhibitor)
     ]
     return "".join(blocks)
 
@@ -439,12 +446,21 @@ def queue_compose_emails(event, proposals, subject, body, *, scheduled_at=None, 
     return created
 
 
+def exhibitor_has_devices(exhibitor):
+    """Whether any lead-scanning device is linked, and so the access email has tokens to carry."""
+    from .models import ExhibitorDevice
+
+    return ExhibitorDevice.objects.filter(exhibitor=exhibitor).exists()
+
+
 def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
-    """Queue the access-credentials email; ``None`` if the exhibitor has no email address."""
+    """Queue the access-credentials email; ``None`` without a recipient or any device to set up."""
     from .models import ExhibitionEmailQueue
 
-    to_email = (exhibitor.email or "").strip()
+    to_email = exhibitor.recipient_email
     if not to_email:
+        return None
+    if not devices_awaiting_setup(exhibitor).exists():
         return None
 
     subject_tpl, body_tpl = get_email_template(event, EXHIBITOR_ACCESS)
@@ -475,7 +491,7 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
     from .models import ExhibitionEmailQueue, ExhibitorSettings
     from .utils import store_voucher_csv
 
-    to_email = (exhibitor.email or "").strip()
+    to_email = exhibitor.recipient_email
     if not to_email:
         return None
 
@@ -506,22 +522,15 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
 
 VOUCHER_SKIP_NO_EMAIL = "no_email"
 VOUCHER_SKIP_NO_VOUCHERS = "no_vouchers"
+VOUCHER_SKIP_POOL_EMPTY = "pool_empty"
 
 
-def issue_default_vouchers(exhibitor, *, event_settings=None):
-    """Create a batch from this exhibitor's resolved defaults; empty when the default count is 0."""
-    from .utils import generate_exhibitor_vouchers, resolve_voucher_defaults
+def claim_default_vouchers(exhibitor, *, event_settings=None):
+    """Claim this exhibitor's share from their pool; empty when the count is 0 or the pool is short."""
+    from .utils import claim_pool_vouchers, resolve_voucher_defaults
 
     defaults = resolve_voucher_defaults(exhibitor, event_settings=event_settings)
-    if not defaults["count"]:
-        return []
-    return generate_exhibitor_vouchers(
-        exhibitor,
-        product=defaults["product"],
-        count=defaults["count"],
-        price_mode=defaults["price_mode"],
-        value=defaults["value"],
-    )
+    return claim_pool_vouchers(exhibitor, defaults["count"], pool_tag=defaults["pool_tag"])
 
 
 def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=False):
@@ -530,18 +539,23 @@ def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=Fal
     With ``issue_missing``, an exhibitor holding no vouchers gets a batch created from their
     defaults first, so a bulk send does not skip everyone who was never issued vouchers by hand.
     """
-    from .utils import event_voucher_settings
+    from .utils import event_exhibitor_settings, resolve_voucher_defaults
 
     queued = []
-    skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: []}
-    event_settings = event_voucher_settings(event) if issue_missing else None
+    skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: [], VOUCHER_SKIP_POOL_EMPTY: []}
+    event_settings = event_exhibitor_settings(event) if issue_missing else None
     for exhibitor in exhibitors:
-        if not (exhibitor.email or "").strip():
+        if not exhibitor.recipient_email:
             skipped[VOUCHER_SKIP_NO_EMAIL].append(exhibitor)
             continue
         vouchers = exhibitor_vouchers(exhibitor)
-        if not vouchers and issue_missing and issue_default_vouchers(exhibitor, event_settings=event_settings):
-            vouchers = exhibitor_vouchers(exhibitor)
+        if not vouchers and issue_missing:
+            wanted = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
+            if claim_default_vouchers(exhibitor, event_settings=event_settings):
+                vouchers = exhibitor_vouchers(exhibitor)
+            elif wanted:
+                skipped[VOUCHER_SKIP_POOL_EMPTY].append(exhibitor)
+                continue
         if not vouchers:
             skipped[VOUCHER_SKIP_NO_VOUCHERS].append(exhibitor)
             continue

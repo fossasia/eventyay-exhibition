@@ -9,6 +9,7 @@
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-add.css' %}">
     <link rel="stylesheet" href="{% static 'exhibition/css/history-panel.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/session-select.css' %}">
 {% endblock %}
 
 {% block exhibitors_header %}
@@ -16,7 +17,7 @@
 {% endblock %}
 
 {% block exhibitors_content %}
-<form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
+<form action="" method="post" class="form-horizontal exhibition-partner-form" enctype="multipart/form-data">
     {% csrf_token %}
     {% bootstrap_form_errors form %}
 
@@ -86,6 +87,65 @@
                         {% endif %}
                     </div>
                 </div>
+            {% elif item.kind == 'extra_links' %}
+                <div class="form-group {% if extra_links_formset.non_form_errors %}has-error{% endif %}">
+                    <label class="col-md-3 control-label partner-link-group-label">
+                        <span class="label-text">{% trans "Extra Links" %}{% if form.profile_field_settings.extra_links.required %}<span aria-hidden="true" class="required-indicator text-danger"> *</span><span class="sr-only">, {% trans "required" %}</span>{% endif %}</span>{% if not form.profile_field_settings.extra_links.required %}<br><span class="optional">{% trans "Optional" %}</span>{% endif %}
+                    </label>
+                    <div class="col-md-9">
+                        <div id="extra-links-formset" class="partner-link-formset formset" data-formset-prefix="{{ extra_links_formset.prefix }}">
+                            {{ extra_links_formset.management_form }}
+                            <div data-formset-body>
+                                {% for extra_form in extra_links_formset %}
+                                    <div class="row partner-link-row" data-formset-form>
+                                        <div class="sr-only">{{ extra_form.id }} {{ extra_form.DELETE }}</div>
+                                        <div class="col-md-4">
+                                            {{ extra_form.label.errors }}
+                                            {{ extra_form.label }}
+                                        </div>
+                                        <div class="col-md-7">
+                                            {{ extra_form.url.errors }}
+                                            {{ extra_form.url }}
+                                        </div>
+                                        <div class="col-md-1 text-right">
+                                            <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button>
+                                                <i class="fa fa-minus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <template data-formset-empty-form>
+                                <div class="row partner-link-row" data-formset-form>
+                                    <div class="sr-only">{{ extra_links_formset.empty_form.id }} {{ extra_links_formset.empty_form.DELETE }}</div>
+                                    <div class="col-md-4">
+                                        {{ extra_links_formset.empty_form.label.errors }}
+                                        {{ extra_links_formset.empty_form.label }}
+                                    </div>
+                                    <div class="col-md-7">
+                                        {{ extra_links_formset.empty_form.url.errors }}
+                                        {{ extra_links_formset.empty_form.url }}
+                                    </div>
+                                    <div class="col-md-1 text-right">
+                                        <button type="button" class="btn btn-delete btn-danger btn-sm partner-link-remove" data-formset-delete-button>
+                                            <i class="fa fa-minus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                            <div class="partner-link-actions">
+                                <button type="button" class="btn btn-default btn-sm partner-link-add" data-formset-add>
+                                    <i class="fa fa-plus"></i> {% trans "Add extra link" %}
+                                </button>
+                            </div>
+                        </div>
+                        {% if extra_links_formset.non_form_errors %}
+                            <p class="help-block">{{ extra_links_formset.non_form_errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% elif item.kind == 'slides' %}
+                {% bootstrap_field form.slides layout="control" %}
             {% elif item.kind == 'logo' %}
                 <div
                     data-partner-image-source-pair
@@ -126,6 +186,10 @@
                         </div>
                     </div>
                 </div>
+            {% elif item.key == 'booth_name' %}
+                <div id="booth-name-wrapper">
+                    {% bootstrap_field item.field layout="control" %}
+                </div>
             {% else %}
                 {% bootstrap_field item.field layout="control" %}
             {% endif %}
@@ -153,6 +217,11 @@
         {% if form.booth_id %}
         <div id="booth-id-wrapper">
             {% bootstrap_field form.booth_id layout="control" %}
+        </div>
+        {% endif %}
+        {% if form.sessions %}
+        <div id="sessions-wrapper">
+            {% bootstrap_field form.sessions layout="control" %}
         </div>
         {% endif %}
     </fieldset>
@@ -208,4 +277,5 @@
 {% include "exhibitors/_image_preview_dialog.html" %}
 <script type="text/javascript" src="{% static 'exhibition/js/exhibitors-add.js' %}"></script>
 <script type="text/javascript" src="{% static 'exhibition/js/image-preview-dialog.js' %}"></script>
+<script type="text/javascript" src="{% static 'exhibition/js/session-select.js' %}"></script>
 {% endblock %}

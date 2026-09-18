@@ -1,11 +1,15 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlparse
 
+from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
-from eventyay.common.urls import get_url_origin
+from django_scopes import scope
+from eventyay.base.models import TalkSlot
+from eventyay.common.urls import get_url_origin, normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
+from eventyay.talk_rules.agenda import is_agenda_visible
 from i18nfield.strings import LazyI18nString
 
 if TYPE_CHECKING:
@@ -67,9 +71,27 @@ def public_exhibitors_queryset(event) -> QuerySet["ExhibitorInfo"]:
     return (
         ExhibitorInfo.objects.filter(event=event, is_exhibitor=True, active=True)
         .filter(has_logo, has_header)
-        .prefetch_related("social_links")
+        .prefetch_related("social_links", "extra_links")
         .order_by("exhibitor_position", "name", "pk")
     )
+
+
+def public_exhibitor_sessions(exhibitor: "ExhibitorInfo", user) -> list[TalkSlot]:
+    """Scheduled slots for an exhibitor's sessions that are live on the published schedule."""
+    event = exhibitor.event
+    with scope(event=event):
+        if not is_agenda_visible(user, event):
+            return []
+        return list(
+            TalkSlot.objects.filter(
+                schedule=event.current_schedule,
+                is_visible=True,
+                submission__in=exhibitor.sessions.all(),
+            )
+            .select_related("submission", "submission__track", "room")
+            .prefetch_related("submission__speakers")
+            .order_by("start", "pk")
+        )
 
 
 def allow_blob_image_previews(request):
@@ -103,11 +125,68 @@ def add_external_image_csp_sources(request, image_urls):
     request._external_image_csp_sources = sources
 
 
+def build_exhibitor_video_embed(url: str) -> dict | None:
+    url = (url or "").strip()
+    if not url:
+        return None
+
+    normalized = normalize_url_scheme(url)
+    parsed = urlparse(normalized)
+    host = parsed.netloc.lower()
+    path = parsed.path.strip("/")
+    path_parts = [part for part in path.split("/") if part]
+
+    if host in {"youtu.be", "www.youtu.be"} and path_parts:
+        return {
+            "type": "iframe",
+            "url": f"https://www.youtube.com/embed/{path_parts[0]}",
+        }
+
+    if host in {
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "youtube-nocookie.com",
+        "www.youtube-nocookie.com",
+    }:
+        video_id = ""
+        if path_parts[:1] == ["watch"]:
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+        elif path_parts[:1] in (["embed"], ["shorts"], ["live"]):
+            video_id = path_parts[1] if len(path_parts) > 1 else ""
+        if video_id:
+            return {
+                "type": "iframe",
+                "url": f"https://www.youtube.com/embed/{video_id}",
+            }
+
+    if host in {"vimeo.com", "www.vimeo.com", "player.vimeo.com"}:
+        video_id = ""
+        if path_parts[:2] == ["video", path_parts[1] if len(path_parts) > 1 else ""]:
+            video_id = path_parts[1]
+        elif path_parts:
+            video_id = path_parts[-1]
+        if video_id.isdigit():
+            return {
+                "type": "iframe",
+                "url": f"https://player.vimeo.com/video/{video_id}",
+            }
+
+    if any(parsed.path.lower().endswith(ext) for ext in (".mp4", ".m4v", ".webm", ".ogg", ".mov")):
+        return {"type": "video", "url": normalized}
+
+    if "/embed/" in parsed.path and parsed.scheme == "https":
+        return {"type": "iframe", "url": normalized}
+
+    return None
+
+
 def create_exhibitor_from_proposal(proposal, requestor=None):
     from .models import (
         LOG_PARTNER_CREATED,
         LOG_PARTNER_REACTIVATED,
         ExhibitionProposalState,
+        ExhibitorExtraLink,
         ExhibitorInfo,
         ExhibitorSocialLink,
         generate_booth_id,
@@ -145,7 +224,11 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
         name=proposal.name,
         description=proposal.description,
         url=proposal.url,
-        email=(proposal.email or "").strip() or (proposal.user.email if proposal.user_id else ""),
+        email=proposal.email,
+        contact_url=proposal.contact_url,
+        video_url=proposal.video_url,
+        slides=proposal.slides,
+        slides_url=proposal.slides_url,
         logo=proposal.logo,
         logo_url=proposal.logo_url,
         header_image=proposal.header_image,
@@ -164,6 +247,16 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
                 url=link.url,
             )
             for link in proposal.social_links.all()
+        ]
+    )
+    ExhibitorExtraLink.objects.bulk_create(
+        [
+            ExhibitorExtraLink(
+                exhibitor=exhibitor,
+                label=link.label,
+                url=link.url,
+            )
+            for link in proposal.extra_links.all()
         ]
     )
     proposal.approved_exhibitor = exhibitor
@@ -189,48 +282,83 @@ def create_exhibitor_from_proposal(proposal, requestor=None):
     return exhibitor
 
 
-def event_voucher_settings(event):
-    """Event-wide voucher defaults, without creating a settings row on a read path."""
+def event_exhibitor_settings(event):
+    """The event's exhibitor settings, without creating a row on a read path."""
     from .models import ExhibitorSettings
 
     return ExhibitorSettings.objects.filter(event=event).first() or ExhibitorSettings(event=event)
 
 
-def resolve_voucher_defaults(exhibitor, *, event_settings=None):
-    """Voucher settings for this exhibitor: their sponsor group's, or the event-wide default.
+def resolve_voucher_pool_tag(exhibitor, *, event_settings=None):
+    """The pool an exhibitor draws from: the sponsor pool for sponsors, else the exhibitor pool."""
+    settings = event_settings or event_exhibitor_settings(exhibitor.event)
+    if exhibitor.is_sponsor and not exhibitor.is_exhibitor and settings.sponsor_voucher_pool_tag:
+        return settings.sponsor_voucher_pool_tag
+    return settings.voucher_pool_tag
 
+
+def resolve_voucher_defaults(exhibitor, *, event_settings=None):
+    """How many pool vouchers this exhibitor gets, and which pool they come from.
+
+    The count is their sponsor group's when they have one, otherwise the event-wide default.
     Pass ``event_settings`` when resolving for many exhibitors to avoid a query per row.
     """
-    source = (
-        exhibitor.sponsor_group
-        if exhibitor.sponsor_group_id
-        else (event_settings or event_voucher_settings(exhibitor.event))
-    )
+    settings = event_settings or event_exhibitor_settings(exhibitor.event)
+    source = exhibitor.sponsor_group if exhibitor.sponsor_group_id else settings
     return {
-        "product": source.voucher_default_product,
         "count": source.voucher_default_count,
-        "price_mode": source.voucher_default_price_mode,
-        "value": source.voucher_default_value,
+        "pool_tag": resolve_voucher_pool_tag(exhibitor, event_settings=settings),
     }
 
 
-def generate_exhibitor_vouchers(exhibitor, *, product, count, price_mode, value):
+def pool_tag_choices(event):
+    """Every voucher tag in use on this event, for the pool dropdowns."""
+    from eventyay.base.models import Voucher
+
+    return list(
+        Voucher.objects.filter(event=event).exclude(tag="").values_list("tag", flat=True).distinct().order_by("tag")
+    )
+
+
+def unassigned_pool_vouchers(event, pool_tag):
+    """Vouchers in the pool that no exhibitor holds yet.
+
+    Excluded by subquery rather than ``exhibitor_link__isnull``: that builds an outer join, and
+    Postgres refuses ``SELECT ... FOR UPDATE`` on the nullable side of one.
+    """
     from eventyay.base.models import Voucher
 
     from .models import ExhibitorVoucher
 
-    tag = f"exhibitor-{exhibitor.key}"
-    links = []
-    for _ in range(count):
-        voucher = Voucher.objects.create(
-            event=exhibitor.event,
-            product=product,
-            price_mode=price_mode,
-            value=value,
-            tag=tag,
+    if not pool_tag:
+        return Voucher.objects.none()
+    linked_ids = ExhibitorVoucher.objects.filter(exhibitor__event=event).values("voucher_id")
+    return Voucher.objects.filter(event=event, tag=pool_tag).exclude(pk__in=linked_ids)
+
+
+def pool_remaining(event, pool_tag):
+    return unassigned_pool_vouchers(event, pool_tag).count()
+
+
+def claim_pool_vouchers(exhibitor, count, *, pool_tag=None):
+    """Hand ``count`` unclaimed pool vouchers to this exhibitor, or none at all if the pool is short."""
+    from .models import ExhibitorVoucher
+
+    if not count:
+        return []
+    if pool_tag is None:
+        pool_tag = resolve_voucher_pool_tag(exhibitor)
+    with transaction.atomic():
+        available = list(
+            unassigned_pool_vouchers(exhibitor.event, pool_tag)
+            .select_for_update(skip_locked=True)
+            .order_by("pk")[:count]
         )
-        links.append(ExhibitorVoucher(exhibitor=exhibitor, voucher=voucher))
-    return ExhibitorVoucher.objects.bulk_create(links)
+        if len(available) < count:
+            return []
+        return ExhibitorVoucher.objects.bulk_create(
+            ExhibitorVoucher(exhibitor=exhibitor, voucher=voucher) for voucher in available
+        )
 
 
 PROPOSAL_LOCALIZED_PROFILE_FIELDS = ("name", "description")
@@ -250,7 +378,7 @@ def provision_exhibitor_devices(exhibitor, count, *, user=None):
             organizer=exhibitor.event.organizer,
             name=f"{partner_name} #{existing + index + 1}",
             all_events=False,
-            security_profile="eventyay_checkin",
+            security_profile="full",
         )
         device.save()
         device.limit_events.add(exhibitor.event)
@@ -287,6 +415,11 @@ PROPOSAL_SYNCED_PROFILE_FIELDS = (
     "name",
     "description",
     "url",
+    "email",
+    "contact_url",
+    "video_url",
+    "slides",
+    "slides_url",
     "logo",
     "logo_url",
     "header_image",
@@ -296,7 +429,7 @@ PROPOSAL_SYNCED_PROFILE_FIELDS = (
 
 def sync_exhibitor_from_proposal(proposal, requestor=None):
     """Push submitter-owned profile fields of an accepted proposal onto its partner profile."""
-    from .models import LOG_PARTNER_SYNCED, ExhibitorSocialLink
+    from .models import LOG_PARTNER_SYNCED, ExhibitorExtraLink, ExhibitorSocialLink
 
     exhibitor = proposal.approved_exhibitor
     if not exhibitor:
@@ -333,6 +466,17 @@ def sync_exhibitor_from_proposal(proposal, requestor=None):
                 url=link.url,
             )
             for link in proposal.social_links.all()
+        ]
+    )
+    exhibitor.extra_links.all().delete()
+    ExhibitorExtraLink.objects.bulk_create(
+        [
+            ExhibitorExtraLink(
+                exhibitor=exhibitor,
+                label=link.label,
+                url=link.url,
+            )
+            for link in proposal.extra_links.all()
         ]
     )
     exhibitor.log_action(
