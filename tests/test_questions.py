@@ -309,7 +309,7 @@ def test_public_request_form_renders_with_phone_question(event):
 
     response = client.get(
         reverse(
-            "plugins:exhibition:proposal.add",
+            "plugins:exhibition:request.add",
             kwargs={"organizer": event.organizer.slug, "event": event.slug},
         )
     )

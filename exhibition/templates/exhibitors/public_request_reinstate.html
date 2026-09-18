@@ -4,7 +4,7 @@
 {% block call_content %}
     <h2 id="exhibition-call-heading">{% trans "Reinstate request" %}</h2>
     <p>
-        {% blocktrans trimmed with name=proposal.name %}
+        {% blocktrans trimmed with name=exhibition_request.name %}
             Do you want to reinstate your withdrawn request “{{ name }}”? It will be pending review again.
         {% endblocktrans %}
     </p>
@@ -12,7 +12,7 @@
         {% csrf_token %}
         <div class="row checkout-button-row">
             <div class="col-md-4 col-sm-6">
-                <a class="btn btn-block btn-default btn-lg" href="{% url 'plugins:exhibition:proposal.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
+                <a class="btn btn-block btn-default btn-lg" href="{% url 'plugins:exhibition:request.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Cancel" %}
                 </a>
             </div>

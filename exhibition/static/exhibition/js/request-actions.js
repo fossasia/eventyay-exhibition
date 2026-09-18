@@ -15,22 +15,22 @@
     }
 
     function init() {
-        var container = document.querySelector('[data-proposal-list]')
+        var container = document.querySelector('[data-request-list]')
         if (!container) {
             return
         }
 
-        var actionUrl = container.dataset.proposalActionsUrl
+        var actionUrl = container.dataset.requestActionsUrl
         var csrfToken = getCookie('eventyay_csrftoken') || getCookie('csrftoken')
-        var feedback = document.querySelector('[data-proposal-feedback]')
-        var i18nEl = document.querySelector('[data-proposal-i18n]')
+        var feedback = document.querySelector('[data-request-feedback]')
+        var i18nEl = document.querySelector('[data-request-i18n]')
         var i18n = i18nEl ? i18nEl.dataset : {}
 
-        var selectAll = container.querySelector('[data-proposal-select-all]')
-        var bulkButtons = container.querySelectorAll('[data-proposal-bulk]')
-        var countLabel = container.querySelector('[data-proposal-selected-count]')
-        var bulkBar = container.querySelector('.proposal-bulk-bar')
-        var bulkHint = container.querySelector('[data-proposal-bulk-hint]')
+        var selectAll = container.querySelector('[data-request-select-all]')
+        var bulkButtons = container.querySelectorAll('[data-request-bulk]')
+        var countLabel = container.querySelector('[data-request-selected-count]')
+        var bulkBar = container.querySelector('.request-bulk-bar')
+        var bulkHint = container.querySelector('[data-request-bulk-hint]')
         var bulkReasons = bulkBar ? bulkBar.dataset : {}
         var store = window.ExhibitionSelection.create({ scope: container })
 
@@ -56,19 +56,19 @@
         }
 
         var actionConfig = {
-            approve: { icon: 'fa-check', cls: 'proposal-action-approve', variant: 'btn-success', label: i18n.labelApprove },
-            reject: { icon: 'fa-times', cls: 'proposal-action-reject', variant: 'btn-danger', label: i18n.labelReject },
-            withdraw: { icon: 'fa-undo', cls: 'proposal-action-withdraw', variant: '', label: i18n.labelWithdraw },
-            reopen: { icon: 'fa-inbox', cls: 'proposal-action-reopen', variant: '', label: i18n.labelReopen },
+            approve: { icon: 'fa-check', cls: 'request-action-approve', variant: 'btn-success', label: i18n.labelApprove },
+            reject: { icon: 'fa-times', cls: 'request-action-reject', variant: 'btn-danger', label: i18n.labelReject },
+            withdraw: { icon: 'fa-undo', cls: 'request-action-withdraw', variant: '', label: i18n.labelWithdraw },
+            reopen: { icon: 'fa-inbox', cls: 'request-action-reopen', variant: '', label: i18n.labelReopen },
         }
 
         function checkboxes() {
-            return Array.prototype.slice.call(container.querySelectorAll('[data-proposal-checkbox]'))
+            return Array.prototype.slice.call(container.querySelectorAll('[data-request-checkbox]'))
         }
 
         function metaFor(box) {
             return {
-                actions: (box.dataset.proposalBulkActions || '').split(' ').filter(Boolean),
+                actions: (box.dataset.requestBulkActions || '').split(' ').filter(Boolean),
             }
         }
 
@@ -113,17 +113,17 @@
             var acrossPages = allResultsSelected()
             var hints = []
             bulkButtons.forEach(function (button) {
-                var action = button.dataset.proposalBulk
+                var action = button.dataset.requestBulk
                 var eligible = acrossPages ? count : eligibleFor(action).length
                 button.disabled = eligible === 0
                 if (!count) {
-                    button.title = bulkReasons.proposalReasonNone || ''
+                    button.title = bulkReasons.requestReasonNone || ''
                 } else if (!eligible) {
-                    button.title = bulkReasons['proposalReason' + capitalize(action)] || ''
+                    button.title = bulkReasons['requestReason' + capitalize(action)] || ''
                 } else {
                     button.removeAttribute('title')
                     var skipped = acrossPages ? 0 : count - eligible
-                    var template = bulkReasons['proposalSkip' + capitalize(action)]
+                    var template = bulkReasons['requestSkip' + capitalize(action)]
                     if (skipped > 0 && template) {
                         hints.push(template.replace('{count}', skipped))
                     }
@@ -160,9 +160,9 @@
             }
             var button = document.createElement('button')
             button.type = 'button'
-            button.className = 'btn btn-sm proposal-action-btn ' + config.cls + (config.variant ? ' ' + config.variant : '')
-            button.setAttribute('data-proposal-action', action)
-            button.setAttribute('data-proposal-code', code)
+            button.className = 'btn btn-sm request-action-btn ' + config.cls + (config.variant ? ' ' + config.variant : '')
+            button.setAttribute('data-request-action', action)
+            button.setAttribute('data-request-code', code)
             button.setAttribute('data-toggle', 'tooltip')
             if (config.label) {
                 button.title = config.label
@@ -174,11 +174,11 @@
         }
 
         function rebuildActions(row, result) {
-            var actionsCell = row.querySelector('[data-proposal-actions-cell]')
+            var actionsCell = row.querySelector('[data-request-actions-cell]')
             if (!actionsCell) {
                 return
             }
-            actionsCell.querySelectorAll('[data-proposal-action]').forEach(function (button) {
+            actionsCell.querySelectorAll('[data-request-action]').forEach(function (button) {
                 button.remove()
             })
             var viewLink = actionsCell.querySelector('a')
@@ -194,21 +194,21 @@
         }
 
         function rebuildCheckbox(row, result) {
-            var box = row.querySelector('[data-proposal-checkbox]')
+            var box = row.querySelector('[data-request-checkbox]')
             if (!box) {
                 return
             }
             box.checked = false
             store.remove(box.value)
-            box.setAttribute('data-proposal-bulk-actions', (result.bulk_actions || []).join(' '))
+            box.setAttribute('data-request-bulk-actions', (result.bulk_actions || []).join(' '))
         }
 
         function updateRow(result) {
-            var row = container.querySelector('[data-proposal-row="' + result.code + '"]')
+            var row = container.querySelector('[data-request-row="' + result.code + '"]')
             if (!row) {
                 return
             }
-            var stateCell = row.querySelector('[data-proposal-state]')
+            var stateCell = row.querySelector('[data-request-state]')
             if (stateCell) {
                 stateCell.textContent = result.state_display
             }
@@ -220,10 +220,10 @@
             bulkButtons.forEach(function (button) {
                 var pending = allResultsSelected()
                     ? store.size() === 0
-                    : selectedCodes(button.dataset.proposalBulk).length === 0
+                    : selectedCodes(button.dataset.requestBulk).length === 0
                 button.disabled = busy || pending
             })
-            container.querySelectorAll('[data-proposal-action]').forEach(function (button) {
+            container.querySelectorAll('[data-request-action]').forEach(function (button) {
                 button.disabled = busy
             })
         }
@@ -242,7 +242,7 @@
                 })
             } else {
                 codes.forEach(function (code) {
-                    body.append('proposal', code)
+                    body.append('exhibition_request', code)
                 })
             }
             fetch(actionUrl, {
@@ -337,12 +337,12 @@
         }
 
         container.addEventListener('click', function (event) {
-            var button = event.target.closest('[data-proposal-action]')
+            var button = event.target.closest('[data-request-action]')
             if (!button) {
                 return
             }
-            var action = button.dataset.proposalAction
-            var code = button.dataset.proposalCode
+            var action = button.dataset.requestAction
+            var code = button.dataset.requestCode
             requestConfirmation(action, confirmFor(action, false)).then(function (confirmed) {
                 if (confirmed) {
                     submitAction(action, [code])
@@ -352,7 +352,7 @@
 
         bulkButtons.forEach(function (button) {
             button.addEventListener('click', function () {
-                var action = button.dataset.proposalBulk
+                var action = button.dataset.requestBulk
                 var acrossPages = allResultsSelected()
                 var codes = selectedCodes(action)
                 if (!acrossPages && !codes.length) {
@@ -378,7 +378,7 @@
         }
 
         container.addEventListener('change', function (event) {
-            if (event.target.matches('[data-proposal-checkbox]')) {
+            if (event.target.matches('[data-request-checkbox]')) {
                 store.toggle(event.target.value, event.target.checked, metaFor(event.target))
                 refreshSelection()
             }
@@ -389,7 +389,7 @@
     }
 
     function announce(message) {
-        var feedback = document.querySelector('[data-proposal-feedback]')
+        var feedback = document.querySelector('[data-request-feedback]')
         if (!feedback || !message) {
             return
         }

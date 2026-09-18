@@ -38,7 +38,7 @@
                         <a href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=exhibitor.pk %}" class="exhibition-public-card-link">
                             <article class="exhibition-public-card">
                                 <div class="exhibition-public-card-image">
-                                    <img src="{{ exhibitor.visible_header_image_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
+                                    <img src="{{ exhibitor.visible_banner_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
                                 </div>
                                 <div class="exhibition-public-card-body">
                                     <span class="exhibition-public-card-logo-wrap">

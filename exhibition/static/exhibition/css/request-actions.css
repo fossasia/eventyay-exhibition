@@ -1,4 +1,4 @@
-.proposal-bulk-bar {
+.request-bulk-bar {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -6,83 +6,83 @@
     margin-bottom: 12px;
 }
 
-.proposal-bulk-buttons {
+.request-bulk-buttons {
     display: inline-flex;
     gap: 6px;
     margin-left: auto;
 }
 
-.proposal-bulk-hint {
+.request-bulk-hint {
     margin-top: -6px;
     margin-bottom: 12px;
 }
 
 
-.proposal-bulk-count {
+.request-bulk-count {
     min-width: 70px;
 }
 
-.proposal-select-col {
+.request-select-col {
     width: 32px;
 }
 
-.proposal-select-col .batch-select-label {
+.request-select-col .batch-select-label {
     margin-bottom: 0;
 }
 
-.proposal-row-actions {
+.request-row-actions {
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 4px;
 }
 
-.proposal-action-btn {
+.request-action-btn {
     background: #fff;
     border: 1px solid transparent;
 }
 
-.proposal-action-approve {
+.request-action-approve {
     color: #21ba45;
     border-color: #21ba45;
 }
 
-.proposal-action-reject {
+.request-action-reject {
     color: #db2828;
     border-color: #db2828;
 }
 
-.proposal-action-withdraw {
+.request-action-withdraw {
     color: #767676;
     border-color: #767676;
 }
 
-.proposal-action-withdraw:hover,
-.proposal-action-withdraw:focus {
+.request-action-withdraw:hover,
+.request-action-withdraw:focus {
     background: #767676;
     color: #fff;
 }
 
-.proposal-action-reopen {
+.request-action-reopen {
     color: #2185d0;
     border-color: #2185d0;
 }
 
-.proposal-action-reopen:hover,
-.proposal-action-reopen:focus {
+.request-action-reopen:hover,
+.request-action-reopen:focus {
     background: #2185d0;
     color: #fff;
 }
 
-.proposal-action-feedback:not(:empty) {
+.request-action-feedback:not(:empty) {
     margin-bottom: 12px;
 }
 
-.proposal-state-cell {
+.request-state-cell {
     white-space: nowrap;
 }
 
-.proposal-edited-dot {
+.request-edited-dot {
     display: inline-block;
     width: 8px;
     height: 8px;
@@ -92,7 +92,7 @@
     background: #f0ad4e;
 }
 
-.proposal-edited-dot:hover,
-.proposal-edited-dot:focus {
+.request-edited-dot:hover,
+.request-edited-dot:focus {
     background: #df8a13;
 }

@@ -3,7 +3,7 @@
 
 {% block call_content %}
     <h2 id="exhibition-call-heading">{% trans "Your exhibition requests" %}</h2>
-    {% if proposals %}
+    {% if exhibition_requests %}
         <div class="table-responsive">
             <table class="table table-sm table-flip">
                 <thead>
@@ -15,32 +15,32 @@
                 </tr>
                 </thead>
                 <tbody>
-                {% for proposal in proposals %}
+                {% for exhibition_request in exhibition_requests %}
                     <tr>
-                        <td>{{ proposal.name }}</td>
+                        <td>{{ exhibition_request.name }}</td>
                         <td>
-                            {% if proposal.state == "withdrawn" %}
+                            {% if exhibition_request.state == "withdrawn" %}
                                 <span class="label label-default">{% trans "Withdrawn" %}</span>
                             {% else %}
-                                {{ proposal.get_state_display }}
+                                {{ exhibition_request.get_state_display }}
                             {% endif %}
                         </td>
-                        <td>{{ proposal.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
+                        <td>{{ exhibition_request.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
                         <td class="text-right">
-                            <a class="btn btn-sm btn-info" href="{% url 'plugins:exhibition:proposal.user_edit' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
-                                {% if proposal.submitter_can_edit %}
+                            <a class="btn btn-sm btn-info" href="{% url 'plugins:exhibition:request.user_edit' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
+                                {% if exhibition_request.submitter_can_edit %}
                                     <i class="fa fa-edit"></i> {% trans "Edit" %}
                                 {% else %}
                                     <i class="fa fa-eye"></i> {% trans "View" %}
                                 {% endif %}
                             </a>
-                            {% if proposal.can_be_withdrawn %}
-                                <a class="btn btn-sm btn-danger" href="{% url 'plugins:exhibition:proposal.user_withdraw' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
+                            {% if exhibition_request.can_be_withdrawn %}
+                                <a class="btn btn-sm btn-danger" href="{% url 'plugins:exhibition:request.user_withdraw' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
                                     <i class="fa fa-undo"></i> {% trans "Withdraw" %}
                                 </a>
                             {% endif %}
-                            {% if proposal.can_be_reinstated %}
-                                <a class="btn btn-sm btn-default" href="{% url 'plugins:exhibition:proposal.user_reinstate' organizer=request.event.organizer.slug event=request.event.slug code=proposal.code %}">
+                            {% if exhibition_request.can_be_reinstated %}
+                                <a class="btn btn-sm btn-default" href="{% url 'plugins:exhibition:request.user_reinstate' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
                                     <i class="fa fa-inbox"></i> {% trans "Reinstate" %}
                                 </a>
                             {% endif %}
@@ -52,7 +52,7 @@
         </div>
         {% if settings.call_is_open %}
             <p>
-                <a class="btn btn-success btn-lg" href="{% url 'plugins:exhibition:proposal.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+                <a class="btn btn-success btn-lg" href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Create a new request" %}
                 </a>
             </p>
@@ -61,7 +61,7 @@
         <p class="text-center">{% trans "You have not submitted an exhibition request yet." %}</p>
         {% if settings.call_is_open %}
             <p class="text-center">
-                <a class="btn btn-success btn-lg btn-block" href="{% url 'plugins:exhibition:proposal.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+                <a class="btn btn-success btn-lg btn-block" href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Submit a request" %}
                 </a>
             </p>

@@ -79,11 +79,11 @@
         0 3px 5px rgba(0, 0, 0, 0.22);
 }
 
-.partner-image-preview-logo {
+.organization-image-preview-logo {
     max-width: 180px;
 }
 
-.partner-image-preview-header {
+.organization-image-preview-banner {
     max-width: 420px;
 }
 
@@ -168,36 +168,36 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
     outline-offset: 2px;
 }
 
-.partner-link-formset {
+.organization-link-formset {
     margin-bottom: 8px;
 }
 
-.partner-link-group-label {
+.organization-link-group-label {
     font-weight: 600;
 }
 
-.partner-link-actions {
+.organization-link-actions {
     margin-top: 3px;
 }
 
-.partner-link-add {
+.organization-link-add {
     min-width: 40px;
 }
 
-.partner-link-row {
+.organization-link-row {
     margin-bottom: 14px;
 }
 
-.partner-link-row .form-group {
+.organization-link-row .form-group {
     margin-bottom: 0;
 }
 
-.partner-link-row .help-block,
-.partner-link-row .errorlist {
+.organization-link-row .help-block,
+.organization-link-row .errorlist {
     margin-bottom: 0;
 }
 
-.partner-link-prefix {
+.organization-link-prefix {
     min-width: 170px;
     max-width: 230px;
     overflow: hidden;
@@ -205,20 +205,20 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
     white-space: nowrap;
 }
 
-.partner-link-remove {
+.organization-link-remove {
     min-width: 40px;
 }
 
 @media (max-width: 991px) {
-    .partner-link-remove {
+    .organization-link-remove {
         margin-top: 10px;
     }
 }
 
-#page-wrapper .exhibition-partner-form .control-label {
+#page-wrapper .exhibition-organization-form .control-label {
     padding-top: 7px;
 }
 
-#page-wrapper .exhibition-partner-form .form-group:has(.bootstrap3-multi-input) .control-label {
+#page-wrapper .exhibition-organization-form .form-group:has(.bootstrap3-multi-input) .control-label {
     padding-top: 0;
 }
