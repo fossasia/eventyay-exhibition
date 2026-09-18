@@ -73,18 +73,15 @@
                 if (!selected.length) {
                     return
                 }
-                if (selected.length === selectableIds().length) {
-                    var filtered = new URLSearchParams(window.location.search)
-                    filtered.set('download', 'yes')
-                    window.location.href = window.location.pathname + '?' + filtered.toString()
-                    return
-                }
-                var params = selected
-                    .map(function (value) {
-                        return 'pk=' + encodeURIComponent(value)
+                var searchParams = new URLSearchParams(window.location.search)
+                searchParams.delete('pk')
+                searchParams.set('download', 'yes')
+                if (selected.length !== selectableIds().length) {
+                    selected.forEach(function (value) {
+                        searchParams.append('pk', value)
                     })
-                    .join('&')
-                window.location.href = baseHref + '&' + params
+                }
+                window.location.href = window.location.pathname + '?' + searchParams.toString()
             })
         }
 

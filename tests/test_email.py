@@ -29,6 +29,7 @@ from exhibition.models import (
 )
 from exhibition.utils import provision_exhibitor_devices
 from exhibition.views import (
+    EmailBulkActionView,
     EmailComposeView,
     EmailDeleteView,
     EmailOutboxListView,
@@ -955,6 +956,100 @@ def test_delete_view_discards_whole_batch(mail_event):
 
     with scopes_disabled():
         assert ExhibitionEmailQueue.objects.filter(event=mail_event).count() == 0
+
+
+@pytest.mark.django_db
+def test_bulk_action_target_rows_select_all_pages_no_batch_expansion(mail_event):
+    p1 = _proposal(mail_event, "Match 1", ExhibitionProposalState.ACCEPTED, email="match@example.com")
+    p2 = _proposal(mail_event, "Other", ExhibitionProposalState.ACCEPTED, email="other@example.com")
+    with scopes_disabled():
+        b_batch = mail_helpers.queue_compose_emails(mail_event, [p1, p2], "Batch Subject", "Body")
+        p3 = _proposal(mail_event, "Match 2", ExhibitionProposalState.ACCEPTED, email="match@example.com")
+        single = mail_helpers.queue_compose_emails(mail_event, [p3], "Single Subject", "Body")
+
+    request = RequestFactory().post("/bulk?query=match%40example.com", {"select_all_pages": "true"})
+    request.event = mail_event
+
+    view = EmailBulkActionView()
+    with scopes_disabled():
+        rows = view.target_rows(request, scope="all")
+        pks = set(rows.values_list("pk", flat=True))
+
+    assert b_batch[0].pk in pks
+    assert single[0].pk in pks
+    assert b_batch[1].pk not in pks
+
+
+@pytest.mark.django_db
+def test_bulk_action_send_select_all_pages_stable_op(mail_event):
+    p1 = _proposal(mail_event, "Match", ExhibitionProposalState.ACCEPTED, email="match@example.com")
+    p2 = _proposal(mail_event, "Other", ExhibitionProposalState.ACCEPTED, email="other@example.com")
+    with scopes_disabled():
+        mail_helpers.queue_compose_emails(mail_event, [p1], "Subj 1", "Body")
+        mail_helpers.queue_compose_emails(mail_event, [p2], "Subj 2", "Body")
+
+    request = RequestFactory().post("/bulk?query=match%40example.com", {"op": "send", "select_all_pages": "true"})
+    request.event = mail_event
+    request.user = None
+    request.session = {}
+    request._messages = FallbackStorage(request)
+
+    with patch("eventyay.base.services.mail.mail") as mocked_mail, scopes_disabled():
+        response = EmailBulkActionView().post(request)
+
+    assert response.status_code == 302
+    assert "query=match%40example.com" in response.url
+    assert "bulk=done" in response.url
+    assert mocked_mail.call_count == 1
+    with scopes_disabled():
+        assert ExhibitionEmailQueue.objects.filter(event=mail_event, sent_at__isnull=True).count() == 1
+        assert ExhibitionEmailQueue.objects.filter(event=mail_event, sent_at__isnull=False).count() == 1
+
+
+@pytest.mark.django_db
+def test_bulk_action_discard_select_all_pages_stable_op(mail_event):
+    p1 = _proposal(mail_event, "Match", ExhibitionProposalState.ACCEPTED, email="match@example.com")
+    p2 = _proposal(mail_event, "Other", ExhibitionProposalState.ACCEPTED, email="other@example.com")
+    with scopes_disabled():
+        mail_helpers.queue_compose_emails(mail_event, [p1], "Subj 1", "Body")
+        mail_helpers.queue_compose_emails(mail_event, [p2], "Subj 2", "Body")
+
+    request = RequestFactory().post("/bulk?query=match%40example.com", {"op": "discard", "select_all_pages": "true"})
+    request.event = mail_event
+    request.organizer = mail_event.organizer
+    request.user = None
+    request.session = {}
+    request.LANGUAGE_CODE = "en"
+    request._messages = FallbackStorage(request)
+
+    with scopes_disabled():
+        response = EmailBulkActionView().post(request)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'name="op" value="discard"' in content
+    assert 'name="select_all_pages" value="true"' in content
+    assert "Are you sure you want to discard 1 queued email?" in content
+
+    confirm_request = RequestFactory().post(
+        "/bulk?query=match%40example.com",
+        {"op": "discard", "confirmed": "1", "select_all_pages": "true"},
+    )
+    confirm_request.event = mail_event
+    confirm_request.organizer = mail_event.organizer
+    confirm_request.user = None
+    confirm_request.session = {}
+    confirm_request.LANGUAGE_CODE = "en"
+    confirm_request._messages = FallbackStorage(confirm_request)
+
+    with scopes_disabled():
+        confirm_response = EmailBulkActionView().post(confirm_request)
+    assert confirm_response.status_code == 302
+    assert "query=match%40example.com" in confirm_response.url
+    assert "bulk=done" in confirm_response.url
+    with scopes_disabled():
+        remaining = ExhibitionEmailQueue.objects.filter(event=mail_event)
+        assert remaining.count() == 1
+        assert remaining.first().to_email == "other@example.com"
 
 
 def _outbox_context(event, **params):

@@ -2702,6 +2702,7 @@ class EmailListMixin(FilteredListMixin):
         context = super().get_context_data(**kwargs)
         context["entries"] = group_email_entries(self.expand_batches(context["emails"]))
         context["date_field"] = self.date_field
+        context["query_string"] = self.request.GET.urlencode()
         return context
 
     def get_template_names(self):
@@ -2904,9 +2905,32 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
 
     permission = EMAIL_MANAGE_PERMISSION
 
+    def outbox_redirect(self, request, done=False):
+        """Back to the outbox. ``?bulk=done`` tells the page its selection was consumed.
+
+        Only set it once rows have actually been sent or discarded, so a cancelled
+        confirmation or a request that did nothing leaves the selection to retry.
+        """
+        query_params = request.GET.copy()
+        query_params.pop("select_all_pages", None)
+        if done:
+            query_params["bulk"] = "done"
+        else:
+            query_params.pop("bulk", None)
+        query_string = query_params.urlencode()
+        url = reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(request.event))
+        if query_string:
+            url = f"{url}?{query_string}"
+        return redirect(url)
+
     def target_rows(self, request, scope):
         base = ExhibitionEmailQueue.objects.filter(event=request.event, sent_at__isnull=True)
         if scope == "all":
+            if request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true":
+                filter_form = EmailFilterForm(data=request.GET, date_field="created")
+                if filter_form.is_valid():
+                    return filter_form.filter_qs(base)
+                return base
             return base
         selected = request.POST.getlist("selected")
         if not selected:
@@ -2914,21 +2938,11 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         batches = [batch for batch in base.filter(pk__in=selected).values_list("batch", flat=True) if batch]
         return base.filter(Q(pk__in=selected) | Q(batch__in=batches))
 
-    def outbox_redirect(self, request, done=False):
-        """Back to the outbox. ``?bulk=done`` tells the page its selection was consumed.
-
-        Only set it once rows have actually been sent or discarded, so a cancelled
-        confirmation or a request that did nothing leaves the selection to retry.
-        """
-        response = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
-        if done:
-            response["Location"] += "?bulk=done"
-        return response
-
     def post(self, request, *args, **kwargs):
         op = request.POST.get("op", "")
         action = "send" if op.startswith("send") else "discard" if op.startswith("discard") else None
-        scope = "all" if op.endswith("_all") else "selected"
+        is_select_all = request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true"
+        scope = "all" if (op.endswith("_all") or (is_select_all and action is not None)) else "selected"
 
         if action is None:
             return self.outbox_redirect(request)
@@ -2967,13 +2981,20 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         if not count:
             messages.info(request, _("No emails were selected."))
             return self.outbox_redirect(request)
+
+        query_params = request.GET.copy()
+        query_params.pop("select_all_pages", None)
         return render(
             request,
             "exhibitors/email_bulk_discard.html",
             {
                 "count": count,
                 "scope": scope,
+                "op": op,
+                "is_select_all": is_select_all,
                 "selected": request.POST.getlist("selected"),
+                "query_string": request.GET.urlencode(),
+                "cancel_query_string": query_params.urlencode(),
             },
         )
 

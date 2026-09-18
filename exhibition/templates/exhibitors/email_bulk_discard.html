@@ -9,10 +9,13 @@
 
 {% block exhibitors_content %}
     <span data-selection-passthrough hidden></span>
-    <form action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}" method="post">
+    <form action="{% url 'plugins:exhibition:email.bulk' organizer=request.event.organizer.slug event=request.event.slug %}{% if query_string %}?{{ query_string }}{% endif %}" method="post">
         {% csrf_token %}
-        <input type="hidden" name="op" value="{% if scope == 'all' %}discard_all{% else %}discard{% endif %}">
+        <input type="hidden" name="op" value="{{ op }}">
         <input type="hidden" name="confirmed" value="1">
+        {% if is_select_all %}
+            <input type="hidden" name="select_all_pages" value="true">
+        {% endif %}
         {% for pk in selected %}
             <input type="hidden" name="selected" value="{{ pk }}">
         {% endfor %}
@@ -24,7 +27,7 @@
             {% endblocktrans %}
         </p>
         <div class="form-group submit-group">
-            <a class="btn btn-default" href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-default" href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}{% if cancel_query_string %}?{{ cancel_query_string }}{% endif %}">
                 {% trans "Cancel" %}
             </a>
             <button type="submit" class="btn btn-danger">

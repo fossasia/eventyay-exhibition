@@ -61,7 +61,9 @@
         }
         var warning = document.querySelector("[data-email-selection-limit]");
         if (warning) {
-            warning.hidden = total <= selectionLimit();
+            var form = table.closest("form");
+            var isSelectAllPages = form && form.dataset.selectAllPages === "true";
+            warning.hidden = total <= selectionLimit() || isSelectAllPages;
         }
     }
 
@@ -111,6 +113,15 @@
             });
     }
 
+    var lastClickedButton = null;
+
+    function onBulkButtonClick(event) {
+        var btn = event.target.closest('button[type="submit"][name="op"]');
+        if (btn) {
+            lastClickedButton = btn;
+        }
+    }
+
     function onSubmit(event) {
         var form = event.target;
         if (!form.matches || !form.matches("#email-list form")) {
@@ -123,10 +134,37 @@
             return;
         }
         dropCarried(form);
-        var submitter = event.submitter;
-        if (!submitter || submitter.name !== "op" || (submitter.value !== "send" && submitter.value !== "discard")) {
+        var submitter = event.submitter || lastClickedButton;
+        if (!submitter || submitter.name !== "op") {
             return;
         }
+
+        var isBulk = submitter.value === "send" || submitter.value === "discard";
+        var isAll = submitter.value === "send_all" || submitter.value === "discard_all";
+        if (!isBulk && !isAll) {
+            return;
+        }
+
+        var selectAllInput = form.querySelector('input[name="select_all_pages"]');
+        if (isAll) {
+            if (selectAllInput) {
+                selectAllInput.value = "false";
+            }
+        } else if (isBulk) {
+            if (selectAllInput) {
+                selectAllInput.value = form.dataset.selectAllPages === "true" ? "true" : "false";
+            }
+        }
+
+        if (window.location.search && (!form.getAttribute("action") || form.getAttribute("action").indexOf("?") === -1)) {
+            var action = form.getAttribute("action") || "";
+            form.action = action.split("?")[0] + window.location.search;
+        }
+
+        if (isAll || form.dataset.selectAllPages === "true") {
+            return;
+        }
+
         var selection = selectionStore();
         if (selection.size() > selectionLimit()) {
             event.preventDefault();
@@ -164,6 +202,7 @@
         if (!element.matches) {
             return;
         }
+        var form = element.closest("form");
         if (element.matches("[data-select-all]")) {
             var selection = selectionStore();
             if (element.checked) {
@@ -171,16 +210,32 @@
             } else {
                 selection.clear();
             }
+            if (form) {
+                form.dataset.selectAllPages = element.checked ? "true" : "false";
+                var selectAllInput = form.querySelector('input[name="select_all_pages"]');
+                if (selectAllInput) {
+                    selectAllInput.value = element.checked ? "true" : "false";
+                }
+            }
             refreshSelection();
         } else if (element.matches("[data-select-row]")) {
             selectionStore().toggle(element.value, element.checked);
+            if (form) {
+                form.dataset.selectAllPages = "false";
+                var selectAllInput = form.querySelector('input[name="select_all_pages"]');
+                if (selectAllInput) {
+                    selectAllInput.value = "false";
+                }
+            }
             refreshSelection();
         }
     }
 
     document.addEventListener("submit", onSubmit);
     document.addEventListener("click", onClick);
+    document.addEventListener("click", onBulkButtonClick);
     document.addEventListener("change", onChange);
+
     window.addEventListener("popstate", function () {
         if (container()) {
             load(window.location.href, false);
