@@ -1063,7 +1063,7 @@ class ExhibitionProposalForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         "booth_name": ("booth_name",),
         "notes": ("notes",),
     }
-    DRAFT_REQUIRED_KEYS = ()
+    DRAFT_REQUIRED_KEYS = ("name",)
 
     class Meta:
         model = ExhibitionProposal
