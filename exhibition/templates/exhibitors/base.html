@@ -7,8 +7,10 @@
 
 {% block custom_header %}
     {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/i18n-language-switcher.css' %}">
     <script defer src="{% static 'exhibition/js/selection-store.js' %}"></script>
     <script defer src="{% static 'exhibition/js/tooltip-init.js' %}"></script>
+    <script defer src="{% static 'exhibition/js/i18n-language-switcher.js' %}"></script>
 {% endblock %}
 
 {% block nav %}

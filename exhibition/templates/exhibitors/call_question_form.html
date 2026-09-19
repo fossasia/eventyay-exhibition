@@ -22,6 +22,7 @@
         {% csrf_token %}
         {% bootstrap_form_errors form %}
         {% bootstrap_field form.variant layout="control" %}
+        {% include 'exhibitors/_i18n_language_switcher.html' %}
         {% bootstrap_field form.question layout="control" %}
         {% bootstrap_field form.help_text layout="control" %}
         {% bootstrap_field form.required layout="control" %}

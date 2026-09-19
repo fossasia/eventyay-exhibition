@@ -45,6 +45,7 @@
         </fieldset>
         <fieldset>
             <legend>{% trans "Message" %}</legend>
+            {% include 'exhibitors/_i18n_language_switcher.html' %}
             {% bootstrap_field form.subject layout="control" %}
             <div class="form-group{% if form.body.errors %} has-error{% endif %}" data-email-preview-wrapper
                  data-email-preview-url="{% url 'plugins:exhibition:email.templates.preview' organizer=request.event.organizer.slug event=request.event.slug %}?role=compose">

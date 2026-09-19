@@ -23,6 +23,7 @@
 
     <fieldset>
         <legend>{% trans "Profile" %}</legend>
+        {% include 'exhibitors/_i18n_language_switcher.html' %}
         {% for item in form.profile_items %}
             {% if item.kind == 'social_links' %}
                 <div class="form-group {% if social_media_formset.non_form_errors %}has-error{% endif %}">

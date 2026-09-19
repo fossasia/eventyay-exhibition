@@ -49,6 +49,7 @@
                     <legend>{% trans "Publish your call" %}</legend>
                     <p>{% trans "Publish a login-required application form for exhibitors." %}</p>
                     {% bootstrap_field call_settings_form.call_enabled layout="control" %}
+                    {% include 'exhibitors/_i18n_language_switcher.html' %}
                     {% bootstrap_field call_settings_form.call_headline layout="control" %}
                     {% bootstrap_field call_settings_form.call_text layout="control" %}
                     {% bootstrap_field call_settings_form.call_deadline layout="control" %}
@@ -263,6 +264,7 @@
                     <input type="hidden" name="tab" value="sponsors">
                     <input type="hidden" name="action" value="add_group">
                     {% bootstrap_form_errors add_group_form %}
+                    {% include 'exhibitors/_i18n_language_switcher.html' %}
                     {% bootstrap_field add_group_form.name layout="control" %}
                     {% bootstrap_field add_group_form.level layout="control" %}
                     <fieldset>
@@ -345,6 +347,7 @@
                                             <input type="hidden" name="action" value="rename_group">
                                             <input type="hidden" name="group_id" value="{{ group.pk }}">
                                             {% bootstrap_form_errors group.edit_form %}
+                                            {% include 'exhibitors/_i18n_language_switcher.html' %}
                                             {% bootstrap_field group.edit_form.name layout="control" %}
                                             {% bootstrap_field group.edit_form.level layout="control" %}
                                             <fieldset>

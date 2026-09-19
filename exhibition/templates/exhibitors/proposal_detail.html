@@ -183,6 +183,7 @@
                 </div>
                 <div data-partner-type-field="exhibitor">
                     {% bootstrap_field form.booth_id layout="control" %}
+                    {% include 'exhibitors/_i18n_language_switcher.html' %}
                     {% bootstrap_field form.booth_name layout="control" %}
                 </div>
             {% endif %}
