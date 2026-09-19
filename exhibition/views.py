@@ -827,9 +827,10 @@ def formset_has_entries(formset):
     if formset is None:
         return True
     for form in formset.forms:
-        if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+        cleaned_data = getattr(form, "cleaned_data", None)
+        if not cleaned_data or cleaned_data.get("DELETE"):
             continue
-        if any(value for name, value in form.cleaned_data.items() if name != "DELETE"):
+        if any(value for name, value in cleaned_data.items() if name != "DELETE"):
             return True
     return False
 
@@ -875,14 +876,17 @@ class ProposalLinkFormsetMixin:
             self.get_extra_link_formset() if self.proposal_field_is_active("extra_links") else None
         )
 
-        valid = (
-            form.is_valid()
-            and (self.social_media_formset is None or self.social_media_formset.is_valid())
-            and (self.extra_links_formset is None or self.extra_links_formset.is_valid())
+        form_valid = form.is_valid()
+        social_valid = self.social_media_formset is None or self.social_media_formset.is_valid()
+        extra_valid = self.extra_links_formset is None or self.extra_links_formset.is_valid()
+        valid = form_valid and social_valid and extra_valid
+
+        is_draft = self.request.POST.get("action") == "draft" and not (
+            hasattr(self, "state_is_locked") and self.state_is_locked()
         )
 
         if (
-            valid
+            not is_draft
             and self.proposal_field_is_required("social_links")
             and not formset_has_entries(self.social_media_formset)
         ):
@@ -891,7 +895,7 @@ class ProposalLinkFormsetMixin:
             )
             valid = False
         if (
-            valid
+            not is_draft
             and self.proposal_field_is_required("extra_links")
             and not formset_has_entries(self.extra_links_formset)
         ):
