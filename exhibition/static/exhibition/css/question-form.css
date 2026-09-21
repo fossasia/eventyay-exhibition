@@ -68,3 +68,7 @@
 #exhibition-answer-options .question-option-add {
     margin-top: 10px;
 }
+
+.exhibition-dependency-group select[name="dependency_values"] {
+    min-height: 120px;
+}

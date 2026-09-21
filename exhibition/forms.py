@@ -1,3 +1,4 @@
+import json
 from html import unescape
 
 import dateutil.parser
@@ -10,15 +11,19 @@ from django.db import transaction
 from django.db.models import Max
 from django.forms import inlineformset_factory
 from django.utils import timezone
+from django.utils.functional import cached_property
 from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
 from django_countries.fields import CountryField
+from django_scopes import scope
 from eventyay.base.forms import I18nFormSet, I18nModelForm, SettingsForm
+from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget
 from eventyay.base.forms.widgets import (
     DatePickerWidget,
     SplitDateTimePickerWidget,
     TimePickerWidget,
 )
+from eventyay.base.models import Submission, SubmissionStates
 from eventyay.base.templatetags.rich_text import compile_email_body
 from eventyay.common.forms.fields import I18nEmailBodyFormField
 from eventyay.common.forms.mixins import (
@@ -35,10 +40,10 @@ from eventyay.helpers.i18n import get_format_without_seconds, is_rtl
 from i18nfield.forms import I18nFormField, I18nTextInput
 from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
-from phonenumber_field.widgets import PhoneNumberPrefixWidget
 
 from . import mail as mail_helpers
 from .models import (
+    DEPENDENCY_PARENT_VARIANTS,
     PROPOSAL_DEFAULT_FIELD_KEYS,
     PROPOSAL_FORMSET_FIELD_KEYS,
     QUESTION_OPTION_VARIANTS,
@@ -72,7 +77,106 @@ def get_tz_help(event):
     return _("Times are in the event timezone: %(tz)s.") % {"tz": event.timezone}
 
 
-class ExhibitionQuestionFieldsMixin:
+def delete_exhibition_answer(answer):
+    """Delete an answer and the file it holds; Django leaves the file behind on its own."""
+    if answer.file:
+        answer.file.delete(save=False)
+    answer.delete()
+
+
+class ExhibitionQuestionDependencyMixin:
+    """Conditional visibility for custom fields that depend on another field's answer.
+
+    The rendered widgets carry the same ``data-question-dependency`` attributes the
+    presale bundle already understands, so the show/hide behaviour is handled by
+    eventyay's own ``questions.js``. This mixin owns the server side of it: a hidden
+    field never blocks the form and its answer is never stored.
+    """
+
+    def apply_question_dependency(self, field, question):
+        """Tag the widget so the presale bundle can show and hide it as the parent changes."""
+        if not question.dependency_question_id:
+            return
+        field.widget.attrs["data-question-dependency"] = question.dependency_question_id
+        field.widget.attrs["data-question-dependency-values"] = json.dumps(question.dependency_values)
+
+    def question_fields(self):
+        for name, field in self.fields.items():
+            if name.startswith("question_") and getattr(field, "question", None) is not None:
+                yield name, field
+
+    def question_is_visible(self, question, cleaned_data, seen=None):
+        """True when every dependency up the chain is satisfied by the submitted answers."""
+        if not question.dependency_question_id:
+            return True
+        seen = seen or set()
+        if question.pk in seen:
+            return False
+        seen.add(question.pk)
+
+        parent_name = f"question_{question.dependency_question_id}"
+        parent_field = self.fields.get(parent_name)
+        if parent_field is None or getattr(parent_field, "question", None) is None:
+            # The parent was deleted or deactivated, so the condition can never be met.
+            return False
+        if not self.question_is_visible(parent_field.question, cleaned_data, seen):
+            return False
+        return self.dependency_matches(cleaned_data.get(parent_name), question.dependency_values)
+
+    @staticmethod
+    def dependency_matches(parent_value, dependency_values):
+        if parent_value is None or parent_value == "":
+            return False
+        if isinstance(parent_value, bool):
+            return ("True" in dependency_values) if parent_value else ("False" in dependency_values)
+        if hasattr(parent_value, "pk"):
+            return str(parent_value.pk) in dependency_values
+        if not isinstance(parent_value, str) and hasattr(parent_value, "__iter__"):
+            return any(str(getattr(item, "pk", item)) in dependency_values for item in parent_value)
+        return str(parent_value) in dependency_values
+
+    def dependency_is_resolvable(self, question, seen=None):
+        """True when every field up the dependency chain is on this form to answer."""
+        if not question.dependency_question_id:
+            return True
+        seen = seen or set()
+        if question.pk in seen:
+            return False
+        seen.add(question.pk)
+        parent_field = self.fields.get(f"question_{question.dependency_question_id}")
+        parent = getattr(parent_field, "question", None)
+        if parent is None:
+            return False
+        return self.dependency_is_resolvable(parent, seen)
+
+    @property
+    def hidden_question_fields(self):
+        return getattr(self, "_hidden_question_fields", set())
+
+    @property
+    def stale_question_fields(self):
+        """Hidden fields whose condition the visitor could act on, so their answers no longer apply."""
+        return getattr(self, "_stale_question_fields", set())
+
+    def clean(self):
+        """Drop whatever a hidden field contributed: its value and any error it raised."""
+        cleaned_data = super().clean()
+        hidden = set()
+        stale = set()
+        for name, field in self.question_fields():
+            if self.question_is_visible(field.question, cleaned_data):
+                continue
+            hidden.add(name)
+            if self.dependency_is_resolvable(field.question):
+                stale.add(name)
+            self.errors.pop(name, None)
+            cleaned_data[name] = None
+        self._hidden_question_fields = hidden
+        self._stale_question_fields = stale
+        return cleaned_data
+
+
+class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
     def inject_exhibition_questions(self, *, event, proposal=None, readonly=False):
         answers_by_question = {}
         if proposal and proposal.pk:
@@ -93,6 +197,7 @@ class ExhibitionQuestionFieldsMixin:
             )
             field.question = question
             field.answer = answer
+            self.apply_question_dependency(field, question)
             self.fields[f"question_{question.pk}"] = field
 
     def get_exhibition_question_field(self, *, question, answer, readonly):
@@ -171,6 +276,14 @@ class ExhibitionQuestionFieldsMixin:
         for key, value in self.cleaned_data.items():
             if not key.startswith("question_"):
                 continue
+            if key in self.hidden_question_fields:
+                # The field was not shown. Drop an answer the visitor themselves hid by
+                # changing the parent, but keep one whose parent has since been
+                # deactivated or deleted: they never got the chance to retract it.
+                answer = self.fields[key].answer
+                if answer and key in self.stale_question_fields:
+                    delete_exhibition_answer(answer)
+                continue
             field = self.fields[key]
             question = field.question
             answer = field.answer
@@ -180,7 +293,7 @@ class ExhibitionQuestionFieldsMixin:
 
             if empty:
                 if answer:
-                    answer.delete()
+                    delete_exhibition_answer(answer)
                 continue
 
             if not answer:
@@ -203,6 +316,21 @@ class ExhibitionQuestionFieldsMixin:
                 answer.answer = value
                 answer.save()
                 answer.options.clear()
+
+
+class SessionSelectWidget(forms.CheckboxSelectMultiple):
+    template_name = "exhibitors/session_select.html"
+    option_template_name = "exhibitors/session_select_option.html"
+
+
+class SessionChoiceField(forms.ModelMultipleChoiceField):
+    widget = SessionSelectWidget
+
+    def label_from_instance(self, obj: Submission) -> str:
+        speakers = obj.display_speaker_names
+        if speakers:
+            return f"{obj.title} — {speakers}"
+        return str(obj.title)
 
 
 class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
@@ -262,6 +390,14 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         required=False,
         label=_("Booth ID"),
     )
+    sessions = SessionChoiceField(
+        queryset=Submission.objects.none(),
+        required=False,
+        label=_("Related sessions"),
+        help_text=_(
+            "Sessions to show on this partner's public page. Only sessions on the published schedule are shown there."
+        ),
+    )
 
     file_url_fields = {
         "slides": "slides_url",
@@ -291,6 +427,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "allow_voucher_access",
             "allow_lead_access",
             "lead_scanning_scope_by_device",
+            "sessions",
         ]
         labels = {
             "name": _("Organization name"),
@@ -342,8 +479,9 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self.partner_type = kwargs.pop("partner_type", None)
         event = kwargs.get("event")
         instance = kwargs.get("instance")
-        super().__init__(*args, **kwargs)
         self.event = event or getattr(instance, "event", None)
+        with scope(event=self.event):
+            super().__init__(*args, **kwargs)
         if self.partner_type == "sponsor":
             self._drop_fields(self.EXHIBITOR_ONLY_FIELDS + ("is_sponsor",))
         elif self.partner_type == "exhibitor":
@@ -351,6 +489,18 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if "sponsor_group" in self.fields:
             self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("pk")
             self.fields["sponsor_group"].empty_label = _("No sponsor group")
+        if self.event:
+            with scope(event=self.event):
+                self.fields["sessions"].queryset = (
+                    Submission.objects.filter(
+                        event=self.event,
+                        state__in=SubmissionStates.accepted_states,
+                    )
+                    .prefetch_related("speakers")
+                    .order_by("title")
+                )
+        else:
+            self._drop_fields(("sessions",))
         for field_name in ("logo", "header_image"):
             self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
@@ -598,7 +748,8 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
         if commit:
             instance.save()
-            self.save_m2m()
+            with scope(event=instance.event):
+                self.save_m2m()
             if self.linked_proposal:
                 self.save_exhibition_questions(self.linked_proposal)
             if files_to_delete:
@@ -806,7 +957,7 @@ def parse_answer_time(value):
         return None
 
 
-class ExhibitionQuestionFieldsMixin:
+class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
     def inject_exhibition_questions(self, *, event, proposal=None, readonly=False):
         answers_by_question = {}
         if proposal and proposal.pk:
@@ -827,6 +978,7 @@ class ExhibitionQuestionFieldsMixin:
             )
             field.question = question
             field.answer = answer
+            self.apply_question_dependency(field, question)
             self.fields[f"question_{question.pk}"] = field
 
     def get_exhibition_question_field(self, *, question, answer, readonly):
@@ -883,7 +1035,7 @@ class ExhibitionQuestionFieldsMixin:
                 initial=initial or None,
                 label=label,
                 required=question.required,
-                widget=PhoneNumberPrefixWidget(),
+                widget=WrappedPhoneNumberPrefixWidget(),
             )
         if question.variant == ExhibitionQuestionVariant.COUNTRY:
             return CountryField(countries=CachedCountries, blank=True, blank_label=" ").formfield(
@@ -980,6 +1132,14 @@ class ExhibitionQuestionFieldsMixin:
         for key, value in self.cleaned_data.items():
             if not key.startswith("question_"):
                 continue
+            if key in self.hidden_question_fields:
+                # The field was not shown. Drop an answer the visitor themselves hid by
+                # changing the parent, but keep one whose parent has since been
+                # deactivated or deleted: they never got the chance to retract it.
+                answer = self.fields[key].answer
+                if answer and key in self.stale_question_fields:
+                    delete_exhibition_answer(answer)
+                continue
             field = self.fields[key]
             question = field.question
             answer = field.answer
@@ -993,7 +1153,7 @@ class ExhibitionQuestionFieldsMixin:
 
             if empty:
                 if answer:
-                    answer.delete()
+                    delete_exhibition_answer(answer)
                 continue
 
             if not answer:
@@ -1543,22 +1703,30 @@ ExhibitionQuestionOptionFormSet = inlineformset_factory(
 
 
 class ExhibitionQuestionForm(I18nModelForm):
+    """Mirrors the Tickets custom field form: same labels, same order, same dependency options."""
+
     class Meta:
         model = ExhibitionQuestion
         localized_fields = "__all__"
         fields = [
-            "variant",
             "question",
-            "help_text",
+            "variant",
             "required",
+            "help_text",
+            "dependency_question",
+            "dependency_values",
             "active",
         ]
         labels = {
-            "variant": _("Field type"),
-            "question": _("Custom question"),
+            "question": _("Custom field"),
+            "variant": _("Type"),
+            "required": _("Required field"),
             "help_text": _("Help text"),
-            "required": _("Required"),
+            "dependency_question": _("Custom field dependency"),
             "active": _("Active"),
+        }
+        widgets = {
+            "dependency_values": forms.SelectMultiple,
         }
 
     choice_variants = QUESTION_OPTION_VARIANTS
@@ -1567,10 +1735,76 @@ class ExhibitionQuestionForm(I18nModelForm):
         self.event = kwargs.get("event")
         super().__init__(*args, **kwargs)
         self.fields["variant"].widget.attrs["data-question-variant"] = "1"
+        self.fields["help_text"].widget.attrs["rows"] = 3
+        self.fields["dependency_question"].queryset = self.dependency_candidates
+        self.fields["dependency_question"].required = False
+        self.fields["dependency_values"].required = False
 
     @property
     def choice_variant_values(self):
         return " ".join(sorted(str(variant) for variant in self.choice_variants))
+
+    @cached_property
+    def dependency_candidates(self):
+        """Fields of this event that can be depended on: everything with a fixed answer set, minus itself."""
+        event = self.event or getattr(self.instance, "event", None)
+        if event is None:
+            return ExhibitionQuestion.objects.none()
+        queryset = ExhibitionQuestion.objects.filter(
+            event=event,
+            variant__in=DEPENDENCY_PARENT_VARIANTS,
+        ).prefetch_related("options")
+        if self.instance.pk:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        return queryset
+
+    @property
+    def dependency_value_map(self):
+        """{question id: [{value, label}]} so the form can fill the value picker without a round trip."""
+        return {
+            str(question.pk): [
+                {"value": value, "label": str(label)} for value, label in question.dependency_value_choices()
+            ]
+            for question in self.dependency_candidates
+        }
+
+    def clean_dependency_values(self):
+        # The field is a MultiStringField rendered as a multi-select, so read every selected value.
+        data = self.data
+        if hasattr(data, "getlist"):
+            return [value for value in data.getlist("dependency_values") if value]
+        value = data.get("dependency_values") or []
+        if isinstance(value, str):
+            value = [value]
+        return [item for item in value if item]
+
+    def clean_dependency_question(self):
+        dependency = value = self.cleaned_data.get("dependency_question")
+        if not dependency:
+            return None
+        if dependency.variant not in DEPENDENCY_PARENT_VARIANTS:
+            raise ValidationError(_("Only checkbox and choice fields can be used as a dependency."))
+        seen = {self.instance.pk} if self.instance.pk else set()
+        while dependency is not None:
+            if dependency.pk in seen:
+                raise ValidationError(_("Circular dependency between custom fields detected."))
+            seen.add(dependency.pk)
+            dependency = dependency.dependency_question
+        return value
+
+    def clean(self):
+        cleaned_data = super().clean()
+        dependency = cleaned_data.get("dependency_question")
+        values = cleaned_data.get("dependency_values") or []
+        if not dependency:
+            cleaned_data["dependency_values"] = []
+            return cleaned_data
+        if not values:
+            raise ValidationError({"dependency_values": [_("Please select at least one value.")]})
+        allowed = {value for value, label in dependency.dependency_value_choices()}
+        if not set(values) <= allowed:
+            raise ValidationError({"dependency_values": [_("Select a valid value for the selected field.")]})
+        return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)

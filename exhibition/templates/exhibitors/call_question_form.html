@@ -11,21 +11,20 @@
     <script defer src="{% static 'exhibition/js/question-form.js' %}"></script>
 {% endblock %}
 
-{% block title %}{{ request.event.name }} - {% trans "Form field" %}{% endblock %}
+{% block title %}{{ request.event.name }} - {% trans "Custom Form Field" %}{% endblock %}
 
 {% block exhibitors_header %}
-    <h1>{% trans "Form field" %}</h1>
+    <h1>{% trans "Custom Form Field" %}</h1>
 {% endblock %}
 
 {% block exhibitors_content %}
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
-        {% bootstrap_field form.variant layout="control" %}
         {% bootstrap_field form.question layout="control" %}
-        {% bootstrap_field form.help_text layout="control" %}
+        {% bootstrap_field form.variant layout="control" %}
         {% bootstrap_field form.required layout="control" %}
-        {% bootstrap_field form.active layout="control" %}
+        {% bootstrap_field form.help_text layout="control" %}
         <div id="exhibition-answer-options" class="exhibition-answer-options" data-question-options data-choice-variants="{{ form.choice_variant_values }}">
             <div class="form-group answer-options-group">
                 <label id="answer-options-heading" class="col-md-3 control-label">{% trans "Answer options" %}</label>
@@ -110,6 +109,21 @@
                 </div>
             </div>
         </div>
+        <div class="form-group exhibition-dependency-group" data-question-dependency>
+            <script type="application/json" data-question-dependency-map>{{ form.dependency_value_map|escapejson_dumps }}</script>
+            <script type="application/json" data-question-dependency-selected>{{ form.instance.dependency_values|escapejson_dumps }}</script>
+            <label class="col-md-3 control-label" for="{{ form.dependency_question.id_for_label }}">
+                {% trans "Custom field dependency" %}
+                <br><span class="optional">{% trans "Optional" context "form" %}</span>
+            </label>
+            <div class="col-md-4">
+                {% bootstrap_field form.dependency_question layout="inline" form_group_class="inner" %}
+            </div>
+            <div class="col-md-5">
+                {% bootstrap_field form.dependency_values layout="inline" form_group_class="inner" %}
+            </div>
+        </div>
+        {% bootstrap_field form.active layout="control" %}
         <div class="form-group submit-group">
             <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
             <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">

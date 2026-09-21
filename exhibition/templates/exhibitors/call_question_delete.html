@@ -15,6 +15,24 @@
                 Are you sure you want to delete the question "{{ question }}"?
             {% endblocktrans %}
         </p>
+        {% if dependent_questions %}
+            <div class="alert alert-warning" role="alert">
+                <p>
+                    {% blocktrans trimmed count counter=dependent_questions|length %}
+                        One other form field is only shown when this field is answered in a certain way.
+                        Deleting this field removes that condition, so it will always be shown:
+                    {% plural %}
+                        {{ counter }} other form fields are only shown when this field is answered in a
+                        certain way. Deleting this field removes that condition, so they will always be shown:
+                    {% endblocktrans %}
+                </p>
+                <ul>
+                    {% for dependent in dependent_questions %}
+                        <li>{{ dependent.localized_question }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
         <div class="form-group submit-group">
             <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
             <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">

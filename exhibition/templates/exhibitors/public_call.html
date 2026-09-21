@@ -2,6 +2,12 @@
 {% load i18n %}
 {% load event_tags %}
 {% load rich_text %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-call.css' %}">
+{% endblock %}
 
 {% block call_content %}
     {% trans "Call for Exhibitors" as default_headline %}
@@ -28,19 +34,35 @@
             </strong>
         </p>
     {% endif %}
-    <div class="url-links">
-        {% if request.user.is_authenticated %}
-            <a class="btn btn-info btn-lg btn-block" href="{% url 'plugins:exhibition:proposal.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
-                {% trans "View your requests" %}
-            </a>
-        {% endif %}
-        <a class="btn btn-success btn-lg btn-block {% if not settings.call_is_open %}disabled{% endif %}"
-           href="{% url 'plugins:exhibition:proposal.add' organizer=request.event.organizer.slug event=request.event.slug %}">
-            {% if settings.call_is_open %}
-                {% trans "Submit a request" %}
-            {% else %}
-                {% trans "Requests are closed" %}
+    {% if not request.user.is_authenticated and settings.call_is_open %}
+        <div class="exhibition-call-auth">
+            <p class="exhibition-call-auth-hint">
+                {% trans "Log in or create an account to submit your application." %}
+            </p>
+            <div class="exhibition-call-auth-actions">
+                <a class="btn btn-primary btn-lg" href="{{ call_login_url }}">
+                    {% trans "Log in" %}
+                </a>
+                <a class="btn btn-primary btn-lg" href="{{ call_register_url }}">
+                    {% trans "Create an account" %}
+                </a>
+            </div>
+        </div>
+    {% else %}
+        <div class="url-links">
+            {% if request.user.is_authenticated %}
+                <a class="btn btn-info btn-lg btn-block" href="{% url 'plugins:exhibition:proposal.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    {% trans "View your requests" %}
+                </a>
             {% endif %}
-        </a>
-    </div>
+            <a class="btn btn-success btn-lg btn-block {% if not settings.call_is_open %}disabled{% endif %}"
+               href="{% url 'plugins:exhibition:proposal.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% if settings.call_is_open %}
+                    {% trans "Submit a request" %}
+                {% else %}
+                    {% trans "Requests are closed" %}
+                {% endif %}
+            </a>
+        </div>
+    {% endif %}
 {% endblock %}

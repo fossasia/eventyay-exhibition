@@ -1,0 +1,19 @@
+.exhibition-call-auth {
+    margin-top: 40px;
+}
+
+.exhibition-call-auth-hint {
+    margin-bottom: 12px;
+}
+
+.exhibition-call-auth-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.exhibition-call-auth-actions .btn {
+    flex: 1 1 200px;
+    margin: 0;
+    white-space: normal;
+}
