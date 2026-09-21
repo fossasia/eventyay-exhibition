@@ -2,6 +2,7 @@ import io
 import json
 
 from defusedcsv import csv
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
@@ -19,7 +20,6 @@ from eventyay.base.services.system_questions import (
     STATE_REQUIRED,
     get_system_question_base_state,
 )
-from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.common.utils.language import localize_event_text
 from eventyay.control.forms.filter import advanced_filter_count, advanced_filters_open_from_get
 from eventyay.control.permissions import EventPermissionRequiredMixin
@@ -99,6 +99,7 @@ from .utils import (
     event_exhibitor_settings,
     pool_remaining,
     provision_exhibitor_devices,
+    public_exhibitor_sessions,
     public_exhibitors_queryset,
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
@@ -238,6 +239,8 @@ class PublicCallEnabledMixin:
 class FilteredListMixin(PaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
+    selection_field = None
+
     def build_filter_form(self):
         raise NotImplementedError
 
@@ -255,6 +258,8 @@ class FilteredListMixin(PaginationMixin):
         context["filter_form"] = self.filter_form
         context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form)
         context["advanced_filter_count"] = advanced_filter_count(self.filter_form)
+        if self.selection_field:
+            context["selectable_ids"] = list(self.object_list.order_by().values_list(self.selection_field, flat=True))
         return context
 
 
@@ -569,6 +574,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
     permission = ("can_change_event_settings", "can_view_orders")
     template_name = "exhibitors/exhibitor_info.html"
     context_object_name = "exhibitors"
+    selection_field = "pk"
     partner_type = None
 
     def build_filter_form(self):
@@ -736,6 +742,7 @@ class PublicExhibitorDetailView(DetailView):
         context["extra_links"] = list(self.object.extra_links.all())
         context["video_embed"] = build_exhibitor_video_embed(self.object.video_url or "")
         context["slides_document_url"] = self.object.visible_slides_url
+        context["related_sessions"] = public_exhibitor_sessions(self.object, self.request.user)
 
         add_external_image_csp_sources(
             self.request,
@@ -1351,30 +1358,12 @@ class SponsorReorderView(PartnerReorderMixin):
         return queryset.filter(sponsor_group_id=group_id)
 
 
-class CallTextPreviewView(EventPermissionRequiredMixin, View):
-    """Render draft Call text with the same styling as the public call page.
-
-    Consumed by core's shared ``richtextPreview.js`` (``data-email-preview-*``
-    attributes): the body text is posted as one ``body_<locale>`` field per
-    rendered locale.
-    """
-
-    permission = "can_change_settings"
-
-    def post(self, request, *args, **kwargs):
-        event_locales = request.event.settings.locales
-        previews = {}
-        for locale in event_locales:
-            text = request.POST.get(f"body_{locale}", "")
-            previews[locale] = str(rich_text(text)) if text else ""
-        return JsonResponse({"previews": previews})
-
-
 class ProposalListView(EventPermissionRequiredMixin, FilteredListMixin, ListView):
     model = ExhibitionProposal
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
     template_name = "exhibitors/proposal_list.html"
     context_object_name = "proposals"
+    selection_field = "code"
 
     @cached_property
     def hide_applicant_emails(self):
@@ -2717,12 +2706,24 @@ class EmailListMixin(FilteredListMixin):
         context = super().get_context_data(**kwargs)
         context["entries"] = group_email_entries(self.expand_batches(context["emails"]))
         context["date_field"] = self.date_field
+        context["query_string"] = self.request.GET.urlencode()
         return context
 
     def get_template_names(self):
         if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
             return [self.partial_template_name]
         return [self.template_name]
+
+
+def bulk_email_selection_limit():
+    """Most rows a bulk email request can carry, or ``None`` when Django sets no cap.
+
+    Each selected row is its own POST field, and Django rejects a request with
+    more than ``DATA_UPLOAD_MAX_NUMBER_FIELDS`` of them. The discard confirmation
+    re-posts the selection alongside the CSRF token, ``op`` and ``confirmed``.
+    """
+    limit = django_settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+    return None if limit is None else limit - 3
 
 
 class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
@@ -2733,9 +2734,15 @@ class EmailOutboxListView(EmailListMixin, EventPermissionRequiredMixin, ListView
     template_name = "exhibitors/email_outbox.html"
     partial_template_name = "exhibitors/_email_outbox_body.html"
     date_field = "created"
+    selection_field = "pk"
 
     def base_queryset(self):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["selection_limit"] = bulk_email_selection_limit()
+        return context
 
 
 class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
@@ -2902,9 +2909,32 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
 
     permission = EMAIL_MANAGE_PERMISSION
 
+    def outbox_redirect(self, request, done=False):
+        """Back to the outbox. ``?bulk=done`` tells the page its selection was consumed.
+
+        Only set it once rows have actually been sent or discarded, so a cancelled
+        confirmation or a request that did nothing leaves the selection to retry.
+        """
+        query_params = request.GET.copy()
+        query_params.pop("select_all_pages", None)
+        if done:
+            query_params["bulk"] = "done"
+        else:
+            query_params.pop("bulk", None)
+        query_string = query_params.urlencode()
+        url = reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(request.event))
+        if query_string:
+            url = f"{url}?{query_string}"
+        return redirect(url)
+
     def target_rows(self, request, scope):
         base = ExhibitionEmailQueue.objects.filter(event=request.event, sent_at__isnull=True)
         if scope == "all":
+            if request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true":
+                filter_form = EmailFilterForm(data=request.GET, date_field="created")
+                if filter_form.is_valid():
+                    return filter_form.filter_qs(base)
+                return base
             return base
         selected = request.POST.getlist("selected")
         if not selected:
@@ -2915,11 +2945,11 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         op = request.POST.get("op", "")
         action = "send" if op.startswith("send") else "discard" if op.startswith("discard") else None
-        scope = "all" if op.endswith("_all") else "selected"
-        outbox_url = redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
+        is_select_all = request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true"
+        scope = "all" if (op.endswith("_all") or (is_select_all and action is not None)) else "selected"
 
         if action is None:
-            return outbox_url
+            return self.outbox_redirect(request)
 
         rows = self.target_rows(request, scope)
 
@@ -2936,7 +2966,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request, done=bool(count))
 
         if request.POST.get("confirmed"):
             count = rows.count()
@@ -2949,19 +2979,26 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                 )
             else:
                 messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request, done=bool(count))
 
         count = rows.count()
         if not count:
             messages.info(request, _("No emails were selected."))
-            return outbox_url
+            return self.outbox_redirect(request)
+
+        query_params = request.GET.copy()
+        query_params.pop("select_all_pages", None)
         return render(
             request,
             "exhibitors/email_bulk_discard.html",
             {
                 "count": count,
                 "scope": scope,
+                "op": op,
+                "is_select_all": is_select_all,
                 "selected": request.POST.getlist("selected"),
+                "query_string": request.GET.urlencode(),
+                "cancel_query_string": query_params.urlencode(),
             },
         )
 
