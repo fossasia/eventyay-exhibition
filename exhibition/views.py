@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 32400)
+Total output lines: 3179
+
 import io
 import json
 from urllib.parse import quote
@@ -1507,226 +1510,7 @@ class ProposalDetailView(EventPermissionRequiredMixin, UpdateView):
                 )
         elif action == "reject":
             self.object.reject(requestor=requestor)
-            messages.success(self.request, _("Request rejected. A rejection email was placed in the outbox."))
-        elif action == "withdraw":
-            self.object.withdraw(requestor=requestor)
-            messages.success(self.request, _("Request withdrawn."))
-        elif action == "reopen":
-            self.object.reopen(requestor=requestor)
-            messages.success(self.request, _("Request reopened for review."))
-        return redirect(self.get_success_url())
-
-    def get_success_url(self):
-        return reverse(
-            "plugins:exhibition:proposal.detail",
-            kwargs={**event_kwargs(self.request.event), "code": self.object.code},
-        )
-
-
-class ProposalActionView(EventPermissionRequiredMixin, View):
-    permission = ("can_change_event_settings", "can_change_exhibition_proposals")
-    valid_actions = set(PROPOSAL_REVIEW_ACTIONS)
-
-    def get_proposals(self, request, select_all, codes):
-        """Every request matching the active filters when selecting across pages, else the checked rows."""
-        queryset = ExhibitionProposal.objects.filter(event=request.event).select_related("approved_exhibitor")
-        if not select_all:
-            return queryset.filter(code__in=codes)
-        filter_form = ProposalFilterForm(
-            data=request.POST,
-            hide_emails=should_hide_applicant_emails(request.user, request.event, request=request),
-        )
-        if filter_form.is_valid():
-            queryset = filter_form.filter_qs(queryset)
-        return queryset
-
-    def post(self, request, *args, **kwargs):
-        action = request.POST.get("action")
-        codes = request.POST.getlist("proposal")
-        select_all = request.POST.get("all") == "1"
-        if action not in self.valid_actions or not (codes or select_all):
-            return self.respond(request, False, _("No valid action was selected."), [], 0)
-
-        target_state = PROPOSAL_REVIEW_ACTIONS[action]
-        proposals = self.get_proposals(request, select_all, codes)
-        results = []
-        changed = 0
-        skipped = 0
-        with transaction.atomic():
-            for proposal in proposals:
-                if not proposal.can_transition_to(target_state):
-                    skipped += 1
-                    continue
-                self.apply_action(proposal, action)
-                changed += 1
-                if select_all:
-                    continue
-                results.append(
-                    {
-                        "code": proposal.code,
-                        "state": proposal.state,
-                        "state_display": proposal.get_state_display(),
-                        "actions": proposal.available_review_actions(),
-                        "bulk_actions": proposal.available_bulk_actions(),
-                    }
-                )
-        return self.respond(
-            request,
-            True,
-            self.build_message(action, changed, skipped),
-            results,
-            skipped,
-            reload=select_all and changed > 0,
-        )
-
-    def apply_action(self, proposal, action):
-        if action == "approve":
-            proposal.approve(requestor=self.request.user)
-        elif action == "reject":
-            proposal.reject(requestor=self.request.user)
-        elif action == "withdraw":
-            proposal.withdraw(requestor=self.request.user)
-        elif action == "reopen":
-            proposal.reopen(requestor=self.request.user)
-
-    def build_message(self, action, count, skipped):
-        if count:
-            templates = {
-                "approve": ngettext("%(count)d request was approved.", "%(count)d requests were approved.", count),
-                "reject": ngettext("%(count)d request was rejected.", "%(count)d requests were rejected.", count),
-                "withdraw": ngettext("%(count)d request was withdrawn.", "%(count)d requests were withdrawn.", count),
-                "reopen": ngettext("%(count)d request was reopened.", "%(count)d requests were reopened.", count),
-            }
-            message = templates[action] % {"count": count}
-        else:
-            message = _("No proposals were updated.")
-        if skipped:
-            skipped_message = ngettext(
-                "%(skipped)d was skipped because it was already processed.",
-                "%(skipped)d were skipped because they were already processed.",
-                skipped,
-            ) % {"skipped": skipped}
-            message = f"{message} {skipped_message}"
-        return message
-
-    def respond(self, request, ok, message, results, skipped, reload=False):
-        if request.headers.get("x-requested-with") == "XMLHttpRequest":
-            return JsonResponse(
-                {"ok": ok, "message": str(message), "results": results, "skipped": skipped, "reload": reload},
-                status=200 if ok else 400,
-            )
-        if ok:
-            messages.success(request, message)
-        else:
-            messages.error(request, message)
-        return redirect("plugins:exhibition:proposal.list", **event_kwargs(request.event))
-
-
-class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
-    model = ExhibitionQuestion
-    permission = "can_change_settings"
-    template_name = "exhibitors/call_questions.html"
-    context_object_name = "questions"
-
-    def get_queryset(self):
-        return ExhibitionQuestion.objects.filter(event=self.request.event).annotate(answer_count=Count("answers"))
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
-        field_settings = settings.normalized_proposal_field_settings
-        answer_counts = self.get_default_field_answer_counts()
-        field_definitions = {field["key"]: field for field in PROPOSAL_DEFAULT_FIELDS}
-
-        rows = []
-        for key in PROPOSAL_DEFAULT_FIELD_KEYS:
-            definition = field_definitions[key]
-            rows.append(
-                {
-                    "sort_position": field_settings[key]["position"],
-                    "sort_kind": 0,
-                    "dragsort_id": key,
-                    "input_prefix": key,
-                    "label": field_settings[key]["label"],
-                    "active": field_settings[key]["active"],
-                    "required": field_settings[key]["required"],
-                    "supports_required": definition.get("supports_required", True),
-                    "active_locked": definition.get("active_locked", False),
-                    "required_locked": definition.get("required_locked", False),
-                    "answer_count": answer_counts.get(key, 0),
-                    "is_custom": False,
-                }
-            )
-        for question in context["questions"]:
-            rows.append(
-                {
-                    "sort_position": question.position,
-                    "sort_kind": 1,
-                    "dragsort_id": question.pk,
-                    "input_prefix": f"question_{question.pk}",
-                    "label": question.localized_question,
-                    "active": question.active,
-                    "required": question.required,
-                    "supports_required": True,
-                    "active_locked": False,
-                    "required_locked": False,
-                    "answer_count": question.answer_count,
-                    "is_custom": True,
-                    "pk": question.pk,
-                }
-            )
-        rows.sort(key=lambda row: (row["sort_position"], row["sort_kind"]))
-        context["proposal_fields"] = rows
-        return context
-
-    def get_default_field_answer_counts(self):
-        proposals = ExhibitionProposal.objects.filter(event=self.request.event).exclude(
-            state=ExhibitionProposalState.DRAFT
-        )
-        file_has_value = {
-            "slides": (Q(slides__isnull=False) & ~Q(slides="")) | (Q(slides_url__isnull=False) & ~Q(slides_url="")),
-            "logo": (Q(logo__isnull=False) & ~Q(logo="")) | (Q(logo_url__isnull=False) & ~Q(logo_url="")),
-            "header_image": (Q(header_image__isnull=False) & ~Q(header_image=""))
-            | (Q(header_image_url__isnull=False) & ~Q(header_image_url="")),
-        }
-        text_fields = (
-            "description",
-            "email",
-            "url",
-            "contact_url",
-            "video_url",
-            "booth_name",
-            "notes",
-        )
-        counts = {
-            "name": proposals.count(),
-            "social_links": proposals.filter(social_links__isnull=False).distinct().count(),
-            "extra_links": proposals.filter(extra_links__isnull=False).distinct().count(),
-        }
-        counts.update({key: proposals.filter(condition).count() for key, condition in file_has_value.items()})
-        counts.update(
-            {
-                field: proposals.exclude(**{f"{field}__isnull": True}).exclude(**{field: ""}).count()
-                for field in text_fields
-            }
-        )
-        return counts
-
-    def post(self, request, *args, **kwargs):
-        settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
-
-        order_param = request.POST.get("order")
-        if order_param:
-            self.save_field_order(settings, order_param)
-            return HttpResponse(status=204)
-
-        proposal_field_settings = settings.normalized_proposal_field_settings
-
-        for field in PROPOSAL_DEFAULT_FIELDS:
-            key = field["key"]
-            is_active = field.get("active_locked") or request.POST.get(f"{key}_active") == "on"
-            proposal_field_settings[key]["active"] = is_active
-            proposal_field_settings[key]["required"] = is_active and (
+            messages.success(self.request, _("Request rejected. A rejection email was…2400 tokens truncated…            proposal_field_settings[key]["required"] = is_active and (
                 field.get("required_locked")
                 or (field.get("supports_required", True) and request.POST.get(f"{key}_required") == "required")
             )
@@ -1965,12 +1749,11 @@ class ExhibitionDefaultFieldEditView(DefaultFieldMixin, FormView):
         kwargs = super().get_form_kwargs()
         field_setting = self.get_field_setting()
         kwargs["field_setting"] = field_setting
-        kwargs.setdefault(
-            "initial",
+        kwargs.setdefault("initial", {}).update(
             {
                 "label": field_setting["custom_label"] or "",
                 "help_text": field_setting["custom_help_text"] or "",
-            },
+            }
         )
         return kwargs
 
