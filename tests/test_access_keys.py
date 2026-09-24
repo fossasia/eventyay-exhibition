@@ -16,11 +16,11 @@ class _User:
         return self.allowed
 
 
-def _download(event, partner_type=None, allowed=True):
+def _download(event, organization_type=None, allowed=True):
     request = RequestFactory().get("/", {"download": "yes"})
     request.event = event
     request.user = _User(allowed=allowed)
-    view = ExhibitorListView(partner_type=partner_type)
+    view = ExhibitorListView(organization_type=organization_type)
     view.request = request
     return view.get(request)
 
@@ -30,7 +30,7 @@ def test_download_requires_change_settings_permission(event):
     with scopes_disabled():
         ExhibitorInfo.objects.create(event=event, name="Acme", is_exhibitor=True)
         with pytest.raises(PermissionDenied):
-            _download(event, partner_type="exhibitor", allowed=False)
+            _download(event, organization_type="exhibitor", allowed=False)
 
 
 @pytest.mark.django_db
@@ -39,7 +39,7 @@ def test_download_returns_csv_with_keys(event):
         exhibitor = ExhibitorInfo.objects.create(
             event=event, name="Acme", email="a@example.com", booth_id="B-9", is_exhibitor=True
         )
-        response = _download(event, partner_type="exhibitor")
+        response = _download(event, organization_type="exhibitor")
         body = response.content.decode("utf-8")
 
     assert response.status_code == 200
@@ -52,13 +52,13 @@ def test_download_returns_csv_with_keys(event):
 
 
 @pytest.mark.django_db
-def test_download_respects_partner_type_filter(event):
+def test_download_respects_organization_type_filter(event):
     with scopes_disabled():
         sponsor = ExhibitorInfo.objects.create(event=event, name="SponsorCo", is_sponsor=True, is_exhibitor=False)
         exhibitor = ExhibitorInfo.objects.create(event=event, name="ExhibitorCo", is_sponsor=False, is_exhibitor=True)
 
-        sponsor_body = _download(event, partner_type="sponsor").content.decode("utf-8")
-        exhibitor_body = _download(event, partner_type="exhibitor").content.decode("utf-8")
+        sponsor_body = _download(event, organization_type="sponsor").content.decode("utf-8")
+        exhibitor_body = _download(event, organization_type="exhibitor").content.decode("utf-8")
 
     assert sponsor.key in sponsor_body
     assert exhibitor.key not in sponsor_body
@@ -67,14 +67,14 @@ def test_download_respects_partner_type_filter(event):
 
 
 @pytest.mark.django_db
-def test_download_filename_matches_partner_type(event):
+def test_download_filename_matches_organization_type(event):
     with scopes_disabled():
         ExhibitorInfo.objects.create(event=event, name="Acme", is_sponsor=True, is_exhibitor=True)
-        sponsor = _download(event, partner_type="sponsor")
+        sponsor = _download(event, organization_type="sponsor")
         combined = _download(event)
 
     assert "sponsor-keys.csv" in sponsor["Content-Disposition"]
-    assert "partner-keys.csv" in combined["Content-Disposition"]
+    assert "organization-keys.csv" in combined["Content-Disposition"]
 
 
 def _flags(lead=False, voucher=False):
@@ -112,7 +112,7 @@ def test_list_view_renders_normally_without_download_param(event):
     request = RequestFactory().get("/")
     request.event = event
     request.user = _User()
-    view = ExhibitorListView(partner_type="exhibitor")
+    view = ExhibitorListView(organization_type="exhibitor")
     view.request = request
     with scopes_disabled():
         assert view.get_queryset().count() == 0

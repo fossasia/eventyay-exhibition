@@ -1,0 +1,76 @@
+.exhibition-lang-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.exhibition-lang-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 4px;
+    background: var(--color-bg, #fff);
+    color: var(--color-text, #333);
+    font-weight: 500;
+    line-height: 1.4;
+    cursor: pointer;
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
+}
+
+.exhibition-lang-chip::before {
+    content: "\2713";
+    display: inline-block;
+    width: 0.9em;
+    font-weight: 700;
+    opacity: 0;
+}
+
+.exhibition-lang-chip:hover,
+.exhibition-lang-chip:focus {
+    background: var(--color-primary-lighter, #e8f4fd);
+    border-color: var(--color-primary, #337ab7);
+    color: var(--color-primary-text, #1a73a7);
+    outline: none;
+}
+
+.exhibition-lang-chip:focus-visible {
+    box-shadow: 0 0 0 3px rgba(51, 122, 183, 0.35);
+}
+
+.exhibition-lang-chip.is-active {
+    background: var(--color-primary, #337ab7);
+    border-color: var(--color-primary, #337ab7);
+    color: #fff;
+    font-weight: 600;
+}
+
+.exhibition-lang-chip.is-active::before {
+    opacity: 1;
+}
+
+.exhibition-lang-chip.has-error {
+    border-color: #a94442;
+    color: #a94442;
+}
+
+.exhibition-lang-chip.has-error.is-active {
+    background: #a94442;
+    border-color: #a94442;
+    color: #fff;
+}
+
+.exhibition-lang-chip.has-error::after {
+    content: "\f071";
+    font-family: FontAwesome;
+    font-size: 11px;
+}
+
+.i18n-form-group .exhibition-lang-hidden,
+.mail-preview.exhibition-lang-hidden {
+    display: none;
+}

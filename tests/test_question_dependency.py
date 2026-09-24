@@ -2,13 +2,13 @@ import pytest
 from django.http import QueryDict
 from eventyay.base.models import User
 
-from exhibition.forms import ExhibitionProposalForm, ExhibitionQuestionForm
+from exhibition.forms import ExhibitionQuestionForm, ExhibitionRequestForm
 from exhibition.models import (
     ExhibitionAnswer,
-    ExhibitionProposal,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuestionVariant,
+    ExhibitionRequest,
     ExhibitorSettings,
 )
 
@@ -47,15 +47,15 @@ def question_form_data(**overrides):
     return data
 
 
-def make_proposal(event, email="applicant@example.org"):
+def make_request(event, email="applicant@example.org"):
     user = User.objects.create_user(email=email, password="dependency-tests-1234")
-    return ExhibitionProposal.objects.create(event=event, user=user, name={"en": "Acme"})
+    return ExhibitionRequest.objects.create(event=event, user=user, name={"en": "Acme"})
 
 
-def proposal_form(event, data):
+def request_form(event, data):
     payload = {"name": "Acme", "content_locale": "en"}
     payload.update(data)
-    return ExhibitionProposalForm(event=event, data=payload)
+    return ExhibitionRequestForm(event=event, data=payload)
 
 
 @pytest.fixture
@@ -252,7 +252,7 @@ def test_widget_carries_the_dependency_attributes(call_event):
     child.dependency_values = [str(options[0].pk)]
     child.save()
 
-    form = proposal_form(call_event, {})
+    form = request_form(call_event, {})
     attrs = form.fields[f"question_{child.pk}"].widget.attrs
 
     assert attrs["data-question-dependency"] == parent.pk
@@ -267,7 +267,7 @@ def test_hidden_dependent_field_is_not_required(call_event):
     child.dependency_values = [str(options[0].pk)]
     child.save()
 
-    form = proposal_form(
+    form = request_form(
         call_event,
         {f"question_{parent.pk}": str(options[1].pk), f"question_{child.pk}": ""},
     )
@@ -283,7 +283,7 @@ def test_visible_dependent_field_is_required(call_event):
     child.dependency_values = [str(options[0].pk)]
     child.save()
 
-    form = proposal_form(
+    form = request_form(
         call_event,
         {f"question_{parent.pk}": str(options[0].pk), f"question_{child.pk}": ""},
     )
@@ -300,7 +300,7 @@ def test_visible_dependent_field_accepts_an_answer(call_event):
     child.dependency_values = [str(options[0].pk)]
     child.save()
 
-    form = proposal_form(
+    form = request_form(
         call_event,
         {f"question_{parent.pk}": str(options[0].pk), f"question_{child.pk}": "Two chairs"},
     )
@@ -316,8 +316,8 @@ def test_boolean_parent_drives_visibility(call_event):
     child.dependency_values = ["True"]
     child.save()
 
-    unchecked = proposal_form(call_event, {f"question_{child.pk}": ""})
-    checked = proposal_form(call_event, {f"question_{parent.pk}": "on", f"question_{child.pk}": ""})
+    unchecked = request_form(call_event, {f"question_{child.pk}": ""})
+    checked = request_form(call_event, {f"question_{parent.pk}": "on", f"question_{child.pk}": ""})
 
     assert unchecked.is_valid(), unchecked.errors
     assert not checked.is_valid()
@@ -335,7 +335,7 @@ def test_a_broken_chain_leaves_the_leaf_alone(call_event):
     leaf.dependency_values = [str(middle_options[0].pk)]
     leaf.save()
 
-    form = proposal_form(
+    form = request_form(
         call_event,
         {
             f"question_{root.pk}": str(root_options[1].pk),
@@ -357,7 +357,7 @@ def test_a_deactivated_parent_hides_its_dependents(call_event):
     parent.active = False
     parent.save()
 
-    form = proposal_form(call_event, {f"question_{child.pk}": ""})
+    form = request_form(call_event, {f"question_{child.pk}": ""})
 
     assert form.is_valid(), form.errors
     assert f"question_{child.pk}" in form.hidden_question_fields
@@ -371,15 +371,15 @@ def test_hidden_answers_are_not_stored(call_event):
     child.dependency_values = [str(options[0].pk)]
     child.save()
 
-    form = proposal_form(
+    form = request_form(
         call_event,
         {f"question_{parent.pk}": str(options[1].pk), f"question_{child.pk}": "Two chairs"},
     )
     assert form.is_valid(), form.errors
-    proposal = make_proposal(call_event)
-    form.save_exhibition_questions(proposal)
+    exhibition_request = make_request(call_event)
+    form.save_exhibition_questions(exhibition_request)
 
-    assert not ExhibitionAnswer.objects.filter(proposal=proposal, question=child).exists()
+    assert not ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()
 
 
 @pytest.mark.django_db
@@ -389,12 +389,12 @@ def test_an_answer_is_dropped_when_its_field_becomes_hidden(call_event):
     child.dependency_question = parent
     child.dependency_values = [str(options[0].pk)]
     child.save()
-    proposal = make_proposal(call_event, email="editor@example.org")
-    ExhibitionAnswer.objects.create(proposal=proposal, question=child, answer="Two chairs")
+    exhibition_request = make_request(call_event, email="editor@example.org")
+    ExhibitionAnswer.objects.create(exhibition_request=exhibition_request, question=child, answer="Two chairs")
 
-    form = ExhibitionProposalForm(
+    form = ExhibitionRequestForm(
         event=call_event,
-        instance=proposal,
+        instance=exhibition_request,
         data={
             "name": "Acme",
             "content_locale": "en",
@@ -402,9 +402,9 @@ def test_an_answer_is_dropped_when_its_field_becomes_hidden(call_event):
         },
     )
     assert form.is_valid(), form.errors
-    form.save_exhibition_questions(proposal)
+    form.save_exhibition_questions(exhibition_request)
 
-    assert not ExhibitionAnswer.objects.filter(proposal=proposal, question=child).exists()
+    assert not ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()
 
 
 # --- review follow-ups: cleanup when the configuration itself changes --------------------
@@ -484,20 +484,20 @@ def test_an_answer_survives_a_deactivated_parent(call_event):
     child.dependency_question = parent
     child.dependency_values = [str(options[0].pk)]
     child.save()
-    proposal = make_proposal(call_event, email="kept@example.org")
-    ExhibitionAnswer.objects.create(proposal=proposal, question=child, answer="Two chairs")
+    exhibition_request = make_request(call_event, email="kept@example.org")
+    ExhibitionAnswer.objects.create(exhibition_request=exhibition_request, question=child, answer="Two chairs")
     parent.active = False
     parent.save()
 
-    form = ExhibitionProposalForm(
+    form = ExhibitionRequestForm(
         event=call_event,
-        instance=proposal,
+        instance=exhibition_request,
         data={"name": "Acme", "content_locale": "en"},
     )
     assert form.is_valid(), form.errors
-    form.save_exhibition_questions(proposal)
+    form.save_exhibition_questions(exhibition_request)
 
-    answer = ExhibitionAnswer.objects.get(proposal=proposal, question=child)
+    answer = ExhibitionAnswer.objects.get(exhibition_request=exhibition_request, question=child)
     assert answer.answer == "Two chairs"
 
 
@@ -508,19 +508,19 @@ def test_an_answer_survives_a_deleted_parent(call_event):
     child.dependency_question = parent
     child.dependency_values = [str(options[0].pk)]
     child.save()
-    proposal = make_proposal(call_event, email="kept-deleted@example.org")
-    ExhibitionAnswer.objects.create(proposal=proposal, question=child, answer="Two chairs")
+    exhibition_request = make_request(call_event, email="kept-deleted@example.org")
+    ExhibitionAnswer.objects.create(exhibition_request=exhibition_request, question=child, answer="Two chairs")
     parent.delete()
 
-    form = ExhibitionProposalForm(
+    form = ExhibitionRequestForm(
         event=call_event,
-        instance=proposal,
+        instance=exhibition_request,
         data={"name": "Acme", "content_locale": "en", f"question_{child.pk}": "Two chairs"},
     )
     assert form.is_valid(), form.errors
-    form.save_exhibition_questions(proposal)
+    form.save_exhibition_questions(exhibition_request)
 
-    assert ExhibitionAnswer.objects.filter(proposal=proposal, question=child).exists()
+    assert ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()
 
 
 @pytest.mark.django_db
@@ -533,21 +533,21 @@ def test_deleting_an_answer_removes_its_file(call_event):
     child.dependency_question = parent
     child.dependency_values = [str(options[0].pk)]
     child.save()
-    proposal = make_proposal(call_event, email="file@example.org")
-    answer = ExhibitionAnswer.objects.create(proposal=proposal, question=child)
+    exhibition_request = make_request(call_event, email="file@example.org")
+    answer = ExhibitionAnswer.objects.create(exhibition_request=exhibition_request, question=child)
     answer.file.save("floor-plan.txt", ContentFile(b"plan"), save=True)
     stored_name = answer.file.name
     assert default_storage.exists(stored_name)
 
-    form = ExhibitionProposalForm(
+    form = ExhibitionRequestForm(
         event=call_event,
-        instance=proposal,
+        instance=exhibition_request,
         data={"name": "Acme", "content_locale": "en", f"question_{parent.pk}": str(options[1].pk)},
     )
     assert form.is_valid(), form.errors
-    form.save_exhibition_questions(proposal)
+    form.save_exhibition_questions(exhibition_request)
 
-    assert not ExhibitionAnswer.objects.filter(proposal=proposal, question=child).exists()
+    assert not ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()
     assert not default_storage.exists(stored_name)
 
 
@@ -565,22 +565,22 @@ def test_organiser_form_drops_a_hidden_answer(call_event):
     child.dependency_values = [str(options[0].pk)]
     child.save()
     exhibitor = ExhibitorInfo.objects.create(event=call_event, name={"en": "Acme"}, is_exhibitor=True)
-    proposal = make_proposal(call_event, email="organiser-side@example.org")
-    proposal.approved_exhibitor = exhibitor
-    proposal.save()
-    ExhibitionAnswer.objects.create(proposal=proposal, question=child, answer="Two chairs")
+    exhibition_request = make_request(call_event, email="organiser-side@example.org")
+    exhibition_request.approved_exhibitor = exhibitor
+    exhibition_request.save()
+    ExhibitionAnswer.objects.create(exhibition_request=exhibition_request, question=child, answer="Two chairs")
 
     form = ExhibitorInfoForm(
         data={"name_0": "Acme", f"question_{parent.pk}": str(options[1].pk)},
         event=call_event,
         instance=exhibitor,
-        partner_type="exhibitor",
+        organization_type="exhibitor",
     )
 
     assert form.is_valid(), form.errors
     assert f"question_{child.pk}" in form.hidden_question_fields
-    form.save_exhibition_questions(proposal)
-    assert not ExhibitionAnswer.objects.filter(proposal=proposal, question=child).exists()
+    form.save_exhibition_questions(exhibition_request)
+    assert not ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()
 
 
 @pytest.mark.django_db
@@ -594,10 +594,10 @@ def test_organiser_form_keeps_an_answer_whose_parent_was_deactivated(call_event)
     child.dependency_values = [str(options[0].pk)]
     child.save()
     exhibitor = ExhibitorInfo.objects.create(event=call_event, name={"en": "Acme"}, is_exhibitor=True)
-    proposal = make_proposal(call_event, email="organiser-kept@example.org")
-    proposal.approved_exhibitor = exhibitor
-    proposal.save()
-    ExhibitionAnswer.objects.create(proposal=proposal, question=child, answer="Two chairs")
+    exhibition_request = make_request(call_event, email="organiser-kept@example.org")
+    exhibition_request.approved_exhibitor = exhibitor
+    exhibition_request.save()
+    ExhibitionAnswer.objects.create(exhibition_request=exhibition_request, question=child, answer="Two chairs")
     parent.active = False
     parent.save()
 
@@ -605,9 +605,9 @@ def test_organiser_form_keeps_an_answer_whose_parent_was_deactivated(call_event)
         data={"name_0": "Acme"},
         event=call_event,
         instance=exhibitor,
-        partner_type="exhibitor",
+        organization_type="exhibitor",
     )
 
     assert form.is_valid(), form.errors
-    form.save_exhibition_questions(proposal)
-    assert ExhibitionAnswer.objects.filter(proposal=proposal, question=child).exists()
+    form.save_exhibition_questions(exhibition_request)
+    assert ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()

@@ -4,11 +4,11 @@
 {% block call_content %}
     <h2 id="exhibition-call-heading">{% trans "Withdraw request" %}</h2>
     <p>
-        {% blocktrans trimmed with name=proposal.name %}
+        {% blocktrans trimmed with name=exhibition_request.name %}
             Are you sure you want to withdraw your request “{{ name }}”?
         {% endblocktrans %}
     </p>
-    {% if proposal.state == "accepted" %}
+    {% if exhibition_request.state == "accepted" %}
         <div class="alert alert-warning" role="alert">
             {% trans "This request has already been approved. Withdrawing it will hide the exhibitor or sponsor profile created from it from public listings." %}
         </div>
@@ -17,7 +17,7 @@
         {% csrf_token %}
         <div class="row checkout-button-row">
             <div class="col-md-4 col-sm-6">
-                <a class="btn btn-block btn-default btn-lg" href="{% url 'plugins:exhibition:proposal.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
+                <a class="btn btn-block btn-default btn-lg" href="{% url 'plugins:exhibition:request.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Cancel" %}
                 </a>
             </div>

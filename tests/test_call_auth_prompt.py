@@ -32,7 +32,7 @@ def _call_view(event, user):
 def test_auth_urls_return_to_the_request_form(event):
     with scopes_disabled():
         submit_url = reverse(
-            "plugins:exhibition:proposal.add",
+            "plugins:exhibition:request.add",
             kwargs={"organizer": event.organizer.slug, "event": event.slug},
         )
         urls = call_auth_urls(event)
@@ -49,7 +49,7 @@ def test_anonymous_visitor_gets_auth_urls(event):
         context = _call_view(event, AnonymousUser()).get_context_data()
         assert context["call_login_url"]
         assert context["call_register_url"]
-        assert "user_proposals" not in context
+        assert "user_requests" not in context
 
 
 @pytest.mark.django_db
@@ -62,7 +62,7 @@ def test_logged_in_visitor_gets_no_auth_urls(event):
         context = _call_view(event, user).get_context_data()
         assert "call_login_url" not in context
         assert "call_register_url" not in context
-        assert context["user_proposals"] is not None
+        assert context["user_requests"] is not None
 
 
 # --- the rendered page, not just the context --------------------------------------------
@@ -85,7 +85,7 @@ def test_open_call_renders_both_buttons_for_a_logged_out_visitor(event, client):
     with scopes_disabled():
         make_call_settings(event)
         submit_url = reverse(
-            "plugins:exhibition:proposal.add",
+            "plugins:exhibition:request.add",
             kwargs={"organizer": event.organizer.slug, "event": event.slug},
         )
 

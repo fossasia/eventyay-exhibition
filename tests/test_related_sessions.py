@@ -60,11 +60,11 @@ def test_only_visible_slots_of_linked_sessions_are_public(event):
     linked_hidden = session(event, kind, "Linked but hidden")
     unlinked = session(event, kind, "Not linked")
     visible_slot, _, _ = release_with_slots(event, (linked_visible, True), (linked_hidden, False), (unlinked, True))
-    partner = exhibitor(event)
-    link(partner, linked_visible, linked_hidden)
+    organization = exhibitor(event)
+    link(organization, linked_visible, linked_hidden)
 
     with scope(organizer=event.organizer):
-        assert public_exhibitor_sessions(partner, AnonymousUser()) == [visible_slot]
+        assert public_exhibitor_sessions(organization, AnonymousUser()) == [visible_slot]
 
 
 @pytest.mark.django_db
@@ -72,11 +72,11 @@ def test_no_public_sessions_while_talks_are_unpublished(event):
     kind = session_type(event)
     talk = session(event, kind, "Confirmed")
     release_with_slots(event, (talk, True))
-    partner = exhibitor(event)
-    link(partner, talk)
+    organization = exhibitor(event)
+    link(organization, talk)
 
     with scope(organizer=event.organizer):
-        assert public_exhibitor_sessions(partner, AnonymousUser()) == []
+        assert public_exhibitor_sessions(organization, AnonymousUser()) == []
 
 
 @pytest.mark.django_db
@@ -84,11 +84,11 @@ def test_no_public_sessions_without_a_released_schedule(event):
     publish_talks(event)
     kind = session_type(event)
     talk = session(event, kind, "Confirmed")
-    partner = exhibitor(event)
-    link(partner, talk)
+    organization = exhibitor(event)
+    link(organization, talk)
 
     with scope(organizer=event.organizer):
-        assert public_exhibitor_sessions(partner, AnonymousUser()) == []
+        assert public_exhibitor_sessions(organization, AnonymousUser()) == []
 
 
 @pytest.mark.django_db
@@ -105,7 +105,7 @@ def test_session_picker_offers_only_accepted_sessions_of_this_event(event):
         confirmed.speakers.add(speaker)
 
     with scope(organizer=event.organizer):
-        form = ExhibitorInfoForm(event=event, partner_type="exhibitor")
+        form = ExhibitorInfoForm(event=event, organization_type="exhibitor")
         choices = {str(value): label for value, label in form.fields["sessions"].choices}
 
     assert set(choices) == {str(confirmed.pk), str(accepted.pk)}
@@ -118,24 +118,24 @@ def test_session_picker_reads_and_saves_links_under_organizer_scope(event):
     kind = session_type(event)
     first = session(event, kind, "First")
     second = session(event, kind, "Second")
-    partner = exhibitor(event)
-    link(partner, first)
+    organization = exhibitor(event)
+    link(organization, first)
 
     with scope(organizer=event.organizer):
-        form = ExhibitorInfoForm(instance=partner, event=event, partner_type="exhibitor")
+        form = ExhibitorInfoForm(instance=organization, event=event, organization_type="exhibitor")
         assert list(form.initial["sessions"]) == [first]
 
         form = ExhibitorInfoForm(
             {"name_0": "Acme", "is_exhibitor": "on", "sessions": [second.pk]},
-            instance=partner,
+            instance=organization,
             event=event,
-            partner_type="exhibitor",
+            organization_type="exhibitor",
         )
         assert form.is_valid(), form.errors
         form.save()
 
     with scope(event=event):
-        assert list(partner.sessions.values_list("pk", flat=True)) == [second.pk]
+        assert list(organization.sessions.values_list("pk", flat=True)) == [second.pk]
 
 
 @pytest.mark.django_db
@@ -146,12 +146,12 @@ def test_public_detail_page_lists_related_sessions(event):
     kind = session_type(event)
     talk = session(event, kind, "Opening keynote")
     release_with_slots(event, (talk, True))
-    partner = exhibitor(event, logo_url="https://example.com/logo.png", header_image_url="https://example.com/hero.png")
-    link(partner, talk)
+    organization = exhibitor(event, logo="exhibitors/logos/Acme/logo.png", banner="exhibitors/banners/Acme/hero.png")
+    link(organization, talk)
 
     url = reverse(
         "plugins:exhibition:public_detail",
-        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": partner.pk},
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": organization.pk},
     )
     response = Client().get(url)
     html = response.content.decode()
@@ -167,11 +167,11 @@ def test_public_detail_page_hides_section_without_sessions(event):
     event.save(update_fields=["plugins"])
     publish_talks(event)
     release_with_slots(event)
-    partner = exhibitor(event, logo_url="https://example.com/logo.png", header_image_url="https://example.com/hero.png")
+    organization = exhibitor(event, logo="exhibitors/logos/Acme/logo.png", banner="exhibitors/banners/Acme/hero.png")
 
     url = reverse(
         "plugins:exhibition:public_detail",
-        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": partner.pk},
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": organization.pk},
     )
     response = Client().get(url)
 

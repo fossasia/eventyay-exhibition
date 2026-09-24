@@ -3,7 +3,7 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from eventyay.control.forms.filter import FilterForm
 
-from .models import ExhibitionProposalState, SponsorGroup
+from .models import ExhibitionRequestState, SponsorGroup
 
 FLAG_CHOICES = (
     ("", _("Any")),
@@ -68,7 +68,7 @@ class ExhibitionFilterForm(FilterForm):
         return queryset.order_by(self.get_order_by(), "pk")
 
 
-class ProposalFilterForm(ExhibitionFilterForm):
+class RequestFilterForm(ExhibitionFilterForm):
     orders = {
         "name": "name",
         "submitter": "user__fullname",
@@ -83,7 +83,7 @@ class ProposalFilterForm(ExhibitionFilterForm):
     )
     state = forms.ChoiceField(
         label=_("State"),
-        choices=(("", _("All states")),) + tuple(ExhibitionProposalState.choices),
+        choices=(("", _("All states")),) + tuple(ExhibitionRequestState.choices),
         required=False,
     )
     organization_type = forms.ChoiceField(
