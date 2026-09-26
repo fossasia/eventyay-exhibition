@@ -529,8 +529,11 @@ def test_queue_voucher_emails_reports_the_addressless_separately(voucher_event):
     assert not ExhibitorVoucher.objects.filter(exhibitor=no_address).exists()
 
 
-def _bulk_view(event, organization_type="exhibitor", *, data=None):
-    request = RequestFactory().post("/vouchers/send", data=data or {})
+def _bulk_view(event, organization_type="exhibitor", *, data=None, selected=None):
+    data = dict(data or {})
+    if selected is not None:
+        data["selected"] = [str(exhibitor.pk) for exhibitor in selected]
+    request = RequestFactory().post("/vouchers/send", data=data)
     request.event = event
     request.user = None
     request.session = {}
@@ -603,7 +606,7 @@ def test_bulk_send_issues_defaults_and_queues_one_email_each(voucher_event):
         _pool(voucher_event, 4)
         first = _mailed_exhibitor(voucher_event, name="First", email="first@example.com")
         second = _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
-        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"}, selected=[first, second])
 
         response = view.post(request)
 
@@ -621,9 +624,11 @@ def test_bulk_send_only_targets_its_own_organization_type(voucher_event):
     with scopes_disabled():
         ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1, voucher_pool_tag=POOL)
         _pool(voucher_event, 4)
-        _exhibitor(voucher_event, name="Booth", email="booth@example.com", is_exhibitor=True, is_sponsor=False)
-        _exhibitor(voucher_event, name="Gold", email="gold@example.com", is_exhibitor=False, is_sponsor=True)
-        view, request = _bulk_view(voucher_event, organization_type="sponsor", data={"confirmed": "1"})
+        booth = _exhibitor(voucher_event, name="Booth", email="booth@example.com", is_exhibitor=True, is_sponsor=False)
+        gold = _exhibitor(voucher_event, name="Gold", email="gold@example.com", is_exhibitor=False, is_sponsor=True)
+        view, request = _bulk_view(
+            voucher_event, organization_type="sponsor", data={"confirmed": "1"}, selected=[booth, gold]
+        )
 
         view.post(request)
 
@@ -632,10 +637,39 @@ def test_bulk_send_only_targets_its_own_organization_type(voucher_event):
 
 
 @pytest.mark.django_db
+def test_bulk_send_only_reaches_the_selected_organizations(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1, voucher_pool_tag=POOL)
+        _pool(voucher_event, 4)
+        chosen = _mailed_exhibitor(voucher_event, name="Chosen", email="chosen@example.com")
+        _mailed_exhibitor(voucher_event, name="Left out", email="left-out@example.com")
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"}, selected=[chosen])
+
+        view.post(request)
+
+        outbox = ExhibitionEmailQueue.objects.filter(event=voucher_event, role=mail_helpers.VOUCHERS)
+        assert [row.to_email for row in outbox] == ["chosen@example.com"]
+
+
+@pytest.mark.django_db
+def test_bulk_send_without_a_selection_sends_nothing(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=1, voucher_pool_tag=POOL)
+        _pool(voucher_event, 4)
+        _mailed_exhibitor(voucher_event, name="Unselected", email="unselected@example.com")
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+
+        response = view.post(request)
+
+        assert response.status_code == 302
+        assert not ExhibitionEmailQueue.objects.filter(event=voucher_event).exists()
+
+
+@pytest.mark.django_db
 def test_bulk_send_queues_nothing_when_nobody_is_reachable(voucher_event):
     with scopes_disabled():
-        _exhibitor(voucher_event, name="No Address", email="")
-        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+        exhibitor = _exhibitor(voucher_event, name="No Address", email="")
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"}, selected=[exhibitor])
 
         response = view.post(request)
 
@@ -763,9 +797,9 @@ def test_bulk_send_leaves_the_pool_alone_for_whoever_it_skips(voucher_event):
     with scopes_disabled():
         ExhibitorSettings.objects.create(event=voucher_event, voucher_default_count=4, voucher_pool_tag=POOL)
         _pool(voucher_event, 6)
-        _mailed_exhibitor(voucher_event, name="First", email="first@example.com")
-        _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
-        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+        first = _mailed_exhibitor(voucher_event, name="First", email="first@example.com")
+        second = _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"}, selected=[first, second])
 
         view.post(request)
 
@@ -837,7 +871,7 @@ def test_bulk_send_reaches_organizations_with_only_a_login_address(voucher_event
         _pool(voucher_event, 2)
         exhibitor = _exhibitor(voucher_event, email="")
         _applied_via(exhibitor, login="login@example.com")
-        view, request = _bulk_view(voucher_event, data={"confirmed": "1"})
+        view, request = _bulk_view(voucher_event, data={"confirmed": "1"}, selected=[exhibitor])
 
         view.post(request)
 

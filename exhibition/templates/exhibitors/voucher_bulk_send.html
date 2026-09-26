@@ -12,6 +12,9 @@
     <form action="?{{ query_string }}" method="post">
         {% csrf_token %}
         <input type="hidden" name="confirmed" value="1">
+        {% for pk in selected %}
+            <input type="hidden" name="selected" value="{{ pk }}">
+        {% endfor %}
 
         {% if sendable %}
             <p>
@@ -56,9 +59,9 @@
         {% else %}
             <div class="alert alert-warning" role="alert">
                 {% if organization_type == "sponsor" %}
-                    {% trans "None of the sponsors in this list can be emailed yet." %}
+                    {% trans "None of the selected sponsors can be emailed yet." %}
                 {% else %}
-                    {% trans "None of the exhibitors in this list can be emailed yet." %}
+                    {% trans "None of the selected exhibitors can be emailed yet." %}
                 {% endif %}
             </div>
         {% endif %}

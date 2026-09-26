@@ -67,8 +67,8 @@
                     {% if organization_type == 'sponsor' %}{% trans "Download sponsor keys" %}{% elif organization_type == 'exhibitor' %}{% trans "Download exhibitor keys" %}{% else %}{% trans "Download access keys" %}{% endif %}
                 </a>
                 {% if send_vouchers_url %}
-                    <button type="submit" form="organization-send-vouchers" class="btn btn-default" title="{% trans "Queue a voucher email for everyone in this list" %}">
-                        <i class="fa fa-envelope"></i> {% trans "Send vouchers to all" %}
+                    <button type="submit" form="organization-send-vouchers" class="btn btn-default" title="{% trans "Queue a voucher email for each selected entry" %}" data-organization-send-vouchers disabled>
+                        <i class="fa fa-envelope"></i> {% trans "Send vouchers to selected" %}
                     </button>
                 {% endif %}
                 {% if publish_url %}

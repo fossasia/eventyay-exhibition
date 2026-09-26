@@ -2463,13 +2463,18 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
 
 class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
-    """Queue voucher emails for everyone in the current list, after confirmation."""
+    """Queue voucher emails for the organizations selected in the list, after confirmation."""
 
     permission = ("can_change_event_settings",)
     organization_type = None
 
+    def selected_pks(self):
+        return self.request.POST.getlist("selected")
+
     def target_queryset(self):
-        queryset = ExhibitorInfo.objects.filter(event=self.request.event).prefetch_related("source_requests__user")
+        queryset = ExhibitorInfo.objects.filter(event=self.request.event, pk__in=self.selected_pks()).prefetch_related(
+            "source_requests__user"
+        )
         if self.organization_type == "sponsor":
             queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
         elif self.organization_type == "exhibitor":
@@ -2522,6 +2527,9 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         return sendable, no_email, no_vouchers, pool_short
 
     def post(self, request, *args, **kwargs):
+        if not self.selected_pks():
+            messages.info(request, self.nothing_selected_message())
+            return redirect(self.list_url())
         exhibitors = list(self.target_queryset())
         sendable, no_email, no_vouchers, pool_short = self.preview(exhibitors)
 
@@ -2535,13 +2543,14 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                     "no_email": no_email,
                     "no_vouchers": no_vouchers,
                     "pool_short": pool_short,
+                    "selected": self.selected_pks(),
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
             )
 
         if not sendable:
-            messages.info(request, _("There is nobody to send vouchers to in this list."))
+            messages.info(request, _("There is nobody to send vouchers to in this selection."))
             return redirect(self.list_url())
 
         queued, skipped = self.queue_all(sendable, requestor=request.user)
@@ -2576,6 +2585,11 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
     @transaction.atomic
     def queue_all(self, sendable, *, requestor):
         return mail_helpers.queue_voucher_emails(self.request.event, sendable, requestor=requestor, issue_missing=True)
+
+    def nothing_selected_message(self):
+        if self.organization_type == "sponsor":
+            return _("Select the sponsors you want to send vouchers to first.")
+        return _("Select the exhibitors you want to send vouchers to first.")
 
     def skipped_no_email_message(self, count):
         if self.organization_type == "sponsor":

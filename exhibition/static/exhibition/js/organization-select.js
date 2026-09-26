@@ -12,6 +12,8 @@
         var selectAll = scope.querySelector('[data-organization-select-all]')
         var countLabel = scope.querySelector('[data-organization-selected-count]')
         var downloadLink = scope.querySelector('[data-organization-download-link]')
+        var sendButton = scope.querySelector('[data-organization-send-vouchers]')
+        var sendForm = sendButton ? document.getElementById(sendButton.getAttribute('form')) : null
         var publishForm = document.getElementById('organization-publish')
         var publishSubmit = scope.querySelector('[data-organization-publish-submit]')
         var publishLabel = scope.querySelector('[data-organization-publish-label]')
@@ -51,6 +53,9 @@
             if (downloadLink) {
                 downloadLink.classList.toggle('disabled', total === 0)
                 downloadLink.setAttribute('aria-disabled', total === 0 ? 'true' : 'false')
+            }
+            if (sendButton) {
+                sendButton.disabled = total === 0
             }
             if (publishSubmit) {
                 publishSubmit.disabled = publishNeedsSelection && total === 0
@@ -125,6 +130,26 @@
                     })
                 }
                 window.location.href = window.location.pathname + '?' + searchParams.toString()
+            })
+        }
+
+        if (sendForm) {
+            sendForm.addEventListener('submit', function (event) {
+                var selected = store.ids()
+                if (!selected.length) {
+                    event.preventDefault()
+                    return
+                }
+                sendForm.querySelectorAll('input[name="selected"]').forEach(function (input) {
+                    input.remove()
+                })
+                selected.forEach(function (value) {
+                    var hidden = document.createElement('input')
+                    hidden.type = 'hidden'
+                    hidden.name = 'selected'
+                    hidden.value = value
+                    sendForm.appendChild(hidden)
+                })
             })
         }
 
