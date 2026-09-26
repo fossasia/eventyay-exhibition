@@ -3,10 +3,10 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, F, Q, QuerySet
 from django.utils import timezone
 from django_scopes import scope
-from eventyay.base.models import TalkSlot
+from eventyay.base.models import Product, Quota, TalkSlot
 from eventyay.common.urls import get_url_origin, normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.talk_rules.agenda import is_agenda_visible
@@ -553,3 +553,36 @@ def store_voucher_csv(event, vouchers):
     cached.file.save(VOUCHER_CSV_FILENAME, ContentFile(build_voucher_csv(event, vouchers).encode("utf-8")))
     cached.save()
     return cached
+
+
+def exhibition_products_for_event(event) -> QuerySet:
+    """Every product of the event, with its exhibition role attached where one is set."""
+    return (
+        Product.objects.filter(event=event)
+        .select_related("category", "exhibition_product")
+        .prefetch_related("quotas")
+        .order_by("category__position", "category_id", "position", "pk")
+    )
+
+
+def mixed_booth_quotas(event) -> QuerySet:
+    """Quotas that pool booth products together with products that include no booth.
+
+    Booth capacity only means something if every product drawing on the quota actually
+    occupies exhibition space, so the organiser is told to split these into a separate
+    sponsorship quota. A product with no exhibition role counts as one without a booth,
+    which is why the comparison is against the quota's whole product count.
+    """
+    return (
+        Quota.objects.filter(event=event)
+        .annotate(
+            booth_product_count=Count(
+                "products",
+                filter=Q(products__exhibition_product__includes_booth=True),
+                distinct=True,
+            ),
+            product_count=Count("products", distinct=True),
+        )
+        .filter(booth_product_count__gt=0)
+        .exclude(booth_product_count=F("product_count"))
+    )

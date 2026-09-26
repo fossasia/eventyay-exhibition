@@ -50,6 +50,7 @@ from .models import (
     ExhibitionAnswer,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
+    ExhibitionProductPurpose,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuestionVariant,
@@ -2240,3 +2241,75 @@ class ExhibitionCustomEmailTemplateForm(I18nModelForm):
         )
         if self.event:
             self.fields["body"].widget.enabled_locales = self.event.settings.get("locales")
+
+
+class ExhibitionProductForm(forms.Form):
+    """The exhibition role of one Tickets product, as one row of the products table.
+
+    The product is carried in the row itself rather than in the field names, so the page
+    can post as many or as few rows as it likes and each one still says what it is about.
+    """
+
+    product = forms.IntegerField(widget=forms.HiddenInput)
+    purpose = forms.ChoiceField(
+        required=False,
+        choices=[("", _("Not an exhibition product"))] + ExhibitionProductPurpose.choices,
+        widget=forms.Select(attrs={"class": "form-control exhibition-purpose-input"}),
+    )
+    includes_booth = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "exhibition-booth-input"}),
+    )
+
+    def __init__(self, *args, products=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.products = products or {}
+        self.product_object = self.products.get(self._submitted_product_pk())
+        if self.product_object is not None:
+            self.fields["purpose"].widget.attrs["aria-label"] = _("Exhibition purpose for %(product)s") % {
+                "product": self.product_object
+            }
+            self.fields["includes_booth"].widget.attrs["aria-label"] = _(
+                "Includes an exhibition booth for %(product)s"
+            ) % {"product": self.product_object}
+
+    def _submitted_product_pk(self):
+        try:
+            return int(self.data.get(self.add_prefix("product"), self.initial.get("product")))
+        except (TypeError, ValueError):
+            return None
+
+    def clean_product(self):
+        product = self.products.get(self.cleaned_data["product"])
+        if product is None:
+            raise ValidationError(_("This product does not belong to this event."))
+        return product
+
+    def clean(self):
+        """An exhibition product is the booth, so an unticked box still means "with booth"."""
+        cleaned_data = super().clean()
+        if cleaned_data.get("purpose") == ExhibitionProductPurpose.EXHIBITION:
+            cleaned_data["includes_booth"] = True
+        return cleaned_data
+
+
+class BaseExhibitionProductFormSet(forms.BaseFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        seen = set()
+        for form in self.forms:
+            product = form.cleaned_data.get("product")
+            if product is None:
+                continue
+            if product.pk in seen:
+                raise ValidationError(_("The same product was submitted more than once."))
+            seen.add(product.pk)
+
+
+ExhibitionProductFormSet = forms.formset_factory(
+    ExhibitionProductForm,
+    formset=BaseExhibitionProductFormSet,
+    extra=0,
+)

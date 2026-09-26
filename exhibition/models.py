@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
-from eventyay.base.models import Device, Event, Voucher
+from eventyay.base.models import Device, Event, Product, Voucher
 from eventyay.base.models.base import LoggedModel
 from eventyay.base.models.fields import MultiStringField
 from eventyay.common.utils.language import localize_event_text
@@ -591,6 +591,7 @@ LOG_QUESTION_ADDED = f"{LOG_PREFIX}.question.added"
 LOG_QUESTION_CHANGED = f"{LOG_PREFIX}.question.changed"
 LOG_QUESTION_DELETED = f"{LOG_PREFIX}.question.deleted"
 LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
+LOG_PRODUCT_CHANGED = f"{LOG_PREFIX}.product.changed"
 
 SUBMITTER_PROFILE_FIELD_LABELS = {
     "description": _("Organization Description"),
@@ -1101,6 +1102,81 @@ class Lead(models.Model):
 
     def __str__(self):
         return f"Lead scanned by {self.exhibitor.name}"
+
+
+class ExhibitionProductPurpose(models.TextChoices):
+    EXHIBITION = "exhibition", _("Exhibition")
+    SPONSORSHIP = "sponsorship", _("Sponsorship")
+
+
+class ExhibitionProductQuerySet(models.QuerySet):
+    def for_event(self, event):
+        return self.filter(product__event=event)
+
+    def consuming_booth_capacity(self):
+        """The products that take up physical exhibition space."""
+        return self.filter(includes_booth=True)
+
+
+class ExhibitionProduct(models.Model):
+    """What a Tickets product means for the exhibition.
+
+    Everything commercial - price, category, quota, order form, checkout - stays on the
+    product itself. This only records the exhibition-specific part: what the buyer is
+    getting, and whether it comes with a booth.
+    """
+
+    objects = ExhibitionProductQuerySet.as_manager()
+
+    product = models.OneToOneField(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="exhibition_product",
+    )
+    purpose = models.CharField(
+        max_length=16,
+        choices=ExhibitionProductPurpose.choices,
+        default=ExhibitionProductPurpose.SPONSORSHIP,
+        verbose_name=_("Product purpose"),
+    )
+    includes_booth = models.BooleanField(
+        default=True,
+        verbose_name=_("Includes exhibition booth"),
+        help_text=_(
+            "Sponsorships come with a booth unless you turn this off, for example for a purely "
+            "digital package. Exhibition products always include one."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product")
+        verbose_name_plural = _("Exhibition products")
+        ordering = ("product__category__position", "product__position", "product__pk")
+
+    @property
+    def is_exhibition(self):
+        return self.purpose == ExhibitionProductPurpose.EXHIBITION
+
+    @property
+    def is_sponsorship(self):
+        return self.purpose == ExhibitionProductPurpose.SPONSORSHIP
+
+    @property
+    def consumes_booth_capacity(self):
+        """Only products that come with physical exhibition space take up a booth."""
+        return self.includes_booth
+
+    def save(self, *args, **kwargs):
+        """Saving settles the booth rule, so no caller can store another answer."""
+        if self.is_exhibition and not self.includes_booth:
+            self.includes_booth = True
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"includes_booth"}
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.product} ({self.get_purpose_display()})"
 
 
 class ExhibitorTag(models.Model):

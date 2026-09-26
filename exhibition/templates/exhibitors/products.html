@@ -1,0 +1,122 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Exhibition products" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'pretixcontrol/css/order-form-toggles.css' %}">
+    <script defer src="{% static 'exhibition/js/exhibition-products.js' %}"></script>
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Exhibition products" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        {% if formset %}{{ formset.management_form }}{% endif %}
+        <fieldset>
+            <legend>{% trans "Products" %}</legend>
+            <p>
+                {% blocktrans trimmed %}
+                    Exhibition and sponsorship packages are sold as regular products. Set up price, category,
+                    quota and order form under Tickets, then mark here what each product means for the exhibition.
+                {% endblocktrans %}
+                <a href="{{ tickets_products_url }}">{% trans "Manage products under Tickets" %}</a>
+            </p>
+
+            {% if mixed_booth_quotas %}
+                <div class="alert alert-warning">
+                    <p>
+                        {% blocktrans trimmed %}
+                            These quotas mix products that include an exhibition booth with products that do not,
+                            so their capacity no longer describes the number of booths. Give the products without a
+                            booth a separate quota:
+                        {% endblocktrans %}
+                    </p>
+                    <ul>
+                        {% for quota in mixed_booth_quotas %}
+                            <li>{{ quota.name }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if formset.non_form_errors %}
+                <div class="alert alert-danger">
+                    {% for error in formset.non_form_errors %}<p>{{ error }}</p>{% endfor %}
+                </div>
+            {% endif %}
+
+            {% if product_rows %}
+                <div class="table-responsive table-responsive-always mw-100">
+                    <table class="table table-hover exhibition-products-table">
+                        <thead>
+                        <tr>
+                            <th>{% trans "Product" %}</th>
+                            <th>{% trans "Category" %}</th>
+                            <th>{% trans "Quotas" %}</th>
+                            <th>{% trans "Purpose" %}</th>
+                            <th class="text-center">{% trans "Includes exhibition booth" %}</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in product_rows %}
+                            <tr class="exhibition-product-row">
+                                <th>
+                                    {{ row.form.product }}
+                                    <a href="{% url 'control:event.product' organizer=request.event.organizer.slug event=request.event.slug product=row.product.pk %}">{{ row.product }}</a>
+                                    {% if not row.product.active %}
+                                        <small class="text-muted">{% trans "Inactive" %}</small>
+                                    {% endif %}
+                                    {% if row.form.errors %}
+                                        {% for field_errors in row.form.errors.values %}
+                                            {% for error in field_errors %}
+                                                <div class="help-block text-danger">{{ error }}</div>
+                                            {% endfor %}
+                                        {% endfor %}
+                                    {% endif %}
+                                </th>
+                                <td>{% if row.product.category %}{{ row.product.category }}{% else %}<span class="text-muted">&ndash;</span>{% endif %}</td>
+                                <td>
+                                    {% for quota in row.quotas %}
+                                        {{ quota.name }}{% if not forloop.last %}, {% endif %}
+                                    {% empty %}
+                                        <span class="text-muted">&ndash;</span>
+                                    {% endfor %}
+                                </td>
+                                <td>{{ row.form.purpose }}</td>
+                                <td class="text-center">
+                                    <label class="toggle-switch exhibition-booth-toggle">
+                                        {{ row.form.includes_booth }}
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-collection">
+                    <p>
+                        {% blocktrans trimmed %}
+                            This event has no products yet. Create your exhibition and sponsorship packages under
+                            Tickets first, then come back to set their purpose.
+                        {% endblocktrans %}
+                    </p>
+                    <a href="{{ tickets_products_url }}" class="btn btn-primary">{% trans "Create a product" %}</a>
+                </div>
+            {% endif %}
+        </fieldset>
+
+        {% if product_rows %}
+            <div class="form-group submit-group">
+                <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+            </div>
+        {% endif %}
+    </form>
+{% endblock %}

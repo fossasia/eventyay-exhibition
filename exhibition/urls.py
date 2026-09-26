@@ -27,6 +27,7 @@ from .views import (
     EmailTemplatesView,
     ExhibitionDefaultFieldEditView,
     ExhibitionDefaultFieldResetView,
+    ExhibitionProductListView,
     ExhibitionQuestionCreateView,
     ExhibitionQuestionDeleteView,
     ExhibitionQuestionEditView,
@@ -168,6 +169,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>",
         DashboardView.as_view(),
         name="dashboard",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products",
+        ExhibitionProductListView.as_view(),
+        name="products",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors",
