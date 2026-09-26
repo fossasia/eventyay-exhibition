@@ -1995,12 +1995,11 @@ class ExhibitionDefaultFieldEditView(DefaultFieldMixin, FormView):
         kwargs = super().get_form_kwargs()
         field_setting = self.get_field_setting()
         kwargs["field_setting"] = field_setting
-        kwargs.setdefault(
-            "initial",
+        kwargs.setdefault("initial", {}).update(
             {
                 "label": field_setting["custom_label"] or "",
                 "help_text": field_setting["custom_help_text"] or "",
-            },
+            }
         )
         return kwargs
 
