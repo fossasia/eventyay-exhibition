@@ -57,6 +57,7 @@ from .views import (
     UserRequestListView,
     UserRequestReinstateView,
     UserRequestWithdrawView,
+    UserVoucherListView,
 )
 
 urlpatterns = [
@@ -104,6 +105,11 @@ urlpatterns = [
         "<str:organizer>/<str:event>/exhibition/call/proposals/<str:code>/",
         RedirectView.as_view(pattern_name="plugins:exhibition:request.user_edit", permanent=True, query_string=True),
         name="request.user_edit.legacy",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/vouchers/",
+        UserVoucherListView.as_view(),
+        name="request.user_vouchers",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/proposals/<str:code>/withdraw/",

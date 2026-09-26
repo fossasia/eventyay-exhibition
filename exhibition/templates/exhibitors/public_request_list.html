@@ -34,6 +34,11 @@
                                     <i class="fa fa-eye"></i> {% trans "View" %}
                                 {% endif %}
                             </a>
+                            {% if exhibition_request.submitter_can_see_vouchers %}
+                                <a class="btn btn-sm btn-default" href="{% url 'plugins:exhibition:request.user_vouchers' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
+                                    <i class="fa fa-ticket"></i> {% trans "Vouchers" %}
+                                </a>
+                            {% endif %}
                             {% if exhibition_request.can_be_withdrawn %}
                                 <a class="btn btn-sm btn-danger" href="{% url 'plugins:exhibition:request.user_withdraw' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
                                     <i class="fa fa-undo"></i> {% trans "Withdraw" %}

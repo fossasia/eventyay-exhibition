@@ -95,12 +95,18 @@ from .models import (
 from .social_links import serialize_social_link
 from .utils import (
     VOUCHER_CSV_FILENAME,
+    VOUCHER_REDEMPTION_CSV_FILENAME,
     add_external_image_csp_sources,
     allow_blob_image_previews,
+    attendee_field_labels,
+    attendee_field_values,
     build_exhibitor_video_embed,
     build_voucher_csv,
+    build_voucher_redemption_csv,
     claim_pool_vouchers,
     event_exhibitor_settings,
+    exhibitor_unredeemed_vouchers,
+    exhibitor_voucher_redemptions,
     pool_remaining,
     provision_exhibitor_devices,
     public_exhibitor_sessions,
@@ -109,6 +115,7 @@ from .utils import (
     resolve_voucher_defaults,
     should_hide_applicant_emails,
     sync_exhibitor_from_request,
+    voucher_redeem_url,
 )
 
 
@@ -849,10 +856,11 @@ class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin,
         return ExhibitionRequest.objects.filter(event=self.request.event, user=user).exists()
 
     def get_queryset(self):
-        return ExhibitionRequest.objects.filter(
-            event=self.request.event,
-            user=self.request.user,
-        ).order_by("-updated", "-created")
+        return (
+            ExhibitionRequest.objects.filter(event=self.request.event, user=self.request.user)
+            .select_related("approved_exhibitor")
+            .order_by("-updated", "-created")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -862,6 +870,120 @@ class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin,
             exhibition_request.submitter_can_edit = exhibition_request.editable and (
                 not exhibition_request.requires_open_call_to_edit or settings.call_is_open
             )
+            exhibitor = exhibition_request.approved_exhibitor
+            exhibition_request.submitter_can_see_vouchers = bool(
+                exhibition_request.state == ExhibitionRequestState.ACCEPTED
+                and exhibitor
+                and exhibitor.allow_voucher_access
+            )
+        return context
+
+
+class UserVoucherListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, ListView):
+    """An accepted submitter's own vouchers: what has been redeemed, and what is still theirs to hand out."""
+
+    template_name = "exhibitors/public_request_vouchers.html"
+    context_object_name = "voucher_rows"
+    paginate_by = 50
+    enforce_private = True
+    require_call_enabled = False
+
+    def has_private_call_access(self, settings):
+        if super().has_private_call_access(settings):
+            return True
+        return self.request.user.is_authenticated
+
+    @cached_property
+    def exhibition_request(self):
+        return get_object_or_404(
+            ExhibitionRequest.objects.select_related("approved_exhibitor"),
+            event=self.request.event,
+            user=self.request.user,
+            code=self.kwargs["code"],
+        )
+
+    @cached_property
+    def exhibitor(self):
+        exhibitor = self.exhibition_request.approved_exhibitor
+        if (
+            self.exhibition_request.state != ExhibitionRequestState.ACCEPTED
+            or exhibitor is None
+            or not exhibitor.allow_voucher_access
+        ):
+            raise Http404
+        return exhibitor
+
+    @cached_property
+    def exhibition_settings(self):
+        return self.get_exhibition_settings()
+
+    @property
+    def showing_unredeemed(self):
+        return self.request.GET.get("status") == "pending"
+
+    @cached_property
+    def redemptions(self):
+        return list(exhibitor_voucher_redemptions(self.exhibitor))
+
+    @cached_property
+    def unredeemed(self):
+        return exhibitor_unredeemed_vouchers(self.exhibitor)
+
+    def get_queryset(self):
+        return self.unredeemed if self.showing_unredeemed else self.redemptions
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get("download") == "yes":
+            return self.download_csv()
+        return super().get(request, *args, **kwargs)
+
+    def download_csv(self):
+        if self.showing_unredeemed:
+            body = build_voucher_csv(self.request.event, self.unredeemed)
+            filename = VOUCHER_CSV_FILENAME
+        else:
+            body = build_voucher_redemption_csv(self.request.event, self.redemptions, self.exhibition_settings)
+            filename = VOUCHER_REDEMPTION_CSV_FILENAME
+        response = HttpResponse(body.encode("utf-8"), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        settings = self.exhibition_settings
+        context["exhibition_request"] = self.exhibition_request
+        context["exhibitor"] = self.exhibitor
+        context["showing_unredeemed"] = self.showing_unredeemed
+        context["attendee_labels"] = attendee_field_labels(settings)
+        if self.showing_unredeemed:
+            context["vouchers"] = [
+                {
+                    "code": voucher.code,
+                    "product": str(voucher.product) if voucher.product else "",
+                    "price_mode": voucher.get_price_mode_display(),
+                    "value": voucher.value,
+                    "valid_until": voucher.valid_until,
+                    "max_usages": voucher.max_usages,
+                    "redeem_url": voucher_redeem_url(self.request.event, voucher),
+                }
+                for voucher in context["voucher_rows"]
+            ]
+        else:
+            context["rows"] = [
+                {
+                    "voucher_code": position.voucher.code if position.voucher else "",
+                    "attendee": attendee_field_values(position, settings),
+                    "order": position.order,
+                    "redeemed_at": position.order.datetime,
+                }
+                for position in context["voucher_rows"]
+            ]
+        redeemed_vouchers = len({position.voucher_id for position in self.redemptions})
+        context["redemption_count"] = len(self.redemptions)
+        context["redeemed_count"] = redeemed_vouchers
+        context["unredeemed_count"] = len(self.unredeemed)
+        context["issued_count"] = redeemed_vouchers + len(self.unredeemed)
         return context
 
 

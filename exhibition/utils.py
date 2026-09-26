@@ -553,3 +553,93 @@ def store_voucher_csv(event, vouchers):
     cached.file.save(VOUCHER_CSV_FILENAME, ContentFile(build_voucher_csv(event, vouchers).encode("utf-8")))
     cached.save()
     return cached
+
+
+VOUCHER_REDEMPTION_CSV_FILENAME = "voucher-redemptions.csv"
+
+
+def exhibitor_voucher_redemptions(exhibitor):
+    """Order positions that redeemed one of this exhibitor's vouchers, newest order first.
+
+    Order positions are organizer-scoped, and the plugin's own URLs run outside the presale
+    scope, so the queryset is built inside an explicit scope for this exhibitor's organizer.
+    """
+    from eventyay.base.models import Order, OrderPosition
+
+    from .models import ExhibitorVoucher
+
+    voucher_ids = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).values_list("voucher_id", flat=True)
+    with scope(organizer=exhibitor.event.organizer):
+        return (
+            OrderPosition.objects.filter(voucher_id__in=voucher_ids)
+            .exclude(order__status=Order.STATUS_CANCELED)
+            .select_related("order", "voucher")
+            .order_by("-order__datetime")
+        )
+
+
+def _attendee_address(position):
+    parts = [position.street, position.zipcode, position.city, str(position.country) if position.country else ""]
+    return ", ".join(part for part in parts if part)
+
+
+def attendee_field_specs(settings):
+    """The attendee columns this event lets exhibitors see, as (label, getter) pairs."""
+    from django.utils.translation import gettext_lazy as _
+
+    specs = (
+        ("attendee_name", _("Name"), lambda position: position.attendee_name or ""),
+        ("attendee_email", _("Email"), lambda position: position.attendee_email or ""),
+        ("system_company", _("Company"), lambda position: position.company or ""),
+        ("system_job_title", _("Job title"), lambda position: position.job_title or ""),
+        ("system_street", _("Address"), _attendee_address),
+    )
+    return [(label, getter) for identifier, label, getter in specs if settings.is_field_allowed(identifier)]
+
+
+def attendee_field_labels(settings):
+    return [label for label, _getter in attendee_field_specs(settings)]
+
+
+def attendee_field_values(position, settings):
+    return [getter(position) for _label, getter in attendee_field_specs(settings)]
+
+
+def exhibitor_unredeemed_vouchers(exhibitor):
+    """This exhibitor's vouchers that nobody has redeemed yet, newest first."""
+    from .models import ExhibitorVoucher
+
+    redeemed_ids = {position.voucher_id for position in exhibitor_voucher_redemptions(exhibitor)}
+    links = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher").order_by("-voucher__id")
+    return [link.voucher for link in links if link.voucher_id not in redeemed_ids]
+
+
+def build_voucher_redemption_csv(event, positions, settings) -> str:
+    """Render an exhibitor's voucher redemptions as CSV, matching the columns shown on their page."""
+    import io
+
+    from defusedcsv import csv
+    from django.utils.translation import gettext_lazy as _
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_NONNUMERIC, delimiter=",")
+    writer.writerow(
+        [
+            str(_("Voucher code")),
+            *[str(label) for label in attendee_field_labels(settings)],
+            str(_("Order")),
+            str(_("Order status")),
+            str(_("Redeemed on")),
+        ]
+    )
+    for position in positions:
+        writer.writerow(
+            [
+                position.voucher.code if position.voucher else "",
+                *[str(value) for value in attendee_field_values(position, settings)],
+                position.order.code,
+                str(position.order.get_status_display()),
+                position.order.datetime.isoformat(),
+            ]
+        )
+    return output.getvalue()
