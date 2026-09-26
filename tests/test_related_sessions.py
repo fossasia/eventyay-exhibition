@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+from conftest import STORED_IMAGES
 from django.contrib.auth.models import AnonymousUser
 from django.test import Client
 from django.urls import reverse
@@ -45,7 +46,7 @@ def publish_talks(event):
 
 def exhibitor(event, **kwargs):
     kwargs.setdefault("published", True)
-    return ExhibitorInfo.objects.create(event=event, name="Acme", **kwargs)
+    return ExhibitorInfo.objects.create(event=event, name="Acme", **{**STORED_IMAGES, **kwargs})
 
 
 def link(exhibitor_info, *submissions):

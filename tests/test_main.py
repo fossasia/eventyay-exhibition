@@ -413,8 +413,10 @@ def test_exhibitor_form_hides_sponsor_fields(event):
 
 
 @pytest.mark.django_db
-def test_scoped_forms_set_type_flags(event):
-    sponsor_form = ExhibitorInfoForm(data={"name_0": "Acme Sponsor"}, event=event, organization_type="sponsor")
+def test_scoped_forms_set_type_flags(event, image_uploads):
+    sponsor_form = ExhibitorInfoForm(
+        data={"name_0": "Acme Sponsor"}, files=image_uploads(), event=event, organization_type="sponsor"
+    )
     assert sponsor_form.is_valid(), sponsor_form.errors
     sponsor = sponsor_form.save(commit=False)
     sponsor.event = event
@@ -422,7 +424,9 @@ def test_scoped_forms_set_type_flags(event):
     assert sponsor.is_sponsor is True
     assert sponsor.is_exhibitor is False
 
-    exhibitor_form = ExhibitorInfoForm(data={"name_0": "Acme Exhibitor"}, event=event, organization_type="exhibitor")
+    exhibitor_form = ExhibitorInfoForm(
+        data={"name_0": "Acme Exhibitor"}, files=image_uploads(), event=event, organization_type="exhibitor"
+    )
     assert exhibitor_form.is_valid(), exhibitor_form.errors
     exhibitor = exhibitor_form.save(commit=False)
     exhibitor.event = event

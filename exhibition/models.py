@@ -141,6 +141,14 @@ def request_slides_path(instance, filename):
 proposal_slides_path = request_slides_path
 
 
+LOCKED_FIELD_NOTICE = _(
+    "This field is required for the exhibitor profile to display on the public event page and cannot be removed."
+)
+
+LOGO_HELP_TEXT = _("PNG or JPG, up to 10 MB. A square image of at least 400 × 400 pixels works best.")
+
+BANNER_HELP_TEXT = _("PNG or JPG, up to 10 MB. A wide image of at least 1200 × 400 pixels works best.")
+
 REQUEST_DEFAULT_FIELDS = (
     {
         "key": "name",
@@ -156,11 +164,25 @@ REQUEST_DEFAULT_FIELDS = (
     {"key": "contact_url", "label": _("Contact page URL"), "active": False},
     {"key": "video_url", "label": _("Promotional video URL"), "active": False},
     {"key": "slides", "label": _("Promotional slides"), "active": False},
-    {"key": "logo", "label": _("Logo"), "active": False},
+    {
+        "key": "logo",
+        "label": _("Logo"),
+        "help_text": LOGO_HELP_TEXT,
+        "lock_notice": LOCKED_FIELD_NOTICE,
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
+    },
     {
         "key": "banner",
         "label": _("Exhibition banner"),
-        "active": False,
+        "help_text": BANNER_HELP_TEXT,
+        "lock_notice": LOCKED_FIELD_NOTICE,
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
     },
     {"key": "booth_name", "label": _("Preferred booth name"), "active": False},
     {
@@ -318,8 +340,9 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
             normalized[key]["custom_label"] = custom_label
             normalized[key]["custom_help_text"] = custom_help_text
             normalized[key]["label"] = custom_label or field["label"]
-            normalized[key]["help_text"] = custom_help_text or ""
+            normalized[key]["help_text"] = custom_help_text or field.get("help_text") or ""
             normalized[key]["default_label"] = field["label"]
+            normalized[key]["lock_notice"] = field.get("lock_notice") or ""
             if field.get("active_locked"):
                 normalized[key]["active"] = True
             if field.get("required_locked"):

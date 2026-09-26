@@ -1684,6 +1684,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": definition.get("supports_required", True),
                     "active_locked": definition.get("active_locked", False),
                     "required_locked": definition.get("required_locked", False),
+                    "lock_notice": definition.get("lock_notice", ""),
                     "answer_count": answer_counts.get(key, 0),
                     "is_custom": False,
                 }
@@ -1701,6 +1702,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": True,
                     "active_locked": False,
                     "required_locked": False,
+                    "lock_notice": "",
                     "answer_count": question.answer_count,
                     "is_custom": True,
                     "pk": question.pk,
