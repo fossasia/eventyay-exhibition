@@ -8,8 +8,8 @@ from exhibition.signals import exhibition_presale_nav_tab
 from exhibition.views import (
     PublicCallSecretView,
     PublicCallView,
-    UserProposalEditView,
-    UserProposalWithdrawView,
+    UserRequestEditView,
+    UserRequestWithdrawView,
     call_access_session_key,
 )
 
@@ -107,36 +107,36 @@ def test_nav_tab_shown_for_public_call(event):
 
 
 @pytest.mark.django_db
-def test_proposal_list_hidden_for_private_call_without_access(event):
+def test_request_list_hidden_for_private_call_without_access(event):
     from eventyay.base.models.auth import User
 
-    from exhibition.views import UserProposalListView
+    from exhibition.views import UserRequestListView
 
     with scopes_disabled():
         settings = make_call_settings(event, private=True)
-        view = UserProposalListView()
+        view = UserRequestListView()
         view.request = _request(event)
         view.request.user = User.objects.create_user(email="stranger@e.com", password="pw")
         assert view.has_private_call_access(settings) is False
 
 
 @pytest.mark.django_db
-def test_proposal_list_visible_to_existing_applicant(event):
+def test_request_list_visible_to_existing_applicant(event):
     from eventyay.base.models.auth import User
 
-    from exhibition.models import ExhibitionProposal, ExhibitionProposalState
-    from exhibition.views import UserProposalListView
+    from exhibition.models import ExhibitionRequest, ExhibitionRequestState
+    from exhibition.views import UserRequestListView
 
     with scopes_disabled():
         settings = make_call_settings(event, private=True)
         applicant = User.objects.create_user(email="applicant@e.com", password="pw")
-        ExhibitionProposal.objects.create(
+        ExhibitionRequest.objects.create(
             event=event,
             user=applicant,
             name="Org",
-            state=ExhibitionProposalState.SUBMITTED,
+            state=ExhibitionRequestState.SUBMITTED,
         )
-        view = UserProposalListView()
+        view = UserRequestListView()
         view.request = _request(event)
         view.request.user = applicant
         assert view.has_private_call_access(settings) is True
@@ -154,7 +154,7 @@ def test_secret_view_rejects_public_call(event):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "view_class",
-    [UserProposalEditView, UserProposalWithdrawView],
+    [UserRequestEditView, UserRequestWithdrawView],
 )
 def test_owner_action_views_not_gated_by_private_secret(event, view_class):
     with scopes_disabled():

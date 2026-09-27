@@ -32,7 +32,7 @@
         {% bootstrap_form_errors form %}
         <div class="panel-group" id="email_templates_group">
             {% for panel in template_panels %}
-                <details class="panel panel-default email-template-panel">
+                <details class="panel panel-default email-template-panel" data-i18n-scope>
                     <summary class="panel-heading">
                         <h4 class="panel-title">
                             <strong>{{ panel.label }}</strong>
@@ -40,6 +40,7 @@
                         </h4>
                     </summary>
                     <div class="panel-body">
+                        {% include 'exhibitors/_i18n_language_switcher.html' %}
                         {% bootstrap_field panel.subject_field layout="control" %}
                         <div class="form-group" data-email-preview-wrapper
                              data-email-preview-url="{% url 'plugins:exhibition:email.templates.preview' organizer=request.event.organizer.slug event=request.event.slug %}?role={{ panel.role }}">
@@ -72,7 +73,7 @@
             {% endfor %}
 
             {% for panel in custom_panels %}
-                <details class="panel panel-default email-template-panel">
+                <details class="panel panel-default email-template-panel" data-i18n-scope>
                     <summary class="panel-heading">
                         <h4 class="panel-title">
                             <strong>{{ panel.label }}</strong>
@@ -86,6 +87,7 @@
                         </h4>
                     </summary>
                     <div class="panel-body">
+                        {% include 'exhibitors/_i18n_language_switcher.html' %}
                         {% bootstrap_field panel.form.name layout="control" %}
                         {% bootstrap_field panel.form.subject layout="control" %}
                         <div class="form-group" data-email-preview-wrapper

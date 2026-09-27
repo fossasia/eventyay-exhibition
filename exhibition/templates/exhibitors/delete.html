@@ -16,11 +16,8 @@
 <form action="" method="post">
   {% csrf_token %}
   <div class="form-actions">
-    <button type="submit" class="btn btn-danger">{% trans "Delete" %}</button>
-    <a
-      class="btn btn-default"
-      href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}"
-    >
+    <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+    <a class="btn btn-default btn-lg" href="{{ cancel_url }}">
       {% trans "Cancel" %}
     </a>
   </div>

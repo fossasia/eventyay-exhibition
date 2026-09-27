@@ -4,12 +4,12 @@
             sponsor: document.getElementById('id_is_sponsor'),
             exhibitor: document.getElementById('id_is_exhibitor'),
         }
-        var fields = document.querySelectorAll('[data-partner-type-field]')
+        var fields = document.querySelectorAll('[data-organization-type-field]')
         if (!fields.length) return
 
         function sync() {
             fields.forEach(function (field) {
-                var checkbox = checkboxes[field.dataset.partnerTypeField]
+                var checkbox = checkboxes[field.dataset.organizationTypeField]
                 field.classList.toggle('hidden', !(checkbox && checkbox.checked))
             })
         }

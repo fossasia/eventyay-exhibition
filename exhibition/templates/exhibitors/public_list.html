@@ -13,6 +13,12 @@
 {% block content %}
     <main aria-label="{% trans 'Exhibition' %}">
         <section class="front-page exhibition-public-page" aria-labelledby="exhibition-heading">
+            {% if preview_unpublished %}
+                <p class="alert alert-info">
+                    <i class="fa fa-search"></i>
+                    {% trans "Preview: this page also shows approved organizations that are not published yet. Visitors do not see them." %}
+                </p>
+            {% endif %}
             <h2 id="exhibition-heading">{% trans "Exhibition" %}</h2>
             <form method="get" action="" class="exhibition-public-filter" role="search">
                 <div class="exhibition-public-filter-field">
@@ -38,7 +44,7 @@
                         <a href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=exhibitor.pk %}" class="exhibition-public-card-link">
                             <article class="exhibition-public-card">
                                 <div class="exhibition-public-card-image">
-                                    <img src="{{ exhibitor.visible_header_image_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
+                                    <img src="{{ exhibitor.visible_banner_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
                                 </div>
                                 <div class="exhibition-public-card-body">
                                     <span class="exhibition-public-card-logo-wrap">

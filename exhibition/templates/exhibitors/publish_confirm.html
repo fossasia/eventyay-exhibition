@@ -1,0 +1,53 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Publish approved organizations" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Publish approved organizations" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    {% if waiting %}
+        <p>
+            {% blocktrans trimmed count count=waiting|length %}
+                {{ count }} approved organization will become visible on the public event website.
+            {% plural %}
+                {{ count }} approved organizations will become visible on the public event website.
+            {% endblocktrans %}
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                <tr>
+                    <th>{% trans "Name" %}</th>
+                    <th>{% trans "Booth" %}</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for organization in waiting %}
+                    <tr>
+                        <td>{{ organization.name }}</td>
+                        <td>{{ organization.localized_booth_name|default:"—" }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p>{% trans "Every approved organization is already published." %}</p>
+    {% endif %}
+
+    <form action="?{{ query_string }}" method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="publish_all">
+        <div class="form-group submit-group">
+            <a class="btn btn-default btn-lg" href="{{ list_url }}">{% trans "Cancel" %}</a>
+            {% if waiting %}
+                <button type="submit" name="confirmed" value="1" class="btn btn-primary btn-lg">
+                    {% trans "Publish them" %}
+                </button>
+            {% endif %}
+        </div>
+    </form>
+{% endblock %}
