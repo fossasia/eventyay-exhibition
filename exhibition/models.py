@@ -755,7 +755,6 @@ class ExhibitionRequest(LoggedModel):
             "exhibition.request",
             OUTCOME_SUCCESS,
             backend="exhibition",
-            error_code=action if isinstance(action, str) else None,
             event_id=self.event_id,
             object_id=self.pk,
         )
