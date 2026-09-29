@@ -749,6 +749,16 @@ class ExhibitionRequest(LoggedModel):
             data={"from": previous, "to": self.state, "code": self.code},
             user=requestor,
         )
+        from .operational_log import OUTCOME_SUCCESS, log_operation
+
+        log_operation(
+            "exhibition.request",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            error_code=action if isinstance(action, str) else None,
+            event_id=self.event_id,
+            object_id=self.pk,
+        )
 
     def approve(self, requestor=None):
         """Accept the request, create or reactivate its organization profile and queue the acceptance email."""
