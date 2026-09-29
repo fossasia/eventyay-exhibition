@@ -7,6 +7,8 @@ from eventyay.base.models import Event
 from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +25,14 @@ def send_scheduled_email(self, event_id, queue_id):
             event = Event.objects.get(pk=event_id)
         except Event.DoesNotExist:
             logger.error("[Exhibition] Event %s not found for queued email %s", event_id, queue_id)
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="event_missing",
+                event_id=original_event_id if isinstance(original_event_id, int) else None,
+                object_id=queue_id,
+            )
             return
 
     try:
@@ -43,8 +53,17 @@ def send_scheduled_email(self, event_id, queue_id):
                 return
 
             queued.send()
+            log_operation("mail.send", OUTCOME_SUCCESS, backend="exhibition", event_id=event.pk, object_id=queue_id)
     except Exception as exc:
         logger.exception("[Exhibition] Failed to send scheduled email %s", queue_id)
+        log_operation(
+            "mail.send",
+            OUTCOME_FAILURE,
+            backend="exhibition",
+            error_code="send_failed",
+            event_id=event.pk,
+            object_id=queue_id,
+        )
         try:
             self.retry(exc=exc, args=[original_event_id, queue_id])
         except MaxRetriesExceededError:
