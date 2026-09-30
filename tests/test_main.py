@@ -833,3 +833,89 @@ def test_exhibitor_form_rejects_images_over_the_upload_limit(event, image_upload
     assert not form.is_valid()
     assert "The upload limit is" in str(form.errors["logo"])
     assert "The upload limit is" in str(form.errors["banner"])
+
+
+@pytest.mark.django_db
+def test_exhibitor_and_sponsor_forms_render_description_tiptap(event):
+    for org_type in ("exhibitor", "sponsor"):
+        form = ExhibitorInfoForm(event=event, organization_type=org_type)
+        rendered = str(form["description"])
+        assert 'data-tiptap-profile="richtext"' in rendered
+        assert "tiptap-wrapper" in rendered
+
+
+@pytest.mark.django_db
+def test_public_request_form_renders_description_tiptap(client, event, settings):
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        ex_settings = make_exhibitor_settings(event)
+        ex_settings.call_enabled = True
+        ex_settings.call_private = False
+        ex_settings.save()
+
+        user = User.objects.create_user("attendee@dummy.dummy", "dummy")
+    client.force_login(user)
+
+    url = reverse(
+        "plugins:exhibition:request.add",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = client.get(url)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'name="description"' in content
+    assert 'data-tiptap-profile="richtext"' in content
+    assert "common/js/tiptapLoader.js" in content
+
+
+@pytest.mark.django_db
+def test_request_detail_renders_description_rich_text(client, event, settings):
+    from i18nfield.strings import LazyI18nString
+
+    from exhibition.models import ExhibitionRequest
+
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        make_exhibitor_settings(event)
+
+        user = User.objects.create_superuser("admin_review@dummy.dummy", "dummy")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            can_change_event_settings=True,
+            can_change_exhibition_proposals=True,
+        )
+        team.members.add(user)
+        req = ExhibitionRequest.objects.create(
+            event=event,
+            user=user,
+            name="Alpha Corp",
+            description=LazyI18nString({"en": "<p>Formatted <strong>description</strong></p>"}),
+        )
+    client.force_login(user)
+
+    url = reverse(
+        "plugins:exhibition:request.detail",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "code": req.code,
+        },
+    )
+    response = client.get(url)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "<strong>description</strong>" in content
+    assert "&lt;strong&gt;" not in content
+
