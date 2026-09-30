@@ -9,6 +9,7 @@ from django.test import RequestFactory
 from django.utils import timezone
 from django.utils.translation import get_language
 from django_scopes import scopes_disabled
+from eventyay.base.models import Team
 from eventyay.base.models.auth import User
 from i18nfield.strings import LazyI18nString
 
@@ -1217,3 +1218,84 @@ def test_no_credentials_go_out_while_lead_scanning_is_off(mail_event):
         assert not _access_emails(mail_event).exists()
 
     assert _message_texts(request) == []
+
+
+@pytest.mark.django_db
+def test_queue_request_organizer_email_submitted(mail_event, exhibition_request):
+    team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        is_exhibition_reviewer=True,
+    )
+    member = User.objects.create_user(
+        email="reviewer@example.com",
+        password="pw",
+        fullname="Reviewer",
+    )
+    team.members.add(member)
+
+    queued = mail_helpers.queue_request_organizer_emails(
+        mail_event,
+        exhibition_request,
+        "submitted",
+    )
+
+    assert len(queued) == 1
+    assert queued[0].to_email == "reviewer@example.com"
+    assert "Exhibitor" in queued[0].body
+    assert "submitted" in queued[0].body
+    assert "Acme Corp" in queued[0].body
+    assert "Jane Applicant" in queued[0].body
+    assert "applicant@example.com" in queued[0].body
+    assert "{contact_name}" not in queued[0].body
+    assert "{pending_request_count}" not in queued[0].body
+
+
+@pytest.mark.django_db
+def test_queue_request_organizer_email_withdrawn(mail_event, exhibition_request):
+    team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        can_change_exhibition_proposals=True,
+    )
+    member = User.objects.create_user(
+        email="manager@example.com",
+        password="pw",
+        fullname="Manager",
+    )
+    team.members.add(member)
+
+    queued = mail_helpers.queue_request_organizer_emails(
+        mail_event,
+        exhibition_request,
+        "withdrawn",
+    )
+
+    assert len(queued) == 1
+    assert queued[0].to_email == "manager@example.com"
+    assert "withdrawn" in queued[0].body
+
+
+@pytest.mark.django_db
+def test_queue_request_organizer_email_falls_back_to_event_settings_team(mail_event, exhibition_request):
+    team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        can_change_event_settings=True,
+    )
+    member = User.objects.create_user(
+        email="settings@example.com",
+        password="pw",
+        fullname="Settings Manager",
+    )
+    team.members.add(member)
+
+    queued = mail_helpers.queue_request_organizer_emails(
+        mail_event,
+        exhibition_request,
+        "reinstated",
+    )
+
+    assert len(queued) == 1
+    assert queued[0].to_email == "settings@example.com"
+    assert "reinstated" in queued[0].body
