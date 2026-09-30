@@ -511,14 +511,15 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         if self.instance and self.instance.pk:
             self.initial["lead_scanning_scope_by_device"] = self.instance.lead_scanning_scope_by_device
-        description_field = self.fields.get("description")
-        if description_field:
-            widget = description_field.widget
-            if isinstance(widget, forms.MultiWidget):
-                for sub_widget in widget.widgets:
-                    sub_widget.attrs.setdefault("rows", 4)
-            else:
-                widget.attrs.setdefault("rows", 4)
+        if "description" in self.fields:
+            self.fields["description"] = I18nFormField(
+                label=self.fields["description"].label,
+                required=False,
+                widget=I18nEmailEditorWidget,
+                widget_kwargs={"attrs": {"rows": 4, "data-tiptap-profile": "richtext"}},
+            )
+            if self.event:
+                self.fields["description"].widget.enabled_locales = self.event.settings.get("locales")
         self.profile_field_settings = {}
         self.ordered_profile_keys = []
         if self.event:
@@ -1205,7 +1206,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     description = forms.CharField(
         required=False,
         label=_("Organization description"),
-        widget=forms.Textarea(attrs={"rows": 4}),
+        widget=EmailEditorWidget(attrs={"rows": 4, "data-tiptap-profile": "richtext"}),
     )
     booth_name = forms.CharField(
         max_length=100,
