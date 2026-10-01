@@ -30,7 +30,13 @@ from eventyay.common.forms.mixins import (
     EventLocalizedModelChoiceField,
     EventLocalizedModelMultipleChoiceField,
 )
-from eventyay.common.forms.widgets import EmailEditorWidget, HtmlDateTimeInput, I18nEmailEditorWidget
+from eventyay.common.forms.widgets import (
+    EmailEditorWidget,
+    HtmlDateTimeInput,
+    I18nEmailEditorWidget,
+    I18nRichTextWidget,
+    RichTextWidget,
+)
 from eventyay.common.urls import normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.consts import SizeKey
@@ -511,14 +517,15 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         if self.instance and self.instance.pk:
             self.initial["lead_scanning_scope_by_device"] = self.instance.lead_scanning_scope_by_device
-        description_field = self.fields.get("description")
-        if description_field:
-            widget = description_field.widget
-            if isinstance(widget, forms.MultiWidget):
-                for sub_widget in widget.widgets:
-                    sub_widget.attrs.setdefault("rows", 4)
-            else:
-                widget.attrs.setdefault("rows", 4)
+        if "description" in self.fields:
+            self.fields["description"] = I18nFormField(
+                label=self.fields["description"].label,
+                required=False,
+                widget=I18nRichTextWidget,
+                widget_kwargs={"attrs": {"rows": 4}},
+            )
+            if self.event:
+                self.fields["description"].widget.enabled_locales = self.event.settings.get("locales")
         self.profile_field_settings = {}
         self.ordered_profile_keys = []
         if self.event:
@@ -904,8 +911,8 @@ class CallSettingsForm(I18nModelForm):
         self.fields["call_text"] = I18nFormField(
             label=self.fields["call_text"].label,
             required=False,
-            widget=I18nEmailEditorWidget,
-            widget_kwargs={"attrs": {"rows": 8, "data-tiptap-profile": "richtext"}},
+            widget=I18nRichTextWidget,
+            widget_kwargs={"attrs": {"rows": 8}},
         )
         if self.event:
             self.fields["call_text"].widget.enabled_locales = self.event.settings.get("locales")
@@ -1205,7 +1212,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     description = forms.CharField(
         required=False,
         label=_("Organization description"),
-        widget=forms.Textarea(attrs={"rows": 4}),
+        widget=RichTextWidget(attrs={"rows": 4}),
     )
     booth_name = forms.CharField(
         max_length=100,

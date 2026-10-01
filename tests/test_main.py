@@ -10,10 +10,12 @@ from django.urls import reverse
 from django_scopes import scopes_disabled
 from eventyay.base.models import Question, Team
 from eventyay.base.models.auth import User
+from eventyay.common.forms.widgets import I18nRichTextWidget, RichTextWidget
 from rest_framework import serializers
 
 from exhibition.api import ExhibitorInfoSerializer, LeadCreateView
 from exhibition.forms import (
+    CallSettingsForm,
     ExhibitionRequestForm,
     ExhibitorDeviceDefaultsForm,
     ExhibitorInfoForm,
@@ -21,6 +23,7 @@ from exhibition.forms import (
 )
 from exhibition.models import (
     REQUEST_DEFAULT_FIELD_KEYS,
+    ExhibitionRequest,
     ExhibitorInfo,
     ExhibitorSettings,
     SponsorGroup,
@@ -270,6 +273,8 @@ def test_call_settings_form_renders_call_text_without_preview(client, event, set
     response = client.get(url)
     assert response.status_code == 200
     content = response.content.decode()
+    call_form = CallSettingsForm(event=event)
+    assert isinstance(call_form.fields["call_text"].widget, I18nRichTextWidget)
     assert 'name="call_text_0"' in content
     assert 'data-tiptap-profile="richtext"' in content
     assert "call_text_preview" not in content
@@ -615,3 +620,179 @@ def test_sponsor_only_organizations_cannot_open_the_devices_page(event):
 
         with pytest.raises(Http404):
             view.get_object()
+
+
+@pytest.mark.django_db
+def test_exhibitor_and_sponsor_forms_render_description_tiptap(event):
+    for org_type in ("exhibitor", "sponsor"):
+        form = ExhibitorInfoForm(event=event, organization_type=org_type)
+        assert isinstance(form.fields["description"].widget, I18nRichTextWidget)
+        rendered = str(form["description"])
+        assert 'data-tiptap-profile="richtext"' in rendered
+        assert "tiptap-wrapper" in rendered
+
+
+@pytest.mark.django_db
+def test_exhibitor_and_sponsor_forms_save_rich_text_description(event):
+    for org_type in ("exhibitor", "sponsor"):
+        form = ExhibitorInfoForm(
+            data={
+                "name_0": f"Acme {org_type.title()}",
+                "description_0": "<p>Formatted <strong>rich description</strong></p>",
+            },
+            event=event,
+            organization_type=org_type,
+        )
+        assert form.is_valid(), form.errors
+        org = form.save(commit=False)
+        org.event = event
+        org.save()
+        assert str(org.description) == "<p>Formatted <strong>rich description</strong></p>"
+
+
+@pytest.mark.django_db
+def test_public_request_form_renders_description_tiptap(client, event, settings):
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        ex_settings = make_exhibitor_settings(event)
+        ex_settings.call_enabled = True
+        ex_settings.call_private = False
+        ex_settings.save()
+
+        user = User.objects.create_user("attendee@dummy.dummy", "dummy")
+    client.force_login(user)
+
+    form = ExhibitionRequestForm(event=event)
+    assert isinstance(form.fields["description"].widget, RichTextWidget)
+
+    url = reverse(
+        "plugins:exhibition:request.add",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = client.get(url)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert 'name="description"' in content
+    assert 'data-tiptap-profile="richtext"' in content
+    assert "common/js/tiptapLoader.js" in content
+
+
+@pytest.mark.django_db
+def test_public_request_form_saves_rich_text_description(event):
+    with scopes_disabled():
+        make_exhibitor_settings(event)
+        user = User.objects.create_user("req_author@dummy.dummy", "dummy")
+        req = ExhibitionRequest.objects.create(event=event, user=user, name="Initial Name")
+
+    form = ExhibitionRequestForm(
+        data={
+            "name": "Alpha Corp",
+            "description": "<p>Custom <em>rich</em> description</p>",
+            "content_locale": "en",
+        },
+        instance=req,
+        event=event,
+    )
+    assert form.is_valid(), form.errors
+    form.save()
+    req.refresh_from_db()
+    assert str(req.description) == "<p>Custom <em>rich</em> description</p>"
+
+
+@pytest.mark.django_db
+def test_request_detail_renders_description_rich_text(client, event, settings):
+    from i18nfield.strings import LazyI18nString
+
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        make_exhibitor_settings(event)
+
+        user = User.objects.create_superuser("admin_review@dummy.dummy", "dummy")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            can_change_event_settings=True,
+            can_change_exhibition_proposals=True,
+        )
+        team.members.add(user)
+        req = ExhibitionRequest.objects.create(
+            event=event,
+            user=user,
+            name="Alpha Corp",
+            description=LazyI18nString({"en": "<p>Formatted <strong>description</strong></p>"}),
+        )
+    client.force_login(user)
+
+    url = reverse(
+        "plugins:exhibition:request.detail",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "code": req.code,
+        },
+    )
+    response = client.get(url)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "<strong>description</strong>" in content
+    assert "&lt;strong&gt;" not in content
+
+
+@pytest.mark.django_db
+def test_request_detail_preserves_plain_text_newlines(client, event, settings):
+    from i18nfield.strings import LazyI18nString
+
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        make_exhibitor_settings(event)
+
+        user = User.objects.create_superuser("admin_review_plain@dummy.dummy", "dummy")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            can_change_event_settings=True,
+            can_change_exhibition_proposals=True,
+        )
+        team.members.add(user)
+        # Legacy plain-text description saved before rich text editor introduction
+        req = ExhibitionRequest.objects.create(
+            event=event,
+            user=user,
+            name="Legacy Corp",
+            description=LazyI18nString(
+                {
+                    "en": "First line of plain description\nSecond line of plain description\n\nThird paragraph",
+                }
+            ),
+        )
+    client.force_login(user)
+
+    url = reverse(
+        "plugins:exhibition:request.detail",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "code": req.code,
+        },
+    )
+    response = client.get(url)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "First line of plain description<br>" in content
+    assert "Second line of plain description" in content
+    assert "<p>Third paragraph</p>" in content
