@@ -41,6 +41,7 @@ from .forms import (
     ExhibitionDefaultFieldForm,
     ExhibitionEmailQueueForm,
     ExhibitionMailTemplatesForm,
+    ExhibitionProductForm,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
     ExhibitionRequestExtraLinkFormSet,
@@ -68,6 +69,9 @@ from .models import (
     LOG_ORGANIZATION_DELETED,
     LOG_ORGANIZATION_PUBLISHED,
     LOG_ORGANIZATION_UNPUBLISHED,
+    LOG_PRODUCT_ADDED,
+    LOG_PRODUCT_CHANGED,
+    LOG_PRODUCT_DELETED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
@@ -79,6 +83,7 @@ from .models import (
     REQUEST_REVIEW_ACTIONS,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
+    ExhibitionProduct,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionRequest,
@@ -1685,6 +1690,74 @@ class RequestActionView(EventPermissionRequiredMixin, View):
         else:
             messages.error(request, message)
         return redirect("plugins:exhibition:request.list", **event_kwargs(request.event))
+
+
+class ExhibitionProductMixin(EventPermissionRequiredMixin):
+    """Exhibition products belong to the exhibition setup, so they need the same permission as the rest of it."""
+
+    permission = "can_change_event_settings"
+
+    def get_queryset(self):
+        return ExhibitionProduct.objects.filter(event=self.request.event)
+
+    def get_success_url(self):
+        return reverse("plugins:exhibition:products", kwargs=event_kwargs(self.request.event))
+
+
+class ExhibitionProductListView(ExhibitionProductMixin, PaginationMixin, ListView):
+    template_name = "exhibitors/products.html"
+    context_object_name = "products"
+
+
+class ExhibitionProductFormMixin(ExhibitionProductMixin):
+    model = ExhibitionProduct
+    form_class = ExhibitionProductForm
+    template_name = "exhibitors/product_form.html"
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
+
+class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
+    def form_valid(self, form):
+        form.instance.event = self.request.event
+        with transaction.atomic():
+            response = super().form_valid(form)
+            self.object.log_action(
+                LOG_PRODUCT_ADDED,
+                data={"name": self.object.localized_name},
+                user=self.request.user,
+            )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
+    def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if form.has_changed():
+                self.object.log_action(
+                    LOG_PRODUCT_CHANGED,
+                    data={"changed": form.changed_data},
+                    user=self.request.user,
+                )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
+    model = ExhibitionProduct
+    template_name = "exhibitors/product_delete.html"
+
+    def form_valid(self, form):
+        self.object.log_action(
+            LOG_PRODUCT_DELETED,
+            data={"name": self.object.localized_name},
+            user=self.request.user,
+        )
+        return super().form_valid(form)
 
 
 class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):

@@ -1,0 +1,25 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Delete product" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Delete product" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        <p>
+            {% blocktrans trimmed with name=object %}
+                Are you sure you want to delete the product <strong>{{ name }}</strong>?
+            {% endblocktrans %}
+        </p>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}

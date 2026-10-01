@@ -1,0 +1,43 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <script defer src="{% static 'exhibition/js/exhibition-products.js' %}"></script>
+{% endblock %}
+
+{% block title %}{{ request.event.name }} - {% if object %}{{ object }}{% else %}{% trans "Create a new product" %}{% endif %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% if object %}{% blocktrans trimmed with name=object %}Product: {{ name }}{% endblocktrans %}{% else %}{% trans "Create a new product" %}{% endif %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+        <fieldset>
+            <legend>{% trans "General information" %}</legend>
+            {% include 'exhibitors/_i18n_language_switcher.html' %}
+            {% bootstrap_field form.name layout="control" %}
+            {% bootstrap_field form.description layout="control" %}
+            {% bootstrap_field form.purpose layout="control" %}
+            {% bootstrap_field form.includes_booth layout="control" %}
+            {% bootstrap_field form.price addon_after=request.event.currency layout="control" %}
+        </fieldset>
+        <fieldset>
+            <legend>{% trans "Availability" %}</legend>
+            {% bootstrap_field form.active layout="control" %}
+            {% bootstrap_field form.available_from layout="control" %}
+            {% bootstrap_field form.available_until layout="control" %}
+        </fieldset>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}

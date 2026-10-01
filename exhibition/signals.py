@@ -45,6 +45,9 @@ from .models import (
     LOG_ORGANIZATION_SYNCED,
     LOG_ORGANIZATION_UNPUBLISHED,
     LOG_PREFIX,
+    LOG_PRODUCT_ADDED,
+    LOG_PRODUCT_CHANGED,
+    LOG_PRODUCT_DELETED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
@@ -377,6 +380,9 @@ LOG_ENTRY_LABELS = {
     LOG_QUESTION_CHANGED: _("Exhibitor form question changed."),
     LOG_QUESTION_DELETED: _("Exhibitor form question deleted."),
     LOG_EMAIL_SENT: _("Email sent."),
+    LOG_PRODUCT_ADDED: _("Exhibition product created."),
+    LOG_PRODUCT_CHANGED: _("Exhibition product changed."),
+    LOG_PRODUCT_DELETED: _("Exhibition product deleted."),
 }
 
 

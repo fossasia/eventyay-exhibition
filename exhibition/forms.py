@@ -37,6 +37,7 @@ from eventyay.consts import SizeKey
 from eventyay.control.forms import ExtFileField, SplitDateTimeField
 from eventyay.helpers.countries import CachedCountries
 from eventyay.helpers.i18n import get_format_without_seconds, is_rtl
+from eventyay.helpers.money import change_decimal_field
 from i18nfield.forms import I18nFormField, I18nTextInput
 from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
@@ -50,6 +51,7 @@ from .models import (
     ExhibitionAnswer,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
+    ExhibitionProduct,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuestionVariant,
@@ -2240,3 +2242,49 @@ class ExhibitionCustomEmailTemplateForm(I18nModelForm):
         )
         if self.event:
             self.fields["body"].widget.enabled_locales = self.event.settings.get("locales")
+
+
+class ExhibitionProductForm(I18nModelForm):
+    """An exhibition or sponsorship package, laid out like the Tickets product form."""
+
+    class Meta:
+        model = ExhibitionProduct
+        localized_fields = "__all__"
+        fields = [
+            "name",
+            "description",
+            "purpose",
+            "includes_booth",
+            "price",
+            "active",
+            "available_from",
+            "available_until",
+        ]
+        field_classes = {
+            "available_from": SplitDateTimeField,
+            "available_until": SplitDateTimeField,
+        }
+        widgets = {
+            "purpose": forms.Select(attrs={"data-exhibition-product-purpose": ""}),
+            "includes_booth": forms.CheckboxInput(attrs={"data-exhibition-product-booth": ""}),
+            "available_from": SplitDateTimePickerWidget(),
+            "available_until": SplitDateTimePickerWidget(attrs={"data-date-after": "#id_available_from_0"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        change_decimal_field(self.fields["price"], self.event.currency)
+
+    def clean_price(self):
+        price = self.cleaned_data.get("price")
+        if price is not None and price < 0:
+            raise ValidationError(_("The price must not be negative."))
+        return price
+
+    def clean(self):
+        cleaned_data = super().clean()
+        available_from = cleaned_data.get("available_from")
+        available_until = cleaned_data.get("available_until")
+        if available_from and available_until and available_until < available_from:
+            self.add_error("available_until", _("The end of the sales period must be after its start."))
+        return cleaned_data

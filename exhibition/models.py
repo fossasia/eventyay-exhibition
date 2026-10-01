@@ -591,6 +591,9 @@ LOG_QUESTION_ADDED = f"{LOG_PREFIX}.question.added"
 LOG_QUESTION_CHANGED = f"{LOG_PREFIX}.question.changed"
 LOG_QUESTION_DELETED = f"{LOG_PREFIX}.question.deleted"
 LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
+LOG_PRODUCT_ADDED = f"{LOG_PREFIX}.product.added"
+LOG_PRODUCT_CHANGED = f"{LOG_PREFIX}.product.changed"
+LOG_PRODUCT_DELETED = f"{LOG_PREFIX}.product.deleted"
 
 SUBMITTER_PROFILE_FIELD_LABELS = {
     "description": _("Organization Description"),
@@ -1101,6 +1104,140 @@ class Lead(models.Model):
 
     def __str__(self):
         return f"Lead scanned by {self.exhibitor.name}"
+
+
+class ExhibitionProductPurpose(models.TextChoices):
+    EXHIBITION = "exhibition", _("Exhibition")
+    SPONSORSHIP = "sponsorship", _("Sponsorship")
+
+
+class ExhibitionProductQuerySet(models.QuerySet):
+    def for_event(self, event):
+        return self.filter(event=event)
+
+    def consuming_booth_capacity(self):
+        """The products that take up physical exhibition space."""
+        return self.filter(includes_booth=True)
+
+    def available(self, now_dt=None):
+        """The products on sale right now: the database side of ``ExhibitionProduct.is_available()``."""
+        now_dt = now_dt or timezone.now()
+        return self.filter(
+            Q(available_from__isnull=True) | Q(available_from__lte=now_dt),
+            Q(available_until__isnull=True) | Q(available_until__gte=now_dt),
+            active=True,
+        )
+
+
+def get_next_product_position(event):
+    max_position = ExhibitionProduct.objects.filter(event=event).aggregate(value=Max("position")).get("value")
+    return (max_position if max_position is not None else -1) + 1
+
+
+class ExhibitionProduct(LoggedModel):
+    """An exhibition or sponsorship package the event sells.
+
+    Exhibition products are their own data, kept apart from the Tickets products: they are
+    managed only under Exhibition and never show up in the ticket shop. The fields follow
+    the Tickets product so both behave alike.
+    """
+
+    objects = ExhibitionProductQuerySet.as_manager()
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_products",
+    )
+    name = I18nCharField(max_length=255, verbose_name=_("Product name"))
+    description = I18nTextField(
+        verbose_name=_("Description"),
+        help_text=_("This is shown below the product name in lists."),
+        null=True,
+        blank=True,
+    )
+    price = models.DecimalField(
+        verbose_name=_("Price"),
+        max_digits=13,
+        decimal_places=2,
+        default=0,
+    )
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+    available_from = models.DateTimeField(
+        verbose_name=_("Available from"),
+        null=True,
+        blank=True,
+        help_text=_("This product will not be sold before the given date."),
+    )
+    available_until = models.DateTimeField(
+        verbose_name=_("Available until"),
+        null=True,
+        blank=True,
+        help_text=_("This product will not be sold after the given date."),
+    )
+    position = models.IntegerField(default=0)
+    purpose = models.CharField(
+        max_length=16,
+        choices=ExhibitionProductPurpose.choices,
+        default=ExhibitionProductPurpose.SPONSORSHIP,
+        verbose_name=_("Product purpose"),
+    )
+    includes_booth = models.BooleanField(
+        default=True,
+        verbose_name=_("Includes exhibition booth"),
+        help_text=_(
+            "Sponsorships come with a booth unless you turn this off, for example for a purely "
+            "digital package. Exhibition products always include one."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product")
+        verbose_name_plural = _("Exhibition products")
+        ordering = ("position", "id")
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
+
+    @property
+    def is_exhibition(self):
+        return self.purpose == ExhibitionProductPurpose.EXHIBITION
+
+    @property
+    def is_sponsorship(self):
+        return self.purpose == ExhibitionProductPurpose.SPONSORSHIP
+
+    @property
+    def consumes_booth_capacity(self):
+        """Only products that come with physical exhibition space take up a booth."""
+        return self.includes_booth
+
+    def is_available_by_time(self, now_dt=None):
+        now_dt = now_dt or timezone.now()
+        if self.available_from and self.available_from > now_dt:
+            return False
+        if self.available_until and self.available_until < now_dt:
+            return False
+        return True
+
+    def is_available(self, now_dt=None):
+        """Whether the product is on sale, going by its active flag and its availability window."""
+        return self.active and self.is_available_by_time(now_dt)
+
+    def save(self, *args, **kwargs):
+        """Saving settles the booth rule, so no caller can store another answer."""
+        if self._state.adding and not self.position:
+            self.position = get_next_product_position(self.event)
+        if self.is_exhibition and not self.includes_booth:
+            self.includes_booth = True
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"includes_booth"}
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.localized_name or str(self.name)
 
 
 class ExhibitorTag(models.Model):

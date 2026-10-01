@@ -4,6 +4,7 @@ from eventyay.api.urls import event_router
 from eventyay.common.urls import OrganizerSlugConverter  # noqa: F401
 
 from .api import (
+    ExhibitionProductViewSet,
     ExhibitorAuthView,
     ExhibitorInfoViewSet,
     LeadCreateView,
@@ -27,6 +28,10 @@ from .views import (
     EmailTemplatesView,
     ExhibitionDefaultFieldEditView,
     ExhibitionDefaultFieldResetView,
+    ExhibitionProductCreateView,
+    ExhibitionProductDeleteView,
+    ExhibitionProductEditView,
+    ExhibitionProductListView,
     ExhibitionQuestionCreateView,
     ExhibitionQuestionDeleteView,
     ExhibitionQuestionEditView,
@@ -168,6 +173,26 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>",
         DashboardView.as_view(),
         name="dashboard",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products",
+        ExhibitionProductListView.as_view(),
+        name="products",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/add",
+        ExhibitionProductCreateView.as_view(),
+        name="products.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/<int:pk>/edit",
+        ExhibitionProductEditView.as_view(),
+        name="products.edit",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/<int:pk>/delete",
+        ExhibitionProductDeleteView.as_view(),
+        name="products.delete",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors",
@@ -392,3 +417,4 @@ urlpatterns = [
 ]
 
 event_router.register("exhibitors", ExhibitorInfoViewSet, basename="exhibitorinfo")
+event_router.register("exhibition-products", ExhibitionProductViewSet, basename="exhibitionproduct")
