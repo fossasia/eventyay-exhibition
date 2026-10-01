@@ -30,7 +30,13 @@ from eventyay.common.forms.mixins import (
     EventLocalizedModelChoiceField,
     EventLocalizedModelMultipleChoiceField,
 )
-from eventyay.common.forms.widgets import EmailEditorWidget, HtmlDateTimeInput, I18nEmailEditorWidget
+from eventyay.common.forms.widgets import (
+    EmailEditorWidget,
+    HtmlDateTimeInput,
+    I18nEmailEditorWidget,
+    I18nRichTextWidget,
+    RichTextWidget,
+)
 from eventyay.common.urls import normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.consts import SizeKey
@@ -515,8 +521,8 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             self.fields["description"] = I18nFormField(
                 label=self.fields["description"].label,
                 required=False,
-                widget=I18nEmailEditorWidget,
-                widget_kwargs={"attrs": {"rows": 4, "data-tiptap-profile": "richtext"}},
+                widget=I18nRichTextWidget,
+                widget_kwargs={"attrs": {"rows": 4}},
             )
             if self.event:
                 self.fields["description"].widget.enabled_locales = self.event.settings.get("locales")
@@ -905,8 +911,8 @@ class CallSettingsForm(I18nModelForm):
         self.fields["call_text"] = I18nFormField(
             label=self.fields["call_text"].label,
             required=False,
-            widget=I18nEmailEditorWidget,
-            widget_kwargs={"attrs": {"rows": 8, "data-tiptap-profile": "richtext"}},
+            widget=I18nRichTextWidget,
+            widget_kwargs={"attrs": {"rows": 8}},
         )
         if self.event:
             self.fields["call_text"].widget.enabled_locales = self.event.settings.get("locales")
@@ -1206,7 +1212,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     description = forms.CharField(
         required=False,
         label=_("Organization description"),
-        widget=EmailEditorWidget(attrs={"rows": 4, "data-tiptap-profile": "richtext"}),
+        widget=RichTextWidget(attrs={"rows": 4}),
     )
     booth_name = forms.CharField(
         max_length=100,
