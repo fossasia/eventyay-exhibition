@@ -567,19 +567,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 )
             )
 
-        if action == "delete_group":
-            group = get_object_or_404(SponsorGroup, pk=request.POST.get("group_id"), event=request.event)
-            if group.organizations.exists():
-                messages.error(
-                    self.request,
-                    _("This sponsor group cannot be deleted while it is assigned to organizations."),
-                )
-            else:
-                group.log_action(LOG_GROUP_DELETED, data={"name": group.localized_name}, user=request.user)
-                group.delete()
-                messages.success(self.request, _("Sponsor group deleted."))
-            return redirect(self.get_settings_url("sponsors"))
-
         messages.error(self.request, _("Unknown action."))
         return redirect(self.get_settings_url(active_tab))
 
@@ -1303,6 +1290,50 @@ class SponsorGroupFrontPageToggleView(EventPermissionRequiredMixin, View):
         group.show_on_front_page = not group.show_on_front_page
         group.save(update_fields=["show_on_front_page"])
         return JsonResponse({"show_on_front_page": group.show_on_front_page})
+
+
+class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
+    http_method_names = ["get", "post", "head", "options"]
+    model = SponsorGroup
+    permission = "can_change_settings"
+    template_name = "exhibitors/sponsor_group_delete.html"
+
+    def get_queryset(self):
+        return SponsorGroup.objects.filter(event=self.request.event)
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        if self.object.organizations.exists():
+            messages.error(
+                request,
+                _("This sponsor group cannot be deleted while it is assigned to organizations."),
+            )
+            return redirect(self.get_success_url())
+        return response
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = self.get_queryset().select_for_update().get(pk=self.object.pk)
+        if self.object.organizations.exists():
+            messages.error(
+                self.request,
+                _("This sponsor group cannot be deleted while it is assigned to organizations."),
+            )
+            return redirect(self.get_success_url())
+
+        self.object.log_action(
+            LOG_GROUP_DELETED,
+            data={"name": self.object.localized_name},
+            user=self.request.user,
+        )
+        messages.success(self.request, _("Sponsor group deleted."))
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse(
+            "plugins:exhibition:settings.sponsors",
+            kwargs=event_kwargs(self.request.event),
+        )
 
 
 class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
