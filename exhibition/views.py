@@ -1,7 +1,7 @@
 import io
 import json
 import logging
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from defusedcsv import csv
 from django.conf import settings as django_settings
@@ -153,7 +153,8 @@ def send_request_confirmation(event, exhibition_request, requestor):
             mail_helpers.REQUEST_NEW,
             send_now=True,
             requestor=requestor,
-        )
+        ),
+        robust=True,
     )
 
 
@@ -1125,6 +1126,12 @@ class UserRequestEditView(
             and previous_state != ExhibitionRequestState.SUBMITTED
         ):
             send_request_confirmation(self.request.event, self.object, self.request.user)
+            send_request_organizer_notification(
+                self.request.event,
+                self.object,
+                "submitted",
+                self.request.user,
+            )
         if form.changed_data:
             self.object.log_action(
                 LOG_REQUEST_CHANGED,

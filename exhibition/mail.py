@@ -504,7 +504,10 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
             )
         )
         if send_now:
-            created[-1].send(requestor=requestor)
+            try:
+                created[-1].send(requestor=requestor)
+            except Exception:
+                logger.exception("Failed to send organizer notification email")
 
     return created
 
