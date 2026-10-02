@@ -10,6 +10,7 @@ from django.urls import reverse
 from django_scopes import scopes_disabled
 from eventyay.base.models import Question, Team
 from eventyay.base.models.auth import User
+from eventyay.consts import SizeKey
 from rest_framework import serializers
 
 from exhibition.api import ExhibitorInfoSerializer, LeadCreateView
@@ -413,8 +414,10 @@ def test_exhibitor_form_hides_sponsor_fields(event):
 
 
 @pytest.mark.django_db
-def test_scoped_forms_set_type_flags(event):
-    sponsor_form = ExhibitorInfoForm(data={"name_0": "Acme Sponsor"}, event=event, organization_type="sponsor")
+def test_scoped_forms_set_type_flags(event, image_uploads):
+    sponsor_form = ExhibitorInfoForm(
+        data={"name_0": "Acme Sponsor"}, files=image_uploads(), event=event, organization_type="sponsor"
+    )
     assert sponsor_form.is_valid(), sponsor_form.errors
     sponsor = sponsor_form.save(commit=False)
     sponsor.event = event
@@ -422,7 +425,9 @@ def test_scoped_forms_set_type_flags(event):
     assert sponsor.is_sponsor is True
     assert sponsor.is_exhibitor is False
 
-    exhibitor_form = ExhibitorInfoForm(data={"name_0": "Acme Exhibitor"}, event=event, organization_type="exhibitor")
+    exhibitor_form = ExhibitorInfoForm(
+        data={"name_0": "Acme Exhibitor"}, files=image_uploads(), event=event, organization_type="exhibitor"
+    )
     assert exhibitor_form.is_valid(), exhibitor_form.errors
     exhibitor = exhibitor_form.save(commit=False)
     exhibitor.event = event
@@ -615,3 +620,39 @@ def test_sponsor_only_organizations_cannot_open_the_devices_page(event):
 
         with pytest.raises(Http404):
             view.get_object()
+
+
+@pytest.mark.django_db
+def test_logo_and_banner_stay_required_even_when_stored_as_inactive(event):
+    exhibitor_settings = ExhibitorSettings.objects.create(
+        event=event,
+        request_field_settings={
+            "logo": {"active": False, "required": False},
+            "banner": {"active": False, "required": False},
+        },
+    )
+
+    normalized = exhibitor_settings.normalized_request_field_settings
+
+    for key in ("logo", "banner"):
+        assert normalized[key]["active"] is True
+        assert normalized[key]["required"] is True
+
+
+@pytest.mark.django_db
+def test_exhibitor_form_requires_logo_and_banner(event):
+    form = ExhibitorInfoForm(data={"name_0": "Acme"}, files={}, event=event, organization_type="exhibitor")
+
+    assert not form.is_valid()
+    assert "logo" in form.errors
+    assert "banner" in form.errors
+
+
+@pytest.mark.django_db
+def test_exhibitor_form_rejects_images_over_the_upload_limit(event, image_uploads, settings):
+    settings.MAX_SIZE_CONFIG = {**settings.MAX_SIZE_CONFIG, SizeKey.UPLOAD_SIZE_IMAGE: 10}
+    form = ExhibitorInfoForm(data={"name_0": "Acme"}, files=image_uploads(), event=event, organization_type="exhibitor")
+
+    assert not form.is_valid()
+    assert "The upload limit is" in str(form.errors["logo"])
+    assert "The upload limit is" in str(form.errors["banner"])
