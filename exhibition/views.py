@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 from urllib.parse import quote
 
 from defusedcsv import csv
@@ -111,6 +112,8 @@ from .utils import (
     sync_exhibitor_from_request,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def event_kwargs(event):
     return {
@@ -153,17 +156,24 @@ def send_request_confirmation(event, exhibition_request, requestor):
         )
     )
 
+
 def send_request_organizer_notification(event, request, action, requestor):
     """Notify eligible organizers once the applicant action commits."""
-    transaction.on_commit(
-        lambda: mail_helpers.queue_request_organizer_emails(
-            event,
-            request,
-            action,
-            send_now=True,
-            requestor=requestor,
-        )
-    )
+
+    def queue_organizer_emails():
+        try:
+            mail_helpers.queue_request_organizer_emails(
+                event,
+                request,
+                action,
+                send_now=True,
+                requestor=requestor,
+            )
+        except Exception:
+            logger.exception("Failed to queue organizer notification emails")
+
+    transaction.on_commit(queue_organizer_emails)
+
 
 def queue_exhibitor_access_mail(request, exhibitor):
     """Queue the access-credentials email for review, saying so when there is nothing to send."""

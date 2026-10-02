@@ -276,6 +276,7 @@ def request_public_url(exhibition_request):
     )
     return urljoin(django_settings.SITE_URL, path)
 
+
 def request_admin_url(exhibition_request):
     path = reverse(
         "plugins:exhibition:request.detail",
@@ -286,6 +287,7 @@ def request_admin_url(exhibition_request):
         },
     )
     return urljoin(django_settings.SITE_URL, path)
+
 
 def device_setup_url():
     return django_settings.SITE_URL.rstrip("/")
@@ -438,6 +440,7 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
         queued.send(requestor=requestor)
     return queued
 
+
 def queue_request_organizer_emails(event, request, action, *, send_now=False, requestor=None):
     """Queue a notification for organizers who can manage exhibition requests."""
     from .models import ExhibitionEmailQueue, ExhibitionRequest, ExhibitionRequestState
@@ -445,11 +448,6 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
     teams = event.teams.filter(
         Q(can_change_exhibition_proposals=True) | Q(is_exhibition_reviewer=True)
     ).prefetch_related("members")
-
-    if not teams.exists():
-        teams = event.teams.filter(
-            can_change_event_settings=True
-        ).prefetch_related("members")
 
     members = []
     seen = set()
@@ -460,6 +458,16 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
             if email and email.lower() not in seen:
                 seen.add(email.lower())
                 members.append(member)
+
+    if not members:
+        teams = event.teams.filter(can_change_event_settings=True).prefetch_related("members")
+
+        for team in teams:
+            for member in team.members.all():
+                email = (member.email or "").strip()
+                if email and email.lower() not in seen:
+                    seen.add(email.lower())
+                    members.append(member)
 
     if not members:
         return []
@@ -499,6 +507,7 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
             created[-1].send(requestor=requestor)
 
     return created
+
 
 def compose_recipients(event, states=None, organization_type=None, sponsor_group=None):
     from .models import ExhibitionRequest, ExhibitionRequestState
