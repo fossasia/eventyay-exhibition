@@ -45,7 +45,11 @@
                                         {% bootstrap_field option_form.ORDER form_group_class="" layout="inline" %}
                                     </div>
                                     <div class="question-option-label">
-                                        {% blocktrans trimmed with id=option_form.instance.pk %}Answer option {{ id }}{% endblocktrans %}
+                                        {% if option_form.instance.pk %}
+                                            {% blocktrans trimmed with id=forloop.counter %}Answer option {{ id }}{% endblocktrans %}
+                                        {% else %}
+                                            {% trans "New answer option" %}
+                                        {% endif %}
                                     </div>
                                     <div class="question-option-row">
                                         <div class="question-option-field">
