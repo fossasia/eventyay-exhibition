@@ -1,0 +1,7 @@
+{% load i18n %}
+{% if preview_unpublished %}
+    <p class="alert alert-info">
+        <i class="fa fa-search"></i>
+        {% trans "Preview: this page also shows approved organizations that are not published yet. Visitors do not see them." %}
+    </p>
+{% endif %}

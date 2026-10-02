@@ -100,6 +100,14 @@
                                     <i class="fa fa-eye-slash"></i> {{ label_unpublish }}
                                 </button>
                             </li>
+                            {% if public_preview_url %}
+                                <li role="separator" class="divider"></li>
+                                <li>
+                                    <a href="{{ public_preview_url }}" target="_blank" rel="noopener noreferrer" title="{% trans "See the public page including organizations that are not published yet" %}">
+                                        <i class="fa fa-search"></i> {% trans "Preview public page" %}
+                                    </a>
+                                </li>
+                            {% endif %}
                         </ul>
                     </div>
                 {% endif %}

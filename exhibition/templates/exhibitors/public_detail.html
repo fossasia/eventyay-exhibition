@@ -15,12 +15,13 @@
     <main aria-label="{{ exhibitor.name|event_localize }}">
         <section class="front-page exhibition-public-page exhibition-detail-page" aria-labelledby="exhibition-detail-heading">
             <div class="exhibition-detail-shell">
+                {% include "exhibitors/_public_preview_notice.html" %}
                 {% if previous_exhibitor or next_exhibitor %}
                     <div class="exhibition-detail-nav">
-                        <a class="btn btn-default" href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=previous_exhibitor.pk %}">
+                        <a class="btn btn-default" href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=previous_exhibitor.pk %}{% if navigation_query %}?{{ navigation_query }}{% endif %}">
                             <i class="fa fa-chevron-left" aria-hidden="true"></i> {% trans "Previous" %}
                         </a>
-                        <a class="btn btn-default" href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=next_exhibitor.pk %}">
+                        <a class="btn btn-default" href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=next_exhibitor.pk %}{% if navigation_query %}?{{ navigation_query }}{% endif %}">
                             {% trans "Next" %} <i class="fa fa-chevron-right" aria-hidden="true"></i>
                         </a>
                     </div>
