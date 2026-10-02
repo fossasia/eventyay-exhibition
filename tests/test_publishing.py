@@ -391,3 +391,50 @@ def test_sponsor_list_has_no_public_preview(event, settings):
 
     assert response.status_code == 200
     assert "Preview public page" not in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_searching_the_preview_stays_in_the_preview(event):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        hidden = _exhibitor(event, name="Hidden", published=False)
+        organizer = _organizer_with_settings_access(event)
+    client = _client(organizer)
+    list_url = _public_url(event, "public_list")
+
+    preview_html = client.get(list_url + "?preview=1").content.decode()
+    results_html = client.get(list_url + "?preview=1&query=Hidden").content.decode()
+
+    assert '<input type="hidden" name="preview" value="1">' in preview_html
+    assert f'href="{_public_url(event, "public_detail", pk=hidden.pk)}?preview=1&amp;query=Hidden"' in results_html
+
+
+@pytest.mark.django_db
+def test_clearing_the_preview_returns_to_the_unfiltered_preview(event):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        organizer = _organizer_with_settings_access(event)
+    list_url = _public_url(event, "public_list")
+
+    response = _client(organizer).get(list_url + "?preview=1&query=Hidden&clear=1")
+
+    assert response.status_code == 302
+    assert response.url == list_url + "?preview=1"
+
+
+@pytest.mark.django_db
+def test_visitors_search_and_clear_without_a_preview(event):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+    client = _client()
+    list_url = _public_url(event, "public_list")
+
+    html = client.get(list_url + "?preview=1").content.decode()
+    cleared = client.get(list_url + "?preview=1&query=Acme&clear=1")
+
+    assert 'name="preview"' not in html
+    assert cleared.status_code == 302
+    assert cleared.url == list_url

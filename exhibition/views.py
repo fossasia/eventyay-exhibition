@@ -753,7 +753,9 @@ class PublicExhibitorListView(PublicExhibitorBrowsingMixin, ListView):
 
     def get(self, request, *args, **kwargs):
         if "clear" in request.GET:
-            return redirect(request.path)
+            # Clearing the filters keeps an organizer in the preview they were looking at.
+            query = self.navigation_query(filtered=False)
+            return redirect(f"{request.path}?{query}" if query else request.path)
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
