@@ -453,6 +453,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         action = request.POST.get("action", "save_exhibitor_settings")
         active_tab = self.get_active_tab()
+        # Any form below that fails validation renders the page again, and the list context needs this.
+        self.object_list = self.get_queryset()
 
         if action == "save_exhibitor_settings":
             settings.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
@@ -468,7 +470,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         if action == "save_lead_settings":
             device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
             if not device_defaults_form.is_valid():
-                self.object_list = self.get_queryset()
                 return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
             device_defaults_form.save()
             settings.log_action(
@@ -536,7 +537,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 return redirect(self.get_settings_url("sponsors"))
 
             messages.error(self.request, _("We could not save your changes. See below for details."))
-            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     add_group_form=form,
@@ -559,7 +559,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 return redirect(self.get_settings_url("sponsors"))
 
             messages.error(self.request, _("We could not save your changes. See below for details."))
-            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     edit_group_forms={group.pk: form},

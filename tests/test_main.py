@@ -583,6 +583,32 @@ def test_invalid_lead_settings_render_the_form_instead_of_crashing(event):
 
 
 @pytest.mark.django_db
+def test_invalid_voucher_settings_render_the_form_instead_of_crashing(event):
+    settings = make_exhibitor_settings(event)
+
+    with scopes_disabled():
+        response = _settings_post(event, {"action": "save_voucher_settings", "voucher_default_count": "3000000000"})
+        settings.refresh_from_db()
+
+    assert response.status_code == 200
+    assert "voucher_default_count" in response.context_data["voucher_defaults_form"].errors
+    assert settings.voucher_default_count != 3000000000
+
+
+@pytest.mark.django_db
+def test_invalid_call_settings_render_the_form_instead_of_crashing(event):
+    settings = make_exhibitor_settings(event)
+
+    with scopes_disabled():
+        response = _settings_post(event, {"action": "save_call_settings", "call_deadline": "2026-99-99T10:00"})
+        settings.refresh_from_db()
+
+    assert response.status_code == 200
+    assert "call_deadline" in response.context_data["call_settings_form"].errors
+    assert settings.call_deadline is None
+
+
+@pytest.mark.django_db
 def test_saving_exhibitor_settings_does_not_touch_the_device_count(event):
     settings = make_exhibitor_settings(event)
     settings.device_default_count = 7
