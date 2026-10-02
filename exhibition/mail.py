@@ -9,7 +9,9 @@ from collections import defaultdict
 from urllib.parse import urljoin
 
 from django.conf import settings as django_settings
+from django.db.models import Q
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import escape
 from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, ngettext, override
 from eventyay.base.models import PriceModeChoices
@@ -18,12 +20,20 @@ from i18nfield.strings import LazyI18nString
 logger = logging.getLogger(__name__)
 
 REQUEST_NEW = "request_new"
+REQUEST_ORGANIZER = "request_organizer"
 REQUEST_ACCEPTED = "request_accepted"
 REQUEST_REJECTED = "request_rejected"
 EXHIBITOR_ACCESS = "exhibitor_access"
 VOUCHERS = "vouchers"
 
-LIFECYCLE_ROLES = (REQUEST_NEW, REQUEST_ACCEPTED, REQUEST_REJECTED, EXHIBITOR_ACCESS, VOUCHERS)
+LIFECYCLE_ROLES = (
+    REQUEST_NEW,
+    REQUEST_ORGANIZER,
+    REQUEST_ACCEPTED,
+    REQUEST_REJECTED,
+    EXHIBITOR_ACCESS,
+    VOUCHERS,
+)
 
 PLACEHOLDER_DOCS = (
     ("{event_name}", _lazy("The event's name")),
@@ -41,6 +51,12 @@ PLACEHOLDER_DOCS = (
             "for this exhibitor (access email only)"
         ),
     ),
+    ("{request_type}", _lazy("The request type, such as Exhibitor or Sponsor")),
+    ("{request_action}", _lazy("The action taken on the request")),
+    ("{contact_email}", _lazy("The applicant's contact email")),
+    ("{request_date}", _lazy("The date and time of the request action")),
+    ("{request_admin_url}", _lazy("The organizer backend URL for the request")),
+    ("{pending_request_count}", _lazy("The current number of pending requests")),
 )
 
 _SETTINGS_PREFIX = "exhibition_mail_"
@@ -63,6 +79,19 @@ DEFAULT_TEMPLATE_SOURCES = {
             "{event_name}. We have received it and will get back to you once it has "
             "been reviewed.\n\n"
             "You can review or edit your request here:\n{request_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    ),
+    REQUEST_ORGANIZER: (
+        gettext_noop("New exhibition request: {request_name}"),
+        gettext_noop(
+            "Hello,\n\n"
+            "A {request_type} request from {request_name} has been {request_action}.\n\n"
+            "Contact: {contact_name} ({contact_email})\n"
+            "Date: {request_date}\n"
+            "Review request: {request_admin_url}\n"
+            "Pending requests: {pending_request_count}\n\n"
             "Best regards,\n"
             "The {event_name} team"
         ),
@@ -162,6 +191,7 @@ EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", "exhibitor"]
 
 ROLE_PLACEHOLDER_CONTEXT = {
     REQUEST_NEW: REQUEST_PLACEHOLDER_CONTEXT,
+    REQUEST_ORGANIZER: REQUEST_PLACEHOLDER_CONTEXT,
     REQUEST_ACCEPTED: REQUEST_PLACEHOLDER_CONTEXT,
     REQUEST_REJECTED: REQUEST_PLACEHOLDER_CONTEXT,
     EXHIBITOR_ACCESS: EXHIBITOR_PLACEHOLDER_CONTEXT,
@@ -238,6 +268,18 @@ def build_exhibitor_context(event, exhibitor):
 def request_public_url(exhibition_request):
     path = reverse(
         "plugins:exhibition:request.user_edit",
+        kwargs={
+            "organizer": exhibition_request.event.organizer.slug,
+            "event": exhibition_request.event.slug,
+            "code": exhibition_request.code,
+        },
+    )
+    return urljoin(django_settings.SITE_URL, path)
+
+
+def request_admin_url(exhibition_request):
+    path = reverse(
+        "plugins:exhibition:request.detail",
         kwargs={
             "organizer": exhibition_request.event.organizer.slug,
             "event": exhibition_request.event.slug,
@@ -397,6 +439,77 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
     if send_now:
         queued.send(requestor=requestor)
     return queued
+
+
+def queue_request_organizer_emails(event, request, action, *, send_now=False, requestor=None):
+    """Queue a notification for organizers who can manage exhibition requests."""
+    from .models import ExhibitionEmailQueue, ExhibitionRequest, ExhibitionRequestState
+
+    teams = event.teams.filter(
+        Q(can_change_exhibition_proposals=True) | Q(is_exhibition_reviewer=True)
+    ).prefetch_related("members")
+
+    members = []
+    seen = set()
+
+    for team in teams:
+        for member in team.members.all():
+            email = (member.email or "").strip()
+            if email and email.lower() not in seen:
+                seen.add(email.lower())
+                members.append(member)
+
+    if not members:
+        teams = event.teams.filter(can_change_event_settings=True).prefetch_related("members")
+
+        for team in teams:
+            for member in team.members.all():
+                email = (member.email or "").strip()
+                if email and email.lower() not in seen:
+                    seen.add(email.lower())
+                    members.append(member)
+
+    if not members:
+        return []
+
+    subject_tpl, body_tpl = get_email_template(event, REQUEST_ORGANIZER)
+    context = build_request_context(event, request)
+    context.update(
+        {
+            "request_type": "Sponsor" if request.is_sponsor else "Exhibitor",
+            "request_action": action,
+            "contact_name": request.user.get_full_name() or request.user.email,
+            "contact_email": request.email or request.user.email,
+            "request_date": timezone.localtime(request.updated).strftime("%Y-%m-%d %H:%M %Z"),
+            "request_admin_url": request_admin_url(request),
+            "pending_request_count": ExhibitionRequest.objects.filter(
+                event=event,
+                state=ExhibitionRequestState.SUBMITTED,
+            ).count(),
+        }
+    )
+
+    created = []
+    for member in members:
+        locale = recipient_locale(event, member)
+        created.append(
+            ExhibitionEmailQueue.objects.create(
+                event=event,
+                exhibition_request=request,
+                role=REQUEST_ORGANIZER,
+                to_email=member.email.strip(),
+                subject=_render(subject_tpl, context, locale),
+                body=_render(body_tpl, context, locale),
+                locale=locale or "",
+            )
+        )
+        if send_now:
+            try:
+                created[-1].send(requestor=requestor)
+            except Exception:
+                logger.exception("Failed to send organizer notification email")
+
+    return created
 
 
 def compose_recipients(event, states=None, organization_type=None, sponsor_group=None):
