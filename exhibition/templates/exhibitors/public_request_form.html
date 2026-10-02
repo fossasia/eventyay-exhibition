@@ -189,7 +189,7 @@
                         <button type="submit" class="btn btn-block btn-primary btn-lg" name="action" value="submit">
                             {% if already_submitted %}{% trans "Save changes" %}{% else %}{% trans "Submit request" %}{% endif %}
                         </button>
-                        <button type="submit" class="btn btn-block btn-link" name="action" value="draft">
+                        <button type="submit" class="btn btn-block btn-link" name="action" value="draft" formnovalidate>
                             {% trans "or save as draft for now" %}
                         </button>
                     {% endif %}
