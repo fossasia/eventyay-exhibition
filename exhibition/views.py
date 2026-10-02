@@ -92,6 +92,7 @@ from .models import (
     get_next_sponsor_group_level,
     storable_request_field_settings,
 )
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from .social_links import serialize_social_link
 from .utils import (
     VOUCHER_CSV_FILENAME,
@@ -110,6 +111,17 @@ from .utils import (
     should_hide_applicant_emails,
     sync_exhibitor_from_request,
 )
+
+
+def _log_permission_denied(request, error_code):
+    log_operation(
+        "permission.denied",
+        OUTCOME_FAILURE,
+        backend="exhibition",
+        error_code=error_code,
+        event_id=getattr(getattr(request, "event", None), "pk", None),
+        user_id=getattr(getattr(request, "user", None), "pk", None),
+    )
 
 
 def event_kwargs(event):
@@ -614,6 +626,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
             if not request.user.has_event_permission(
                 request.event.organizer, request.event, "can_change_event_settings", request=request
             ):
+                _log_permission_denied(request, "event_settings")
                 raise PermissionDenied()
             return self.download_keys_csv()
         return super().get(request, *args, **kwargs)
@@ -1547,6 +1560,7 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
         action = self.request.POST.get("action", "save")
         if action in REQUEST_REVIEW_ACTIONS:
             if not self.can_manage():
+                _log_permission_denied(self.request, "review")
                 raise PermissionDenied()
             if not self.object.can_transition_to(REQUEST_REVIEW_ACTIONS[action]):
                 messages.error(self.request, _("This request can no longer be changed to that state."))
@@ -2463,6 +2477,13 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
                 },
             )
         published = self.apply(self.unpublished_approved(), True, request.user)
+        log_operation(
+            "exhibition.publish",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            error_code="publish_all",
+            event_id=getattr(request.event, "pk", None),
+        )
         if not published:
             messages.info(request, _("Every approved organization is already published."))
             return redirect(self.list_url())
@@ -2471,6 +2492,13 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_selected(self, request, *, published):
         changed = self.apply(self.selected(), published, request.user)
+        log_operation(
+            "exhibition.publish",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            error_code="publish" if published else "unpublish",
+            event_id=getattr(request.event, "pk", None),
+        )
         if not changed:
             messages.info(request, _("Nothing changed: the selected organizations already had that status."))
         elif published:
@@ -2682,6 +2710,7 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         if not self.can_provision():
+            _log_permission_denied(request, "provision")
             raise PermissionDenied()
         if request.POST.get("action") == "reset":
             return self.reset_tokens(request)
