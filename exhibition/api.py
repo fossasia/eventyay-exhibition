@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
-from eventyay.base.models import Order, OrderPosition
+from eventyay.base.models import OrderPosition
 from eventyay.common.urls import normalize_url_scheme
 from i18nfield.strings import LazyI18nString
 from rest_framework import serializers, status, views, viewsets
@@ -14,13 +14,13 @@ from .models import (
     ExhibitorSettings,
     ExhibitorSocialLink,
     ExhibitorTag,
-    ExhibitorVoucher,
     Lead,
     SponsorGroup,
     generate_booth_id,
     get_next_sponsor_group_level,
 )
 from .social_links import SOCIAL_LINK_SPECS
+from .utils import exhibitor_voucher_redemptions
 
 UNSET = object()
 
@@ -509,13 +509,7 @@ class VoucherRedemptionRetrieveView(views.APIView):
             return _forbidden(VOUCHER_ACCESS_DISABLED_ERROR)
 
         settings = ExhibitorSettings.objects.get_or_create(event=exhibitor.event)[0]
-        voucher_ids = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).values_list("voucher_id", flat=True)
-        positions = (
-            OrderPosition.objects.filter(voucher_id__in=voucher_ids)
-            .exclude(order__status=Order.STATUS_CANCELED)
-            .select_related("order", "voucher")
-            .order_by("-order__datetime")
-        )
+        positions = exhibitor_voucher_redemptions(exhibitor)
         redemptions = [
             {
                 "voucher_code": position.voucher.code,

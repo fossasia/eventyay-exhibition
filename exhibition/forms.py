@@ -648,6 +648,42 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         for name in names:
             self.fields.pop(name, None)
 
+    def _resolve_organization_kind(self, cleaned_data):
+        if self.organization_type == "sponsor":
+            is_sponsor = True
+            is_exhibitor = bool(cleaned_data.get("is_exhibitor"))
+        elif self.organization_type == "exhibitor":
+            is_sponsor = bool(cleaned_data.get("is_sponsor"))
+            is_exhibitor = True
+        else:
+            is_sponsor = bool(cleaned_data.get("is_sponsor"))
+            is_exhibitor = bool(cleaned_data.get("is_exhibitor"))
+            if not is_sponsor and not is_exhibitor:
+                self.add_error(None, _("An organization must be marked as an exhibitor, a sponsor, or both."))
+        self._resolved_is_sponsor = is_sponsor
+        cleaned_data["is_exhibitor"] = is_exhibitor
+
+        if not is_sponsor:
+            cleaned_data["sponsor_group"] = None
+
+        if is_exhibitor:
+            if (
+                self.profile_key_is_required("booth_name")
+                and "booth_name" in self.fields
+                and not cleaned_data.get("booth_name")
+            ):
+                self.add_error("booth_name", _("This field is required."))
+        else:
+            cleaned_data["booth_name"] = ""
+            cleaned_data["booth_id"] = None
+            cleaned_data["lead_scanning_enabled"] = False
+            cleaned_data["allow_lead_access"] = False
+            cleaned_data["lead_scanning_scope_by_device"] = False
+
+        for name in ("is_exhibitor", "is_sponsor") + self.SPONSOR_ONLY_FIELDS + self.EXHIBITOR_ONLY_FIELDS:
+            if name not in self.fields:
+                cleaned_data.pop(name, None)
+
     def clean(self):
         cleaned_data = super().clean()
 
@@ -687,42 +723,13 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             )
             self._validate_required_file(image_field, isinstance(submitted_image, UploadedFile))
 
-        if self.organization_type == "sponsor":
-            is_sponsor = True
-            is_exhibitor = bool(cleaned_data.get("is_exhibitor"))
-        elif self.organization_type == "exhibitor":
-            is_sponsor = bool(cleaned_data.get("is_sponsor"))
-            is_exhibitor = True
-        else:
-            is_sponsor = bool(cleaned_data.get("is_sponsor"))
-            is_exhibitor = bool(cleaned_data.get("is_exhibitor"))
-            if not is_sponsor and not is_exhibitor:
-                self.add_error(None, _("An organization must be marked as an exhibitor, a sponsor, or both."))
-        self._resolved_is_sponsor = is_sponsor
-        cleaned_data["is_exhibitor"] = is_exhibitor
-
-        if not is_sponsor:
-            cleaned_data["sponsor_group"] = None
-
-        if is_exhibitor:
-            if (
-                self.profile_key_is_required("booth_name")
-                and "booth_name" in self.fields
-                and not cleaned_data.get("booth_name")
-            ):
-                self.add_error("booth_name", _("This field is required."))
-        else:
-            cleaned_data["booth_name"] = ""
-            cleaned_data["booth_id"] = None
-            cleaned_data["lead_scanning_enabled"] = False
-            cleaned_data["allow_lead_access"] = False
-            cleaned_data["lead_scanning_scope_by_device"] = False
-
-        for name in ("is_exhibitor", "is_sponsor") + self.SPONSOR_ONLY_FIELDS + self.EXHIBITOR_ONLY_FIELDS:
-            if name not in self.fields:
-                cleaned_data.pop(name, None)
+        self._resolve_organization_kind(cleaned_data)
 
         return cleaned_data
+
+    def _apply_organization_kind(self, instance):
+        instance.is_exhibitor = self.cleaned_data.get("is_exhibitor", True)
+        instance.is_sponsor = getattr(self, "_resolved_is_sponsor", instance.is_sponsor)
 
     def save(self, commit=True):
         old_instance = None
@@ -730,8 +737,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             old_instance = ExhibitorInfo.objects.get(pk=self.instance.pk)
 
         instance = super().save(commit=False)
-        instance.is_exhibitor = self.cleaned_data.get("is_exhibitor", True)
-        instance.is_sponsor = getattr(self, "_resolved_is_sponsor", instance.is_sponsor)
+        self._apply_organization_kind(instance)
         files_to_delete: set[str] = set()
 
         for image_field in self.file_fields:
@@ -769,6 +775,41 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 transaction.on_commit(delete_replaced_files)
 
         return instance
+
+
+class ExhibitorSelfEditForm(ExhibitorInfoForm):
+    """The profile fields an exhibitor may change on their own, without the organizer-only settings."""
+
+    class Meta(ExhibitorInfoForm.Meta):
+        fields = ["name", "description", "url", "contact_url", "video_url", "slides", "logo", "banner", "booth_name"]
+
+    ORGANIZER_ONLY_FIELDS = (
+        "sponsor_group",
+        "allow_voucher_access",
+        "allow_lead_access",
+        "lead_scanning_scope_by_device",
+        "comment",
+        "booth_id",
+        "sessions",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._drop_fields(self.ORGANIZER_ONLY_FIELDS)
+        if not self.instance.is_exhibitor:
+            self._drop_fields(("booth_name",))
+
+    def _resolve_organization_kind(self, cleaned_data):
+        if (
+            self.instance.is_exhibitor
+            and "booth_name" in self.fields
+            and self.profile_key_is_required("booth_name")
+            and not cleaned_data.get("booth_name")
+        ):
+            self.add_error("booth_name", _("This field is required."))
+
+    def _apply_organization_kind(self, instance):
+        return None
 
 
 class ExhibitorDeviceProvisionForm(forms.Form):

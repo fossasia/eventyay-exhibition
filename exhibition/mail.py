@@ -22,8 +22,9 @@ REQUEST_ACCEPTED = "request_accepted"
 REQUEST_REJECTED = "request_rejected"
 EXHIBITOR_ACCESS = "exhibitor_access"
 VOUCHERS = "vouchers"
+EXHIBITOR_PROFILE = "exhibitor_profile"
 
-LIFECYCLE_ROLES = (REQUEST_NEW, REQUEST_ACCEPTED, REQUEST_REJECTED, EXHIBITOR_ACCESS, VOUCHERS)
+LIFECYCLE_ROLES = (REQUEST_NEW, REQUEST_ACCEPTED, REQUEST_REJECTED, EXHIBITOR_ACCESS, VOUCHERS, EXHIBITOR_PROFILE)
 
 PLACEHOLDER_DOCS = (
     ("{event_name}", _lazy("The event's name")),
@@ -33,12 +34,20 @@ PLACEHOLDER_DOCS = (
     ("{name}", _lazy("The applicant's name")),
     ("{exhibitor_name}", _lazy("The exhibitor / sponsor name (access email only)")),
     ("{booth_id}", _lazy("The exhibitor's booth ID (access email only)")),
+    ("{login_email}", _lazy("The email address that opens the exhibitor's My Exhibitions page")),
     ("{exhibitor_access_code}", _lazy("The exhibitor's secret access code (access email only)")),
     (
         "{device_tokens}",
         _lazy(
             "Setup URL, token and QR code for each lead-scanning device provisioned "
             "for this exhibitor (access email only)"
+        ),
+    ),
+    (
+        "{my_exhibitions_url}",
+        _lazy(
+            "Link to My Exhibitions in the personal dashboard, where the exhibitor sees "
+            "their profile, vouchers and redemptions (voucher and profile emails only)"
         ),
     ),
 )
@@ -106,6 +115,18 @@ DEFAULT_TEMPLATE_SOURCES = {
             "The {event_name} Team"
         ),
     ),
+    EXHIBITOR_PROFILE: (
+        gettext_noop("You have been added as an exhibitor for {event_name}"),
+        gettext_noop(
+            "Dear {exhibitor_name},\n\n"
+            "A profile for {exhibitor_name} has been created for {event_name}.\n\n"
+            "You can edit your profile in My Exhibitions: {my_exhibitions_url}\n\n"
+            "To open it, log in or create an account with {login_email}. "
+            "If you create a new account, confirm the address from the email we send you first.\n\n"
+            "If you have any questions, please don't hesitate to reach out.\n\n"
+            "The {event_name} organisers"
+        ),
+    ),
     VOUCHERS: (
         gettext_noop("Your vouchers for {event_name} — {exhibitor_name}"),
         gettext_noop(
@@ -114,6 +135,10 @@ DEFAULT_TEMPLATE_SOURCES = {
             "your audience — anyone who uses one gets credited to you as a lead.\n\n"
             "{voucher_list}\n\n"
             "They can redeem a code on the event ticket shop at checkout.\n\n"
+            "You can see which codes have been redeemed, and download your vouchers, at any time in "
+            "My Exhibitions: {my_exhibitions_url}\n\n"
+            "To open it, log in or create an account with {login_email}. "
+            "If you create a new account, confirm the address from the email we send you first.\n\n"
             "If you have any questions, please don't hesitate to reach out.\n\n"
             "Best regards,\n"
             "The {event_name} Team"
@@ -166,6 +191,7 @@ ROLE_PLACEHOLDER_CONTEXT = {
     REQUEST_REJECTED: REQUEST_PLACEHOLDER_CONTEXT,
     EXHIBITOR_ACCESS: EXHIBITOR_PLACEHOLDER_CONTEXT,
     VOUCHERS: EXHIBITOR_PLACEHOLDER_CONTEXT,
+    EXHIBITOR_PROFILE: EXHIBITOR_PLACEHOLDER_CONTEXT,
 }
 
 
@@ -358,6 +384,10 @@ def _sample_redeem_url(event, code):
     return f"{build_absolute_uri(event, 'presale:event.redeem')}?voucher={code}"
 
 
+def my_exhibitions_url(exhibitor=None):
+    return urljoin(django_settings.SITE_URL, reverse("plugins:exhibition:my_exhibitions"))
+
+
 def sample_voucher_list(event=None):
     return _voucher_block_html(
         "ACME-3XKQ-7T2P",
@@ -482,6 +512,32 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
         body=_render(body_tpl, context, locale),
         locale=locale or "",
     )
+
+
+def queue_exhibitor_profile_email(event, exhibitor, *, send_now=False, requestor=None):
+    """Queue the invitation to edit a profile created for the exhibitor; ``None`` without a recipient."""
+    from .models import ExhibitionEmailQueue
+
+    to_email = exhibitor.recipient_email
+    if not to_email:
+        return None
+
+    subject_tpl, body_tpl = get_email_template(event, EXHIBITOR_PROFILE)
+    locale = recipient_locale(event)
+    context = build_exhibitor_context(event, exhibitor)
+
+    queued = ExhibitionEmailQueue.objects.create(
+        event=event,
+        exhibitor=exhibitor,
+        role=EXHIBITOR_PROFILE,
+        to_email=to_email,
+        subject=_render(subject_tpl, context, locale),
+        body=_render(body_tpl, context, locale),
+        locale=locale or "",
+    )
+    if send_now:
+        queued.send(requestor=requestor)
+    return queued
 
 
 def exhibitor_vouchers(exhibitor):

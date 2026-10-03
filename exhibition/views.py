@@ -154,6 +154,11 @@ def send_request_confirmation(event, exhibition_request, requestor):
     )
 
 
+def queue_profile_invitation(event, exhibitor):
+    """Queue the invitation to edit a created profile for the organizer to send, once the transaction commits."""
+    transaction.on_commit(lambda: mail_helpers.queue_exhibitor_profile_email(event, exhibitor))
+
+
 def queue_exhibitor_access_mail(request, exhibitor):
     """Queue the access-credentials email for review, saying so when there is nothing to send."""
     if not (exhibitor.email or "").strip():
@@ -1233,8 +1238,12 @@ class ExhibitorLinkFormsetMixin:
     social_formset_prefix = "social_links"
     extra_formset_prefix = "extra_links"
 
+    @property
+    def exhibition_event(self):
+        return self.request.event
+
     def get_request_field_settings(self):
-        settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
+        settings = ExhibitorSettings.objects.get_or_create(event=self.exhibition_event)[0]
         return settings.normalized_request_field_settings
 
     def request_field_is_active(self, key):
@@ -1245,7 +1254,7 @@ class ExhibitorLinkFormsetMixin:
 
     def get_formset_instance(self):
         obj = getattr(self, "object", None)
-        return obj if obj is not None else ExhibitorInfo(event=self.request.event)
+        return obj if obj is not None else ExhibitorInfo(event=self.exhibition_event)
 
     def get_social_formset(self):
         return ExhibitorSocialLinkFormSet(
@@ -2102,6 +2111,7 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
         )
         if access_newly_granted(form.instance):
             grant_lead_scanning_access(self.request, self.object)
+        queue_profile_invitation(self.request.event, self.object)
         return response
 
     def get_context_data(self, **kwargs):
@@ -3237,6 +3247,7 @@ class EmailTemplatesView(EventPermissionRequiredMixin, TemplateView):
                 (mail_helpers.REQUEST_REJECTED, _("Request rejected")),
                 (mail_helpers.EXHIBITOR_ACCESS, _("Exhibitor lead scanning key")),
                 (mail_helpers.VOUCHERS, _("Vouchers")),
+                (mail_helpers.EXHIBITOR_PROFILE, _("Profile created for the exhibitor")),
             )
         ]
         context["custom_panels"] = custom_panels

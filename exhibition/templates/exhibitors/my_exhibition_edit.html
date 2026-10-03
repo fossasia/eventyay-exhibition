@@ -1,0 +1,34 @@
+{% extends "eventyay_common/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load static %}
+
+{% block title %}{% translate "Edit profile" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-add.css' %}">
+{% endblock %}
+
+{% block content %}
+    <h1>{% translate "Edit profile" %}</h1>
+    <p class="text-muted">{{ event.name }}</p>
+
+    <form action="" method="post" class="form-horizontal exhibition-organization-form" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+
+        <fieldset>
+            <legend>{% translate "Profile" %}</legend>
+            {% include "exhibitors/_profile_fields.html" %}
+        </fieldset>
+
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">{% translate "Save changes" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:my_exhibitions' %}">{% translate "Cancel" %}</a>
+        </div>
+    </form>
+    {% include "exhibitors/_image_preview_dialog.html" %}
+    <script type="text/javascript" src="{% static 'exhibition/js/exhibitors-add.js' %}"></script>
+    <script type="text/javascript" src="{% static 'exhibition/js/image-preview-dialog.js' %}"></script>
+{% endblock %}
