@@ -7,7 +7,7 @@ import re
 import uuid
 from collections import defaultdict
 from urllib.parse import urljoin
-
+from zoneinfo import ZoneInfo
 from django.conf import settings as django_settings
 from django.db.models import Q
 from django.urls import reverse
@@ -51,12 +51,12 @@ PLACEHOLDER_DOCS = (
             "for this exhibitor (access email only)"
         ),
     ),
-    ("{request_type}", _lazy("The request type, such as Exhibitor or Sponsor")),
-    ("{request_action}", _lazy("The action taken on the request")),
-    ("{contact_email}", _lazy("The applicant's contact email")),
-    ("{request_date}", _lazy("The date and time of the request action")),
-    ("{request_admin_url}", _lazy("The organizer backend URL for the request")),
-    ("{pending_request_count}", _lazy("The current number of pending requests")),
+    ("{request_type}", _lazy("The request type, such as Exhibitor or Sponsor (organizer notification only)")),
+    ("{request_action}", _lazy("The action taken on the request (organizer notification only)")),
+    ("{contact_email}", _lazy("The applicant's contact email (organizer notification only)")),
+    ("{request_date}", _lazy("The date and time of the request action (organizer notification only)")),
+    ("{request_admin_url}", _lazy("The organizer backend URL for the request (organizer notification only)")),
+    ("{pending_request_count}", _lazy("The current number of pending requests (organizer notification only)")),
 )
 
 _SETTINGS_PREFIX = "exhibition_mail_"
@@ -440,6 +440,13 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
         queued.send(requestor=requestor)
     return queued
 
+def _collect_team_members(teams, members, seen):
+    for team in teams:
+        for member in team.members.all():
+            email = (member.email or "").strip()
+            if email and email.lower() not in seen:
+                seen.add(email.lower())
+                members.append(member)
 
 def queue_request_organizer_emails(event, request, action, *, send_now=False, requestor=None):
     """Queue a notification for organizers who can manage exhibition requests."""
@@ -452,35 +459,34 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
     members = []
     seen = set()
 
-    for team in teams:
-        for member in team.members.all():
-            email = (member.email or "").strip()
-            if email and email.lower() not in seen:
-                seen.add(email.lower())
-                members.append(member)
+    _collect_team_members(teams, members, seen)
 
     if not members:
         teams = event.teams.filter(can_change_event_settings=True).prefetch_related("members")
 
-        for team in teams:
-            for member in team.members.all():
-                email = (member.email or "").strip()
-                if email and email.lower() not in seen:
-                    seen.add(email.lower())
-                    members.append(member)
+        _collect_team_members(teams, members, seen)
 
     if not members:
         return []
 
     subject_tpl, body_tpl = get_email_template(event, REQUEST_ORGANIZER)
+
+    request_actions = {
+        "submitted": gettext("submitted"),
+        "withdrawn": gettext("withdrawn"),
+        "reinstated": gettext("reinstated"),
+    }
+
     context = build_request_context(event, request)
     context.update(
         {
-            "request_type": "Sponsor" if request.is_sponsor else "Exhibitor",
-            "request_action": action,
+            "request_type": gettext("Sponsor") if request.is_sponsor else gettext("Exhibitor"),
+            "request_action": request_actions[action],
             "contact_name": request.user.get_full_name() or request.user.email,
             "contact_email": request.email or request.user.email,
-            "request_date": timezone.localtime(request.updated).strftime("%Y-%m-%d %H:%M %Z"),
+            "request_date": timezone.localtime(
+                request.updated, ZoneInfo(event.timezone)
+            ).strftime("%Y-%m-%d %H:%M %Z"),
             "request_admin_url": request_admin_url(request),
             "pending_request_count": ExhibitionRequest.objects.filter(
                 event=event,
@@ -504,10 +510,7 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
             )
         )
         if send_now:
-            try:
-                created[-1].send(requestor=requestor)
-            except Exception:
-                logger.exception("Failed to send organizer notification email")
+            created[-1].send(requestor=requestor)
 
     return created
 

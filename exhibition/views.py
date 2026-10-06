@@ -158,18 +158,22 @@ def send_request_confirmation(event, exhibition_request, requestor):
     )
 
 
-def send_request_organizer_notification(event, request, action, requestor):
+def send_request_organizer_notification(event, exhibition_request, action, requestor):
     """Notify eligible organizers once the applicant action commits."""
 
     def queue_organizer_emails():
         try:
-            mail_helpers.queue_request_organizer_emails(
+            from .tasks import send_queued_email
+
+            queued_emails = mail_helpers.queue_request_organizer_emails(
                 event,
-                request,
+                exhibition_request,
                 action,
-                send_now=True,
                 requestor=requestor,
             )
+
+            for queued in queued_emails:
+                send_queued_email.delay(event.pk, queued.pk)
         except Exception:
             logger.exception("Failed to queue organizer notification emails")
 

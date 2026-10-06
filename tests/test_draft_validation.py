@@ -3,9 +3,11 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 from django_scopes import scopes_disabled
 from eventyay.base.models.auth import User
-
+from eventyay.base.models import Team
+from django.core.files.uploadedfile import SimpleUploadedFile
 from exhibition.forms import ExhibitionRequestForm
 from exhibition.models import (
+    ExhibitionEmailQueue,
     ExhibitionQuestion,
     ExhibitionQuestionVariant,
     ExhibitionRequest,
@@ -165,6 +167,16 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
     with scopes_disabled():
         _settings_with_required_fields(event)
         user = User.objects.create_user(email="editor@example.com", password="pw")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            is_exhibition_reviewer=True,
+        )
+        member = User.objects.create_user(
+            email="reviewer@example.com",
+            password="pw",
+        )
+        team.members.add(member)
         exhibition_request = ExhibitionRequest.objects.create(
             event=event,
             user=user,
@@ -204,6 +216,38 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         exhibition_request.refresh_from_db()
         assert str(exhibition_request.name) == "Acme Corp Updated"
         assert exhibition_request.state == ExhibitionRequestState.DRAFT
+
+        submit_request = RequestFactory().post(
+            "/",
+            data=_request_post_data(
+                action="submit",
+                name="Acme Corp Updated",
+                email="applicant@example.com",
+                logo=SimpleUploadedFile(
+                    "test_logo.jpg",
+                    b"file_content",
+                    content_type="image/jpeg",
+                ),
+            ),
+        )
+        submit_request.user = user
+        submit_request.event = event
+        submit_request.session = {}
+        setattr(submit_request, "_messages", FallbackStorage(submit_request))
+
+        view = UserRequestEditView()
+        view.object = exhibition_request
+        view.request = submit_request
+        view.kwargs = {"code": exhibition_request.code}
+        response = view.post(submit_request, code=exhibition_request.code)
+
+        assert response.status_code == 302
+        exhibition_request.refresh_from_db()
+        assert exhibition_request.state == ExhibitionRequestState.SUBMITTED
+        assert ExhibitionEmailQueue.objects.filter(
+            exhibition_request=exhibition_request,
+            to_email="reviewer@example.com",
+        ).exists()
 
         # Submit save with missing email fails
         invalid_submit_request = RequestFactory().post(
