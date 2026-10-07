@@ -1,10 +1,14 @@
+from io import BytesIO
+
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.test import RequestFactory
-from django_scopes import scopes_disabled
-from eventyay.base.models.auth import User
-from eventyay.base.models import Team
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, TestCase
+from django_scopes import scopes_disabled
+from eventyay.base.models import Team
+from eventyay.base.models.auth import User
+from PIL import Image
+
 from exhibition.forms import ExhibitionRequestForm
 from exhibition.models import (
     ExhibitionEmailQueue,
@@ -217,6 +221,10 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         assert str(exhibition_request.name) == "Acme Corp Updated"
         assert exhibition_request.state == ExhibitionRequestState.DRAFT
 
+        image = BytesIO()
+        Image.new("RGB", (100, 100), "white").save(image, format="JPEG")
+        image.seek(0)
+
         submit_request = RequestFactory().post(
             "/",
             data=_request_post_data(
@@ -225,9 +233,19 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
                 email="applicant@example.com",
                 logo=SimpleUploadedFile(
                     "test_logo.jpg",
-                    b"file_content",
+                    image.read(),
                     content_type="image/jpeg",
                 ),
+                **{
+                    "social_links-TOTAL_FORMS": "1",
+                    "social_links-INITIAL_FORMS": "0",
+                    "social_links-0-network": "github",
+                    "social_links-0-path": "https://github.com/example",
+                    "extra_links-TOTAL_FORMS": "1",
+                    "extra_links-INITIAL_FORMS": "0",
+                    "extra_links-0-label": "Example",
+                    "extra_links-0-url": "https://example.com/extra",
+                },
             ),
         )
         submit_request.user = user
@@ -239,7 +257,8 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         view.object = exhibition_request
         view.request = submit_request
         view.kwargs = {"code": exhibition_request.code}
-        response = view.post(submit_request, code=exhibition_request.code)
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            response = view.post(submit_request, code=exhibition_request.code)
 
         assert response.status_code == 302
         exhibition_request.refresh_from_db()
@@ -266,7 +285,7 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         response = view.post(invalid_submit_request, code=exhibition_request.code)
         assert response.status_code == 200
         exhibition_request.refresh_from_db()
-        assert exhibition_request.state == ExhibitionRequestState.DRAFT
+        assert exhibition_request.state == ExhibitionRequestState.SUBMITTED
 
 
 @pytest.mark.django_db

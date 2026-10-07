@@ -8,6 +8,7 @@ import uuid
 from collections import defaultdict
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
+
 from django.conf import settings as django_settings
 from django.db.models import Q
 from django.urls import reverse
@@ -440,6 +441,7 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
         queued.send(requestor=requestor)
     return queued
 
+
 def _collect_team_members(teams, members, seen):
     for team in teams:
         for member in team.members.all():
@@ -447,6 +449,7 @@ def _collect_team_members(teams, members, seen):
             if email and email.lower() not in seen:
                 seen.add(email.lower())
                 members.append(member)
+
 
 def queue_request_organizer_emails(event, request, action, *, send_now=False, requestor=None):
     """Queue a notification for organizers who can manage exhibition requests."""
@@ -471,22 +474,12 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
 
     subject_tpl, body_tpl = get_email_template(event, REQUEST_ORGANIZER)
 
-    request_actions = {
-        "submitted": gettext("submitted"),
-        "withdrawn": gettext("withdrawn"),
-        "reinstated": gettext("reinstated"),
-    }
-
     context = build_request_context(event, request)
     context.update(
         {
-            "request_type": gettext("Sponsor") if request.is_sponsor else gettext("Exhibitor"),
-            "request_action": request_actions[action],
             "contact_name": request.user.get_full_name() or request.user.email,
             "contact_email": request.email or request.user.email,
-            "request_date": timezone.localtime(
-                request.updated, ZoneInfo(event.timezone)
-            ).strftime("%Y-%m-%d %H:%M %Z"),
+            "request_date": timezone.localtime(request.updated, ZoneInfo(event.timezone)).strftime("%Y-%m-%d %H:%M %Z"),
             "request_admin_url": request_admin_url(request),
             "pending_request_count": ExhibitionRequest.objects.filter(
                 event=event,
@@ -498,14 +491,22 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
     created = []
     for member in members:
         locale = recipient_locale(event, member)
+        with override(locale):
+            member_context = context.copy()
+            member_context.update(
+                {
+                    "request_type": gettext("Sponsor") if request.is_sponsor else gettext("Exhibitor"),
+                    "request_action": gettext(action),
+                }
+            )
         created.append(
             ExhibitionEmailQueue.objects.create(
                 event=event,
                 exhibition_request=request,
                 role=REQUEST_ORGANIZER,
                 to_email=member.email.strip(),
-                subject=_render(subject_tpl, context, locale),
-                body=_render(body_tpl, context, locale),
+                subject=_render(subject_tpl, member_context, locale),
+                body=_render(body_tpl, member_context, locale),
                 locale=locale or "",
             )
         )

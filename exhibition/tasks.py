@@ -50,6 +50,7 @@ def send_scheduled_email(self, event_id, queue_id):
         except MaxRetriesExceededError:
             logger.error("[Exhibition] Max retries exceeded for scheduled email %s", queue_id)
 
+
 @app.task(
     base=ProfiledEventTask,
     bind=True,

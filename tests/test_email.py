@@ -1300,6 +1300,7 @@ def test_queue_request_organizer_email_falls_back_to_event_settings_team(mail_ev
     assert queued[0].to_email == "settings@example.com"
     assert "reinstated" in queued[0].body
 
+
 @pytest.mark.django_db
 def test_queue_request_organizer_email_deduplicates_members(mail_event, exhibition_request):
     first_team = Team.objects.create(
