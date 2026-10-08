@@ -1,5 +1,7 @@
+import re
+
 import pytest
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget
 from eventyay.base.models import User
@@ -316,3 +318,62 @@ def test_public_request_form_renders_with_phone_question(event):
 
     assert response.status_code == 200
     assert "Contact phone" in response.content.decode()
+
+
+def _option_labels(html):
+    return re.findall(r'class="question-option-label">\s*([^<]*?)\s*<', html)
+
+
+def _question_editor_client(event):
+    event.plugins = "exhibition"
+    event.save(update_fields=["plugins"])
+    user = User.objects.create_user(email="fields@example.com", password="pw")
+    team = event.organizer.teams.create(name="Organizers", all_events=True, can_change_event_settings=True)
+    team.members.add(user)
+    client = Client()
+    client.force_login(user)
+    return client
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_unsaved_answer_options_keep_their_new_label_after_a_validation_error(event):
+    client = _question_editor_client(event)
+    url = reverse(
+        "plugins:exhibition:call.questions.add",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    data = {
+        "question_0": "",
+        "variant": ExhibitionQuestionVariant.CHOICES,
+        **option_formset_data(
+            [{"answer": "Small booth", "order": 0}, {"answer": "Large booth", "order": 1}],
+            initial_forms=0,
+        ),
+    }
+
+    html = client.post(url, data).content.decode()
+
+    assert "Answer option None" not in html
+    assert _option_labels(html)[:2] == ["New answer option", "New answer option"]
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_saved_answer_options_are_numbered_by_position(event):
+    client = _question_editor_client(event)
+    question = ExhibitionQuestion.objects.create(
+        event=event,
+        variant=ExhibitionQuestionVariant.CHOICES,
+        question={"en": "Booth size"},
+    )
+    for position, answer in enumerate(["Small booth", "Large booth"]):
+        ExhibitionQuestionOption.objects.create(question=question, answer={"en": answer}, position=position)
+    url = reverse(
+        "plugins:exhibition:call.questions.edit",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": question.pk},
+    )
+
+    html = client.get(url).content.decode()
+
+    assert _option_labels(html)[:2] == ["Answer option 1", "Answer option 2"]

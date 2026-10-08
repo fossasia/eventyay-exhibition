@@ -453,6 +453,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         action = request.POST.get("action", "save_exhibitor_settings")
         active_tab = self.get_active_tab()
+        # Any form below that fails validation renders the page again, and the list context needs this.
+        self.object_list = self.get_queryset()
 
         if action == "save_exhibitor_settings":
             settings.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
@@ -468,7 +470,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         if action == "save_lead_settings":
             device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
             if not device_defaults_form.is_valid():
-                self.object_list = self.get_queryset()
                 return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
             device_defaults_form.save()
             settings.log_action(
@@ -536,7 +537,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 return redirect(self.get_settings_url("sponsors"))
 
             messages.error(self.request, _("We could not save your changes. See below for details."))
-            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     add_group_form=form,
@@ -559,26 +559,12 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 return redirect(self.get_settings_url("sponsors"))
 
             messages.error(self.request, _("We could not save your changes. See below for details."))
-            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     edit_group_forms={group.pk: form},
                     expanded_group_pk=group.pk,
                 )
             )
-
-        if action == "delete_group":
-            group = get_object_or_404(SponsorGroup, pk=request.POST.get("group_id"), event=request.event)
-            if group.organizations.exists():
-                messages.error(
-                    self.request,
-                    _("This sponsor group cannot be deleted while it is assigned to organizations."),
-                )
-            else:
-                group.log_action(LOG_GROUP_DELETED, data={"name": group.localized_name}, user=request.user)
-                group.delete()
-                messages.success(self.request, _("Sponsor group deleted."))
-            return redirect(self.get_settings_url("sponsors"))
 
         messages.error(self.request, _("Unknown action."))
         return redirect(self.get_settings_url(active_tab))
@@ -1335,6 +1321,50 @@ class SponsorGroupFrontPageToggleView(EventPermissionRequiredMixin, View):
         return JsonResponse({"show_on_front_page": group.show_on_front_page})
 
 
+class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
+    http_method_names = ["get", "post", "head", "options"]
+    model = SponsorGroup
+    permission = "can_change_settings"
+    template_name = "exhibitors/sponsor_group_delete.html"
+
+    def get_queryset(self):
+        return SponsorGroup.objects.filter(event=self.request.event)
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        if self.object.organizations.exists():
+            messages.error(
+                request,
+                _("This sponsor group cannot be deleted while it is assigned to organizations."),
+            )
+            return redirect(self.get_success_url())
+        return response
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = self.get_queryset().select_for_update().get(pk=self.object.pk)
+        if self.object.organizations.exists():
+            messages.error(
+                self.request,
+                _("This sponsor group cannot be deleted while it is assigned to organizations."),
+            )
+            return redirect(self.get_success_url())
+
+        self.object.log_action(
+            LOG_GROUP_DELETED,
+            data={"name": self.object.localized_name},
+            user=self.request.user,
+        )
+        messages.success(self.request, _("Sponsor group deleted."))
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse(
+            "plugins:exhibition:settings.sponsors",
+            kwargs=event_kwargs(self.request.event),
+        )
+
+
 class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
     permission = "can_change_settings"
 
@@ -1718,6 +1748,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": definition.get("supports_required", True),
                     "active_locked": definition.get("active_locked", False),
                     "required_locked": definition.get("required_locked", False),
+                    "lock_notice": definition.get("lock_notice", ""),
                     "answer_count": answer_counts.get(key, 0),
                     "is_custom": False,
                 }
@@ -1735,6 +1766,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": True,
                     "active_locked": False,
                     "required_locked": False,
+                    "lock_notice": "",
                     "answer_count": question.answer_count,
                     "is_custom": True,
                     "pk": question.pk,
@@ -2029,12 +2061,11 @@ class ExhibitionDefaultFieldEditView(DefaultFieldMixin, FormView):
         kwargs = super().get_form_kwargs()
         field_setting = self.get_field_setting()
         kwargs["field_setting"] = field_setting
-        kwargs.setdefault(
-            "initial",
+        kwargs.setdefault("initial", {}).update(
             {
                 "label": field_setting["custom_label"] or "",
                 "help_text": field_setting["custom_help_text"] or "",
-            },
+            }
         )
         return kwargs
 
