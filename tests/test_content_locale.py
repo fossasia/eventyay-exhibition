@@ -1,4 +1,5 @@
 import pytest
+from conftest import STORED_IMAGES
 from django_scopes import scopes_disabled
 from eventyay.base.models import Event
 from eventyay.base.models.auth import User
@@ -17,7 +18,7 @@ def _multilingual(event):
 
 def _request(event, **kwargs):
     user = User.objects.create_user(email="submitter@example.com", password="pw")
-    return ExhibitionRequest.objects.create(event=event, user=user, **kwargs)
+    return ExhibitionRequest.objects.create(event=event, user=user, **STORED_IMAGES, **kwargs)
 
 
 @pytest.mark.django_db

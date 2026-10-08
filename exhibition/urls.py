@@ -49,6 +49,7 @@ from .views import (
     RequestDetailView,
     RequestListView,
     SettingsView,
+    SponsorGroupDeleteView,
     SponsorGroupFrontPageToggleView,
     SponsorGroupReorderView,
     SponsorReorderView,
@@ -153,6 +154,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/call",
         SettingsView.as_view(active_tab="call"),
         name="settings.call",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/delete",
+        SponsorGroupDeleteView.as_view(),
+        name="settings.sponsors.delete_group",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/toggle-front-page",
