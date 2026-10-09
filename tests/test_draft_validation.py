@@ -1,11 +1,17 @@
+from io import BytesIO
+
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.test import RequestFactory
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, TestCase
 from django_scopes import scopes_disabled
+from eventyay.base.models import Team
 from eventyay.base.models.auth import User
+from PIL import Image
 
 from exhibition.forms import ExhibitionRequestForm
 from exhibition.models import (
+    ExhibitionEmailQueue,
     ExhibitionQuestion,
     ExhibitionQuestionVariant,
     ExhibitionRequest,
@@ -165,6 +171,16 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
     with scopes_disabled():
         _settings_with_required_fields(event)
         user = User.objects.create_user(email="editor@example.com", password="pw")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            is_exhibition_reviewer=True,
+        )
+        member = User.objects.create_user(
+            email="reviewer@example.com",
+            password="pw",
+        )
+        team.members.add(member)
         exhibition_request = ExhibitionRequest.objects.create(
             event=event,
             user=user,
@@ -205,6 +221,53 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         assert str(exhibition_request.name) == "Acme Corp Updated"
         assert exhibition_request.state == ExhibitionRequestState.DRAFT
 
+        image = BytesIO()
+        Image.new("RGB", (100, 100), "white").save(image, format="JPEG")
+        image.seek(0)
+
+        submit_request = RequestFactory().post(
+            "/",
+            data=_request_post_data(
+                action="submit",
+                name="Acme Corp Updated",
+                email="applicant@example.com",
+                logo=SimpleUploadedFile(
+                    "test_logo.jpg",
+                    image.read(),
+                    content_type="image/jpeg",
+                ),
+                **{
+                    "social_links-TOTAL_FORMS": "1",
+                    "social_links-INITIAL_FORMS": "0",
+                    "social_links-0-network": "github",
+                    "social_links-0-path": "https://github.com/example",
+                    "extra_links-TOTAL_FORMS": "1",
+                    "extra_links-INITIAL_FORMS": "0",
+                    "extra_links-0-label": "Example",
+                    "extra_links-0-url": "https://example.com/extra",
+                },
+            ),
+        )
+        submit_request.user = user
+        submit_request.event = event
+        submit_request.session = {}
+        setattr(submit_request, "_messages", FallbackStorage(submit_request))
+
+        view = UserRequestEditView()
+        view.object = exhibition_request
+        view.request = submit_request
+        view.kwargs = {"code": exhibition_request.code}
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            response = view.post(submit_request, code=exhibition_request.code)
+
+        assert response.status_code == 302
+        exhibition_request.refresh_from_db()
+        assert exhibition_request.state == ExhibitionRequestState.SUBMITTED
+        assert ExhibitionEmailQueue.objects.filter(
+            exhibition_request=exhibition_request,
+            to_email="reviewer@example.com",
+        ).exists()
+
         # Submit save with missing email fails
         invalid_submit_request = RequestFactory().post(
             "/",
@@ -222,7 +285,7 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         response = view.post(invalid_submit_request, code=exhibition_request.code)
         assert response.status_code == 200
         exhibition_request.refresh_from_db()
-        assert exhibition_request.state == ExhibitionRequestState.DRAFT
+        assert exhibition_request.state == ExhibitionRequestState.SUBMITTED
 
 
 @pytest.mark.django_db
