@@ -25,6 +25,7 @@ from eventyay.presale.signals import (
 from .mail import (
     render_device_tokens,
     render_voucher_list,
+    request_admin_url,
     request_public_url,
     sample_device_tokens,
     sample_voucher_list,
@@ -250,6 +251,57 @@ def exhibition_mail_placeholders(sender, **kwargs):
             ["exhibition_request"],
             lambda exhibition_request: exhibition_request.code,
             "ABCD1234EFGH",
+        ),
+                SimpleFunctionalMailTextPlaceholder(
+            "request_type",
+            ["exhibition_request"],
+            lambda exhibition_request: (
+                _("Sponsor") if exhibition_request.is_sponsor else _("Exhibitor")
+            ),
+            _("Exhibitor"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "request_action",
+            ["exhibition_request"],
+            lambda exhibition_request: _("submitted"),
+            _("submitted"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "contact_name",
+            ["exhibition_request"],
+            lambda exhibition_request: (
+                exhibition_request.user.get_full_name() or exhibition_request.user.email
+                if exhibition_request.user_id
+                else ""
+            ),
+            _("Jane Doe"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "contact_email",
+            ["exhibition_request"],
+            lambda exhibition_request: (
+                exhibition_request.email
+                or (exhibition_request.user.email if exhibition_request.user_id else "")
+            ),
+            "jane@example.com",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "request_date",
+            ["exhibition_request"],
+            lambda exhibition_request: str(exhibition_request.updated),
+            "2026-10-10 10:00",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "request_admin_url",
+            ["exhibition_request"],
+            request_admin_url,
+            "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "pending_request_count",
+            ["event"],
+            lambda event: "1",
+            "1",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "request_url",

@@ -88,7 +88,7 @@ DEFAULT_TEMPLATE_SOURCES = {
         gettext_noop("New exhibition request: {request_name}"),
         gettext_noop(
             "Hello,\n\n"
-            "A {request_type} request from {request_name} has been {request_action}.\n\n"
+            "A new {request_type} request from {request_name} has been {request_action}.\n\n"
             "Contact: {contact_name} ({contact_email})\n"
             "Date: {request_date}\n"
             "Review request: {request_admin_url}\n"
