@@ -690,6 +690,10 @@ def exhibitor_login_email(exhibitor) -> str:
     return exhibitor.email or ""
 
 
+def user_can_edit_profile(user, exhibitor) -> bool:
+    return exhibitor.active and user_exhibitors(user).filter(pk=exhibitor.pk, source_requests__isnull=True).exists()
+
+
 def user_can_view_vouchers(user, exhibitor) -> bool:
     return (
         exhibitor.active and exhibitor.allow_voucher_access and user_exhibitors(user).filter(pk=exhibitor.pk).exists()

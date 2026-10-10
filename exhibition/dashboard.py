@@ -1,15 +1,18 @@
 from django import forms
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from django.views.generic import ListView
+from django.views.generic import ListView, UpdateView
 from eventyay.base.models import Event
 
-from .models import ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo
+from .forms import ExhibitorSelfEditForm
+from .models import LOG_ORGANIZATION_CHANGED, ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo
 from .utils import (
     VOUCHER_CSV_FILENAME,
     VOUCHER_REDEMPTION_CSV_FILENAME,
@@ -20,10 +23,12 @@ from .utils import (
     event_exhibitor_settings,
     exhibitor_unredeemed_vouchers,
     exhibitor_voucher_redemptions,
+    user_can_edit_profile,
     user_can_view_vouchers,
     user_exhibitors,
     voucher_redeem_url,
 )
+from .views import ExhibitorLinkFormsetMixin
 
 REQUEST_STATE_LABELS = {
     ExhibitionRequestState.ACCEPTED: "label-success",
@@ -69,6 +74,12 @@ class MyExhibitionsFilterForm(forms.Form):
         if not self.is_bound or not self.is_valid():
             return False
         return bool(self.cleaned_data.get("event") or (self.cleaned_data.get("search") or "").strip())
+
+
+def _edit_url(exhibitor):
+    if not exhibitor.active:
+        return None
+    return reverse("plugins:exhibition:my_exhibitions.edit", kwargs={"pk": exhibitor.pk})
 
 
 def _vouchers_url(exhibitor):
@@ -121,7 +132,7 @@ class MyExhibitionsView(LoginRequiredMixin, ListView):
                 "event": exhibitor.event,
                 "status": _("Added by the organizer") if exhibitor.active else _("Inactive"),
                 "status_class": "label-success" if exhibitor.active else "label-default",
-                "request_url": None,
+                "request_url": _edit_url(exhibitor),
                 "vouchers_url": _vouchers_url(exhibitor),
             }
 
@@ -239,3 +250,62 @@ class MyExhibitionVouchersView(LoginRequiredMixin, ListView):
         context["unredeemed_count"] = unredeemed_count
         context["issued_count"] = redeemed_vouchers + unredeemed_count
         return context
+
+
+class MyExhibitionEditView(LoginRequiredMixin, ExhibitorLinkFormsetMixin, UpdateView):
+    """Lets the account behind an organizer-created profile complete and maintain it."""
+
+    model = ExhibitorInfo
+    form_class = ExhibitorSelfEditForm
+    template_name = "exhibitors/my_exhibition_edit.html"
+
+    @cached_property
+    def exhibitor(self):
+        exhibitor = get_object_or_404(self.get_queryset(), pk=self.kwargs["pk"])
+        if not user_can_edit_profile(self.request.user, exhibitor):
+            raise Http404
+        return exhibitor
+
+    @property
+    def exhibition_event(self):
+        return self.exhibitor.event
+
+    def get_queryset(self):
+        return (
+            user_exhibitors(self.request.user).filter(source_requests__isnull=True).select_related("event__organizer")
+        )
+
+    def get_object(self, queryset=None):
+        return self.exhibitor
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["event"] = self.exhibitor.event
+        return kwargs
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        return self.post_with_formsets()
+
+    @transaction.atomic
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        self.save_link_formsets()
+        changes = [key for key in form.changed_data if not key.startswith("question_")]
+        if changes:
+            self.object.log_action(
+                LOG_ORGANIZATION_CHANGED,
+                data={"changed": changes, "by": "exhibitor"},
+                user=self.request.user,
+            )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["exhibitor"] = self.object
+        context["event"] = self.object.event
+        return context
+
+    def get_success_url(self):
+        return reverse("plugins:exhibition:my_exhibitions")

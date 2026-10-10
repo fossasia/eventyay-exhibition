@@ -1,10 +1,11 @@
 {% load i18n %}
 {% load exhibition_email %}
-{% if request.event.settings.locales|length > 1 %}
+{% with locales=event.settings.locales|default:request.event.settings.locales %}
+{% if locales|length > 1 %}
   <div class="form-group exhibition-lang-switcher" data-i18n-switcher hidden>
     <div class="col-md-9 col-md-offset-3">
       <div class="exhibition-lang-chips" role="tablist" aria-label="{% translate 'Language' %}">
-        {% for locale in request.event.settings.locales %}
+        {% for locale in locales %}
           <button type="button"
                   class="exhibition-lang-chip"
                   data-i18n-chip
@@ -17,3 +18,4 @@
     </div>
   </div>
 {% endif %}
+{% endwith %}
