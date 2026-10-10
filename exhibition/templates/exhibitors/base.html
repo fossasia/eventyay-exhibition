@@ -53,6 +53,27 @@
       </ul>
     </li>
     <li>
+      <a href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}" class="has-children">
+        <span class="fa fa-fw fa-cubes"></span>
+        <span class="sidebar-text">{% trans "Products" %}</span>
+      </a>
+      <a href="#" class="arrow">
+        <span class="fa arrow"></span>
+      </a>
+      <ul class="nav nav-second-level">
+        <li>
+          <a href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'products' or url_name == 'products.add' or url_name == 'products.edit' or url_name == 'products.delete' %}class="active"{% endif %}>
+            <span class="sidebar-text">{% trans "Products" %}</span>
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'plugins:exhibition:products.categories' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'products.categories' or url_name == 'products.categories.add' or url_name == 'products.categories.edit' or url_name == 'products.categories.delete' %}class="active"{% endif %}>
+            <span class="sidebar-text">{% trans "Categories" %}</span>
+          </a>
+        </li>
+      </ul>
+    </li>
+    <li>
       <a href="{% url 'plugins:exhibition:settings.call' organizer=request.event.organizer.slug event=request.event.slug %}" class="has-children">
         <span class="fa fa-fw fa-bullhorn"></span>
         <span class="sidebar-text">{% trans "Call for exhibitors" %}</span>

@@ -1,0 +1,71 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Product categories" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/dragsort-table.css' %}">
+    <script defer src="{% static 'orga/js/dragsort.js' %}"></script>
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Product categories" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <p>
+        {% blocktrans trimmed %}
+            Categories group your exhibition and sponsorship products. Their order here is the order in which the
+            groups are shown to buyers.
+        {% endblocktrans %}
+    </p>
+    {% if not categories %}
+        <div class="empty-collection">
+            <p>{% trans "You haven't created any categories yet." %}</p>
+            <a href="{% url 'plugins:exhibition:products.categories.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+               class="btn btn-primary btn-lg"><i class="fa fa-plus"></i> {% trans "Create a new category" %}</a>
+        </div>
+    {% else %}
+        <p class="list-toolbar">
+            <a href="{% url 'plugins:exhibition:products.categories.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+               class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Create a new category" %}</a>
+        </p>
+        <div class="table-responsive">
+            <table class="table table-condensed table-hover dragsort-table">
+                <thead>
+                <tr>
+                    <th>{% trans "Category name" %}</th>
+                    <th class="text-right">{% trans "Products" %}</th>
+                    <th class="action-col-2"></th>
+                </tr>
+                </thead>
+                <tbody dragsort-url="{% url 'plugins:exhibition:products.categories.reorder' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% for category in categories %}
+                    <tr dragsort-id="{{ category.pk }}">
+                        <td>
+                            <strong>
+                                <a href="{% url 'plugins:exhibition:products.categories.edit' organizer=request.event.organizer.slug event=request.event.slug pk=category.pk %}">{{ category.backend_name }}</a>
+                            </strong>
+                            {% if category.internal_name %}
+                                <small class="text-muted">{{ category.localized_name }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-right">{{ category.product_count }}</td>
+                        <td class="text-right flip">
+                            <a href="{% url 'plugins:exhibition:products.categories.edit' organizer=request.event.organizer.slug event=request.event.slug pk=category.pk %}"
+                               class="btn btn-default btn-sm" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+                            <a href="{% url 'plugins:exhibition:products.categories.delete' organizer=request.event.organizer.slug event=request.event.slug pk=category.pk %}"
+                               class="btn btn-delete btn-danger btn-sm" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+                            <button type="button" draggable="true" class="btn btn-primary btn-sm dragsort-button" title="{% trans 'Move' %}" aria-label="{% trans 'Move' %}" data-toggle="tooltip">
+                                <i class="fa fa-arrows"></i>
+                            </button>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+{% endblock %}

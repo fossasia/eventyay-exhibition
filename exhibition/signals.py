@@ -2,6 +2,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Prefetch
 from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
+from django_scopes import scopes_disabled
 from django.template.loader import get_template
 from django.templatetags.static import static
 from django.urls import reverse
@@ -11,6 +12,7 @@ from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.signals import (
     logentry_display,
     logentry_object_link,
+    periodic_task,
     register_mail_placeholders,
 )
 from eventyay.common.signals import user_dashboard_links, user_menu_items
@@ -47,12 +49,25 @@ from .models import (
     LOG_ORGANIZATION_SYNCED,
     LOG_ORGANIZATION_UNPUBLISHED,
     LOG_PREFIX,
+    LOG_ORDER_CANCELLED,
+    LOG_ORDER_EXPIRED,
+    LOG_ORDER_PAID,
+    LOG_ORDER_PLACED,
+    LOG_PRODUCT_ADDED,
+    LOG_PRODUCT_CATEGORY_ADDED,
+    LOG_PRODUCT_CATEGORY_CHANGED,
+    LOG_PRODUCT_CATEGORY_DELETED,
+    LOG_PRODUCT_CHANGED,
+    LOG_PRODUCT_DELETED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
     LOG_REQUEST_CHANGED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
+    ExhibitionOrder,
+    ExhibitionProduct,
+    ExhibitionProductCategory,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionRequest,
@@ -65,6 +80,7 @@ from .models import (
     clear_dependencies_on,
     prune_dependency_option,
 )
+from .orders import expire_overdue_orders
 from .utils import add_external_image_csp_sources, exhibitor_login_email, public_exhibitors_queryset
 
 
@@ -391,6 +407,16 @@ LOG_ENTRY_LABELS = {
     LOG_QUESTION_CHANGED: _("Exhibitor form question changed."),
     LOG_QUESTION_DELETED: _("Exhibitor form question deleted."),
     LOG_EMAIL_SENT: _("Email sent."),
+    LOG_PRODUCT_ADDED: _("Exhibition product created."),
+    LOG_PRODUCT_CHANGED: _("Exhibition product changed."),
+    LOG_PRODUCT_DELETED: _("Exhibition product deleted."),
+    LOG_PRODUCT_CATEGORY_ADDED: _("Exhibition product category created."),
+    LOG_PRODUCT_CATEGORY_CHANGED: _("Exhibition product category changed."),
+    LOG_PRODUCT_CATEGORY_DELETED: _("Exhibition product category deleted."),
+    LOG_ORDER_PLACED: _("Exhibition order placed."),
+    LOG_ORDER_PAID: _("Exhibition order marked as paid."),
+    LOG_ORDER_CANCELLED: _("Exhibition order cancelled."),
+    LOG_ORDER_EXPIRED: _("Exhibition order expired."),
 }
 
 
@@ -480,12 +506,38 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
             ),
             "val": escape(target.localized_question),
         }
+    elif isinstance(target, ExhibitionProduct):
+        a_text = _("Exhibition product {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(str(target)),
+        }
+    elif isinstance(target, ExhibitionProductCategory):
+        a_text = _("Exhibition product category {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.categories.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(target.backend_name),
+        }
     elif isinstance(target, SponsorGroup):
         return _("Sponsor group {val}").format(val=escape(target.localized_name))
+    elif isinstance(target, ExhibitionOrder):
+        return _("Exhibition order {val}").format(val=escape(target.code))
 
     if a_text and a_map:
         a_map["val"] = '<a href="{href}">{val}</a>'.format_map(a_map)
         return a_text.format_map(a_map)
+
+
+@receiver(periodic_task, dispatch_uid="exhibition_expire_overdue_orders")
+@scopes_disabled()
+def expire_overdue_exhibition_orders(sender, **kwargs):
+    expire_overdue_orders()
 
 
 @receiver(nav_global, dispatch_uid="exhibition_nav_global")

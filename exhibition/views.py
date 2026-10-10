@@ -41,6 +41,8 @@ from .forms import (
     ExhibitionDefaultFieldForm,
     ExhibitionEmailQueueForm,
     ExhibitionMailTemplatesForm,
+    ExhibitionProductCategoryForm,
+    ExhibitionProductForm,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
     ExhibitionRequestExtraLinkFormSet,
@@ -68,6 +70,12 @@ from .models import (
     LOG_ORGANIZATION_DELETED,
     LOG_ORGANIZATION_PUBLISHED,
     LOG_ORGANIZATION_UNPUBLISHED,
+    LOG_PRODUCT_ADDED,
+    LOG_PRODUCT_CATEGORY_ADDED,
+    LOG_PRODUCT_CATEGORY_CHANGED,
+    LOG_PRODUCT_CATEGORY_DELETED,
+    LOG_PRODUCT_CHANGED,
+    LOG_PRODUCT_DELETED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
@@ -79,6 +87,8 @@ from .models import (
     REQUEST_REVIEW_ACTIONS,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
+    ExhibitionProduct,
+    ExhibitionProductCategory,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionRequest,
@@ -92,6 +102,7 @@ from .models import (
     get_next_sponsor_group_level,
     storable_request_field_settings,
 )
+from .orders import paid_products_lack_payment_method
 from .social_links import serialize_social_link
 from .utils import (
     VOUCHER_CSV_FILENAME,
@@ -1421,7 +1432,9 @@ class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
         return JsonResponse({"levels": [{"id": group.pk, "level": group.level} for group in ordered_groups]})
 
 
-class OrganizationReorderMixin(EventPermissionRequiredMixin, View):
+class PositionReorderMixin(EventPermissionRequiredMixin, View):
+    """Store the order posted by ``dragsort.js`` in the position field of every object in scope."""
+
     permission = "can_change_event_settings"
     position_field = None
 
@@ -1440,27 +1453,28 @@ class OrganizationReorderMixin(EventPermissionRequiredMixin, View):
         if not ids or len(ids) != len(set(ids)):
             return HttpResponse(status=400)
 
-        organizations = {organization.pk: organization for organization in self.get_scope_queryset(request)}
-        if set(ids) != set(organizations):
+        queryset = self.get_scope_queryset(request)
+        objects_by_id = {obj.pk: obj for obj in queryset}
+        if set(ids) != set(objects_by_id):
             return HttpResponse(status=400)
 
-        ordered = [organizations[value] for value in ids]
+        ordered = [objects_by_id[value] for value in ids]
         with transaction.atomic():
-            for index, organization in enumerate(ordered):
-                setattr(organization, self.position_field, index)
-            ExhibitorInfo.objects.bulk_update(ordered, [self.position_field])
+            for index, obj in enumerate(ordered):
+                setattr(obj, self.position_field, index)
+            queryset.model.objects.bulk_update(ordered, [self.position_field])
 
         return HttpResponse(status=204)
 
 
-class ExhibitorReorderView(OrganizationReorderMixin):
+class ExhibitorReorderView(PositionReorderMixin):
     position_field = "exhibitor_position"
 
     def get_scope_queryset(self, request):
         return ExhibitorInfo.objects.filter(event=request.event, is_exhibitor=True)
 
 
-class SponsorReorderView(OrganizationReorderMixin):
+class SponsorReorderView(PositionReorderMixin):
     position_field = "sponsor_position"
 
     def get_scope_queryset(self, request):
@@ -1729,6 +1743,192 @@ class RequestActionView(EventPermissionRequiredMixin, View):
         else:
             messages.error(request, message)
         return redirect("plugins:exhibition:request.list", **event_kwargs(request.event))
+
+
+class ExhibitionProductMixin(EventPermissionRequiredMixin):
+    """Exhibition products belong to the exhibition setup, so they need the same permission as the rest of it."""
+
+    permission = "can_change_event_settings"
+
+    def get_queryset(self):
+        return ExhibitionProduct.objects.filter(event=self.request.event).select_related("category").in_sales_order()
+
+    def get_success_url(self):
+        return reverse("plugins:exhibition:products", kwargs=event_kwargs(self.request.event))
+
+
+class ExhibitionProductListView(ExhibitionProductMixin, PaginationMixin, ListView):
+    template_name = "exhibitors/products.html"
+    context_object_name = "products"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["reorder_enabled"] = not context["is_paginated"]
+        context["payment_method_missing"] = paid_products_lack_payment_method(self.request.event)
+        context["payment_settings_url"] = reverse(
+            "control:event.settings.payment", kwargs=event_kwargs(self.request.event)
+        )
+        return context
+
+
+class ExhibitionProductReorderView(PositionReorderMixin):
+    position_field = "position"
+
+    def get_scope_queryset(self, request):
+        queryset = ExhibitionProduct.objects.filter(event=request.event)
+        category_id = request.GET.get("category_id")
+        if category_id in (None, "", "none"):
+            return queryset.filter(category__isnull=True)
+        try:
+            category_id = int(category_id)
+        except (TypeError, ValueError):
+            return queryset.none()
+        return queryset.filter(category_id=category_id)
+
+
+class ExhibitionProductFormMixin(ExhibitionProductMixin):
+    model = ExhibitionProduct
+    form_class = ExhibitionProductForm
+    template_name = "exhibitors/product_form.html"
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
+
+class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
+    def form_valid(self, form):
+        form.instance.event = self.request.event
+        with transaction.atomic():
+            response = super().form_valid(form)
+            self.object.log_action(
+                LOG_PRODUCT_ADDED,
+                data={"name": self.object.localized_name},
+                user=self.request.user,
+            )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
+    def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if form.has_changed():
+                self.object.log_action(
+                    LOG_PRODUCT_CHANGED,
+                    data={"changed": form.changed_data},
+                    user=self.request.user,
+                )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
+    model = ExhibitionProduct
+    template_name = "exhibitors/product_delete.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["has_orders"] = self.object.order_positions.exists()
+        return context
+
+    def form_valid(self, form):
+        if self.object.order_positions.exists():
+            messages.error(
+                self.request,
+                _("This product has been ordered, so it cannot be deleted. You can deactivate it instead."),
+            )
+            return redirect(self.get_success_url())
+        self.object.log_action(
+            LOG_PRODUCT_DELETED,
+            data={"name": self.object.localized_name},
+            user=self.request.user,
+        )
+        return super().form_valid(form)
+
+
+class ExhibitionProductCategoryMixin(EventPermissionRequiredMixin):
+    """Product categories belong to the exhibition setup, like the products themselves."""
+
+    permission = "can_change_event_settings"
+
+    def get_queryset(self):
+        return ExhibitionProductCategory.objects.filter(event=self.request.event)
+
+    def get_success_url(self):
+        return reverse("plugins:exhibition:products.categories", kwargs=event_kwargs(self.request.event))
+
+
+class ExhibitionProductCategoryListView(ExhibitionProductCategoryMixin, ListView):
+    template_name = "exhibitors/product_categories.html"
+    context_object_name = "categories"
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(product_count=Count("products"))
+
+
+class ExhibitionProductCategoryFormMixin(ExhibitionProductCategoryMixin):
+    model = ExhibitionProductCategory
+    form_class = ExhibitionProductCategoryForm
+    template_name = "exhibitors/product_category_form.html"
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
+
+class ExhibitionProductCategoryCreateView(ExhibitionProductCategoryFormMixin, CreateView):
+    def form_valid(self, form):
+        form.instance.event = self.request.event
+        with transaction.atomic():
+            response = super().form_valid(form)
+            self.object.log_action(
+                LOG_PRODUCT_CATEGORY_ADDED,
+                data={"name": self.object.localized_name},
+                user=self.request.user,
+            )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionProductCategoryEditView(ExhibitionProductCategoryFormMixin, UpdateView):
+    def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if form.has_changed():
+                self.object.log_action(
+                    LOG_PRODUCT_CATEGORY_CHANGED,
+                    data={"changed": form.changed_data},
+                    user=self.request.user,
+                )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, DeleteView):
+    model = ExhibitionProductCategory
+    template_name = "exhibitors/product_category_delete.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["product_count"] = self.object.products.count()
+        return context
+
+    def form_valid(self, form):
+        self.object.log_action(
+            LOG_PRODUCT_CATEGORY_DELETED,
+            data={"name": self.object.localized_name, "uncategorised_products": self.object.products.count()},
+            user=self.request.user,
+        )
+        return super().form_valid(form)
+
+
+class ExhibitionProductCategoryReorderView(PositionReorderMixin):
+    position_field = "position"
+
+    def get_scope_queryset(self, request):
+        return ExhibitionProductCategory.objects.filter(event=request.event)
 
 
 class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):

@@ -4,12 +4,13 @@ import string
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator
-from django.db import models
-from django.db.models import Max, Q
+from django.db import models, transaction
+from django.db.models import F, Max, Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
+from eventyay.base.banlist import banned
 from eventyay.base.models import Device, Event, Voucher
 from eventyay.base.models.base import LoggedModel
 from eventyay.base.models.fields import MultiStringField
@@ -614,6 +615,16 @@ LOG_QUESTION_ADDED = f"{LOG_PREFIX}.question.added"
 LOG_QUESTION_CHANGED = f"{LOG_PREFIX}.question.changed"
 LOG_QUESTION_DELETED = f"{LOG_PREFIX}.question.deleted"
 LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
+LOG_PRODUCT_ADDED = f"{LOG_PREFIX}.product.added"
+LOG_PRODUCT_CHANGED = f"{LOG_PREFIX}.product.changed"
+LOG_PRODUCT_DELETED = f"{LOG_PREFIX}.product.deleted"
+LOG_PRODUCT_CATEGORY_ADDED = f"{LOG_PREFIX}.product_category.added"
+LOG_PRODUCT_CATEGORY_CHANGED = f"{LOG_PREFIX}.product_category.changed"
+LOG_PRODUCT_CATEGORY_DELETED = f"{LOG_PREFIX}.product_category.deleted"
+LOG_ORDER_PLACED = f"{LOG_PREFIX}.order.placed"
+LOG_ORDER_PAID = f"{LOG_PREFIX}.order.paid"
+LOG_ORDER_CANCELLED = f"{LOG_PREFIX}.order.cancelled"
+LOG_ORDER_EXPIRED = f"{LOG_PREFIX}.order.expired"
 
 SUBMITTER_PROFILE_FIELD_LABELS = {
     "description": _("Organization Description"),
@@ -1124,6 +1135,334 @@ class Lead(models.Model):
 
     def __str__(self):
         return f"Lead scanned by {self.exhibitor.name}"
+
+
+class ExhibitionProductPurpose(models.TextChoices):
+    EXHIBITION = "exhibition", _("Exhibition")
+    SPONSORSHIP = "sponsorship", _("Sponsorship")
+
+
+class ExhibitionProductQuerySet(models.QuerySet):
+    def for_event(self, event):
+        return self.filter(event=event)
+
+    def consuming_booth_capacity(self):
+        """The products that take up physical exhibition space."""
+        return self.filter(includes_booth=True)
+
+    def available(self, now_dt=None):
+        """The products on sale right now: the database side of ``ExhibitionProduct.is_available()``."""
+        now_dt = now_dt or timezone.now()
+        return self.filter(
+            Q(available_from__isnull=True) | Q(available_from__lte=now_dt),
+            Q(available_until__isnull=True) | Q(available_until__gte=now_dt),
+            active=True,
+        )
+
+    def in_sales_order(self):
+        """Products grouped by category in the configured order, uncategorised ones last."""
+        return self.order_by(F("category__position").asc(nulls_last=True), "category_id", "position", "id")
+
+
+def get_next_product_category_position(event):
+    max_position = ExhibitionProductCategory.objects.filter(event=event).aggregate(value=Max("position")).get("value")
+    return (max_position if max_position is not None else -1) + 1
+
+
+class ExhibitionProductCategory(LoggedModel):
+    """A group of exhibition products, such as Sponsorship or Add-ons, kept apart from the ticket categories."""
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_product_categories",
+    )
+    name = I18nCharField(max_length=255, verbose_name=_("Category name"))
+    internal_name = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("Internal name"),
+        help_text=_("If you set this, it will be used instead of the public name in the backend."),
+    )
+    description = I18nTextField(
+        verbose_name=_("Category description"),
+        null=True,
+        blank=True,
+    )
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = _("Exhibition product category")
+        verbose_name_plural = _("Exhibition product categories")
+        ordering = ("position", "id")
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
+
+    @property
+    def backend_name(self):
+        return self.internal_name or self.localized_name
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.position:
+            self.position = get_next_product_category_position(self.event)
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.localized_name or str(self.name)
+
+
+def get_next_product_position(event):
+    max_position = ExhibitionProduct.objects.filter(event=event).aggregate(value=Max("position")).get("value")
+    return (max_position if max_position is not None else -1) + 1
+
+
+class ExhibitionProduct(LoggedModel):
+    """An exhibition or sponsorship package the event sells.
+
+    Exhibition products are their own data, kept apart from the Tickets products: they are
+    managed only under Exhibition and never show up in the ticket shop. The fields follow
+    the Tickets product so both behave alike.
+    """
+
+    objects = ExhibitionProductQuerySet.as_manager()
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_products",
+    )
+    category = models.ForeignKey(
+        ExhibitionProductCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+        verbose_name=_("Category"),
+    )
+    name = I18nCharField(max_length=255, verbose_name=_("Product name"))
+    description = I18nTextField(
+        verbose_name=_("Description"),
+        help_text=_("This is shown below the product name in lists."),
+        null=True,
+        blank=True,
+    )
+    price = models.DecimalField(
+        verbose_name=_("Price"),
+        max_digits=13,
+        decimal_places=2,
+        default=0,
+    )
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+    available_from = models.DateTimeField(
+        verbose_name=_("Available from"),
+        null=True,
+        blank=True,
+        help_text=_("This product will not be sold before the given date."),
+    )
+    available_until = models.DateTimeField(
+        verbose_name=_("Available until"),
+        null=True,
+        blank=True,
+        help_text=_("This product will not be sold after the given date."),
+    )
+    position = models.IntegerField(default=0)
+    purpose = models.CharField(
+        max_length=16,
+        choices=ExhibitionProductPurpose.choices,
+        default=ExhibitionProductPurpose.SPONSORSHIP,
+        verbose_name=_("Product purpose"),
+    )
+    includes_booth = models.BooleanField(
+        default=True,
+        verbose_name=_("Includes exhibition booth"),
+        help_text=_(
+            "Sponsorships come with a booth unless you turn this off, for example for a purely "
+            "digital package. Exhibition products always include one."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product")
+        verbose_name_plural = _("Exhibition products")
+        ordering = ("position", "id")
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
+
+    @property
+    def is_exhibition(self):
+        return self.purpose == ExhibitionProductPurpose.EXHIBITION
+
+    @property
+    def is_sponsorship(self):
+        return self.purpose == ExhibitionProductPurpose.SPONSORSHIP
+
+    @property
+    def consumes_booth_capacity(self):
+        """Only products that come with physical exhibition space take up a booth."""
+        return self.includes_booth
+
+    def is_available_by_time(self, now_dt=None):
+        now_dt = now_dt or timezone.now()
+        if self.available_from and self.available_from > now_dt:
+            return False
+        if self.available_until and self.available_until < now_dt:
+            return False
+        return True
+
+    def is_available(self, now_dt=None):
+        """Whether the product is on sale, going by its active flag and its availability window."""
+        return self.active and self.is_available_by_time(now_dt)
+
+    def save(self, *args, **kwargs):
+        """Saving settles the booth rule, so no caller can store another answer."""
+        if self._state.adding and not self.position:
+            self.position = get_next_product_position(self.event)
+        if self.is_exhibition and not self.includes_booth:
+            self.includes_booth = True
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"includes_booth"}
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.localized_name or str(self.name)
+
+
+class ExhibitionOrderStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    PAID = "paid", _("Paid")
+    CANCELLED = "cancelled", _("Cancelled")
+    EXPIRED = "expired", _("Expired")
+
+
+ORDER_CODE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ379"
+
+
+class ExhibitionOrderStateError(Exception):
+    """An order was asked for a status it cannot reach from its current one."""
+
+
+def generate_exhibition_order_code(event):
+    while True:
+        code = get_random_string(length=settings.ENTROPY["order_code"], allowed_chars=ORDER_CODE_CHARSET)
+        if not banned(code) and not ExhibitionOrder.objects.filter(event=event, code=code).exists():
+            return code
+
+
+class ExhibitionOrder(LoggedModel):
+    """A purchase of exhibition products, kept apart from the ticket orders."""
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_orders",
+    )
+    code = models.CharField(max_length=16, verbose_name=_("Order code"))
+    status = models.CharField(
+        max_length=16,
+        choices=ExhibitionOrderStatus.choices,
+        default=ExhibitionOrderStatus.PENDING,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+    name = models.CharField(max_length=255, verbose_name=_("Contact name"))
+    email = models.EmailField(verbose_name=_("Email"))
+    phone = models.CharField(max_length=64, blank=True, verbose_name=_("Phone number"))
+    total = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Total"))
+    currency = models.CharField(max_length=10, verbose_name=_("Currency"))
+    answers = models.JSONField(default=dict, blank=True, verbose_name=_("Order form answers"))
+    payment_provider = models.CharField(max_length=255, blank=True, verbose_name=_("Payment method"))
+    payment_reference = models.CharField(max_length=255, blank=True, verbose_name=_("Payment reference"))
+    payment_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Payment date"))
+    expires = models.DateTimeField(null=True, blank=True, verbose_name=_("Expiration date"))
+    created = models.DateTimeField(auto_now_add=True, verbose_name=_("Order date"))
+
+    class Meta:
+        verbose_name = _("Exhibition order")
+        verbose_name_plural = _("Exhibition orders")
+        ordering = ("-created", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=["event", "code"], name="exhibition_order_code_unique_per_event"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.code = self.code or generate_exhibition_order_code(self.event)
+            self.currency = self.currency or self.event.currency
+        return super().save(*args, **kwargs)
+
+    def mark_paid(self, *, provider="", reference="", user=None):
+        """Record a received payment; an expired order can still be paid, as in Tickets."""
+        self._transition(
+            {ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED},
+            ExhibitionOrderStatus.PAID,
+            LOG_ORDER_PAID,
+            user,
+            payment_provider=provider or self.payment_provider,
+            payment_reference=reference,
+            payment_date=timezone.now(),
+        )
+
+    def cancel(self, *, user=None):
+        self._transition(
+            {ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.PAID, ExhibitionOrderStatus.EXPIRED},
+            ExhibitionOrderStatus.CANCELLED,
+            LOG_ORDER_CANCELLED,
+            user,
+        )
+
+    def expire(self):
+        self._transition(
+            {ExhibitionOrderStatus.PENDING},
+            ExhibitionOrderStatus.EXPIRED,
+            LOG_ORDER_EXPIRED,
+            None,
+        )
+
+    def _transition(self, allowed_from, status, action, user, **fields):
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if current.status not in allowed_from:
+                raise ExhibitionOrderStateError(f"Order {self.code} cannot change from {current.status} to {status}.")
+            fields["status"] = status
+            for name, value in fields.items():
+                setattr(self, name, value)
+            self.save(update_fields=list(fields))
+            self.log_action(
+                action,
+                data={key: str(value) for key, value in fields.items() if key != "status"},
+                user=user,
+            )
+
+    def __str__(self):
+        return self.code
+
+
+class ExhibitionOrderPosition(models.Model):
+    """One product bought in an exhibition order, at the price it was sold for."""
+
+    order = models.ForeignKey(
+        ExhibitionOrder,
+        on_delete=models.CASCADE,
+        related_name="positions",
+    )
+    product = models.ForeignKey(
+        ExhibitionProduct,
+        on_delete=models.PROTECT,
+        related_name="order_positions",
+        verbose_name=_("Product"),
+    )
+    price = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Price"))
+
+    class Meta:
+        ordering = ("order", "id")
+
+    def __str__(self):
+        return f"{self.order.code}: {self.product}"
 
 
 class ExhibitorTag(models.Model):

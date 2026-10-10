@@ -9,6 +9,8 @@ from rest_framework import serializers, status, views, viewsets
 from rest_framework.response import Response
 
 from .models import (
+    ExhibitionProduct,
+    ExhibitionProductCategory,
     ExhibitorExtraLink,
     ExhibitorInfo,
     ExhibitorSettings,
@@ -345,6 +347,60 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+
+
+class ExhibitionProductCategorySerializer(I18nAwareModelSerializer):
+    class Meta:
+        model = ExhibitionProductCategory
+        fields = ("id", "name", "description", "position")
+        read_only_fields = fields
+
+
+class ExhibitionProductSerializer(I18nAwareModelSerializer):
+    class Meta:
+        model = ExhibitionProduct
+        fields = (
+            "id",
+            "name",
+            "description",
+            "category",
+            "purpose",
+            "includes_booth",
+            "price",
+            "active",
+            "available_from",
+            "available_until",
+            "position",
+        )
+        read_only_fields = fields
+
+
+class ExhibitionProductViewSet(viewsets.ReadOnlyModelViewSet):
+    """Exhibition and sponsorship products that are on sale right now.
+
+    Inactive products and those outside their availability window are left out, as they are
+    not on offer; organizers see every product on the Exhibition products page.
+    """
+
+    serializer_class = ExhibitionProductSerializer
+    queryset = ExhibitionProduct.objects.none()
+    lookup_field = "id"
+    permission = None
+
+    def get_queryset(self):
+        return ExhibitionProduct.objects.for_event(self.request.event).available().in_sales_order()
+
+
+class ExhibitionProductCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """Exhibition product categories in the order the organizer has set."""
+
+    serializer_class = ExhibitionProductCategorySerializer
+    queryset = ExhibitionProductCategory.objects.none()
+    lookup_field = "id"
+    permission = None
+
+    def get_queryset(self):
+        return ExhibitionProductCategory.objects.filter(event=self.request.event)
 
 
 class LeadCreateView(views.APIView):
