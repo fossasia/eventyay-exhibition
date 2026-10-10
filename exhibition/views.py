@@ -224,7 +224,7 @@ def organization_type_of(exhibitor):
 
 class PublicEventLoginRequiredMixin(LoginRequiredMixin):
     def get_login_url(self):
-        return reverse("cfp:event.login", kwargs=event_kwargs(self.request.event))
+        return reverse("auth.login")
 
 
 class PublicCallEnabledMixin:
@@ -1108,7 +1108,7 @@ class UserRequestEditView(
         return self.post_with_formsets()
 
     def state_is_locked(self):
-        return self.object.state == ExhibitionRequestState.ACCEPTED
+        return self.object.is_accepted
 
     @transaction.atomic
     def form_valid(self, form):
@@ -1149,6 +1149,47 @@ class UserRequestEditView(
         context["state_locked"] = self.state_is_locked()
         context["already_submitted"] = self.object.state == ExhibitionRequestState.SUBMITTED
         return context
+
+    def get_success_url(self):
+        return reverse(
+            "plugins:exhibition:request.user_list",
+            kwargs=event_kwargs(self.request.event),
+        )
+
+
+class UserRequestConfirmView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin, DetailView):
+    model = ExhibitionRequest
+    template_name = "exhibitors/public_request_confirm.html"
+    context_object_name = "exhibition_request"
+    slug_field = "code"
+    slug_url_kwarg = "code"
+    require_call_enabled = False
+
+    def get_queryset(self):
+        return ExhibitionRequest.objects.filter(
+            event=self.request.event,
+            user=self.request.user,
+        )
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.state == ExhibitionRequestState.CONFIRMED:
+            messages.success(request, _("Your participation was already confirmed."))
+            return redirect(self.get_success_url())
+        if not self.object.can_be_confirmed:
+            messages.error(request, _("This request can not be confirmed."))
+            return redirect(self.get_success_url())
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.can_be_confirmed and self.object.confirm(requestor=request.user):
+            messages.success(request, _("Thank you, your participation is confirmed."))
+        elif self.object.state == ExhibitionRequestState.CONFIRMED:
+            messages.success(request, _("Your participation was already confirmed."))
+        else:
+            messages.error(request, _("This request can not be confirmed."))
+        return redirect(self.get_success_url())
 
     def get_success_url(self):
         return reverse(
@@ -1617,6 +1658,11 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
         elif action == "reject":
             self.object.reject(requestor=requestor)
             messages.success(self.request, _("Request rejected. A rejection email was placed in the outbox."))
+        elif action == "confirm":
+            if self.object.confirm(requestor=requestor):
+                messages.success(self.request, _("Request confirmed on behalf of the applicant."))
+            else:
+                messages.error(self.request, _("This request can no longer be changed to that state."))
         elif action == "withdraw":
             self.object.withdraw(requestor=requestor)
             messages.success(self.request, _("Request withdrawn."))
@@ -1666,7 +1712,9 @@ class RequestActionView(EventPermissionRequiredMixin, View):
                 if not exhibition_request.can_transition_to(target_state):
                     skipped += 1
                     continue
-                self.apply_action(exhibition_request, action)
+                if not self.apply_action(exhibition_request, action):
+                    skipped += 1
+                    continue
                 changed += 1
                 if select_all:
                     continue
@@ -1689,19 +1737,24 @@ class RequestActionView(EventPermissionRequiredMixin, View):
         )
 
     def apply_action(self, exhibition_request, action):
+        """Apply the action; ``False`` when a confirmation lost a race with another state change."""
         if action == "approve":
             exhibition_request.approve(requestor=self.request.user)
         elif action == "reject":
             exhibition_request.reject(requestor=self.request.user)
+        elif action == "confirm":
+            return exhibition_request.confirm(requestor=self.request.user)
         elif action == "withdraw":
             exhibition_request.withdraw(requestor=self.request.user)
         elif action == "reopen":
             exhibition_request.reopen(requestor=self.request.user)
+        return True
 
     def build_message(self, action, count, skipped):
         if count:
             templates = {
                 "approve": ngettext("%(count)d request was approved.", "%(count)d requests were approved.", count),
+                "confirm": ngettext("%(count)d request was confirmed.", "%(count)d requests were confirmed.", count),
                 "reject": ngettext("%(count)d request was rejected.", "%(count)d requests were rejected.", count),
                 "withdraw": ngettext("%(count)d request was withdrawn.", "%(count)d requests were withdrawn.", count),
                 "reopen": ngettext("%(count)d request was reopened.", "%(count)d requests were reopened.", count),

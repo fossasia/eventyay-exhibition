@@ -34,6 +34,11 @@
                                     <i class="fa fa-eye"></i> {% trans "View" %}
                                 {% endif %}
                             </a>
+                            {% if exhibition_request.can_be_confirmed %}
+                                <a class="btn btn-sm btn-primary" href="{% url 'plugins:exhibition:request.user_confirm' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
+                                    <i class="fa fa-check"></i> {% trans "Confirm" %}
+                                </a>
+                            {% endif %}
                             {% if exhibition_request.can_be_withdrawn %}
                                 <a class="btn btn-sm btn-danger" href="{% url 'plugins:exhibition:request.user_withdraw' organizer=request.event.organizer.slug event=request.event.slug code=exhibition_request.code %}">
                                     <i class="fa fa-undo"></i> {% trans "Withdraw" %}

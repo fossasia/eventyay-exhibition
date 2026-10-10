@@ -2,17 +2,12 @@
 {% load i18n %}
 
 {% block call_content %}
-    <h2 id="exhibition-call-heading">{% trans "Withdraw request" %}</h2>
+    <h2 id="exhibition-call-heading">{% trans "Confirm participation" %}</h2>
     <p>
-        {% blocktrans trimmed with name=exhibition_request.name %}
-            Are you sure you want to withdraw your request “{{ name }}”?
+        {% blocktrans trimmed with name=exhibition_request.name event=request.event.name %}
+            Your request “{{ name }}” for {{ event }} has been accepted. Please confirm that you will take part.
         {% endblocktrans %}
     </p>
-    {% if exhibition_request.is_accepted %}
-        <div class="alert alert-warning" role="alert">
-            {% trans "This request has already been approved. Withdrawing it will hide the exhibitor or sponsor profile created from it from public listings." %}
-        </div>
-    {% endif %}
     <form action="" method="post">
         {% csrf_token %}
         <div class="row checkout-button-row">
@@ -22,8 +17,8 @@
                 </a>
             </div>
             <div class="col-md-4 col-md-offset-4 col-sm-6">
-                <button type="submit" class="btn btn-block btn-danger btn-lg">
-                    {% trans "Withdraw request" %}
+                <button type="submit" class="btn btn-block btn-primary btn-lg">
+                    {% trans "Confirm participation" %}
                 </button>
             </div>
             <div class="clearfix"></div>

@@ -27,6 +27,7 @@ from .mail import (
     my_exhibitions_url,
     render_device_tokens,
     render_voucher_list,
+    request_confirmation_url,
     request_public_url,
     sample_device_tokens,
     sample_voucher_list,
@@ -260,6 +261,12 @@ def exhibition_mail_placeholders(sender, **kwargs):
             "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/",
         ),
         SimpleFunctionalMailTextPlaceholder(
+            "confirmation_url",
+            ["exhibition_request"],
+            request_confirmation_url,
+            "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/confirm/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
             "name",
             ["exhibition_request"],
             lambda exhibition_request: (
@@ -369,6 +376,7 @@ def exhibition_user_menu_item(sender, request=None, icon_class="", **kwargs):
 
 LOG_ENTRY_LABELS = {
     REQUEST_LOG_ACTIONS["approve"]: _("Exhibition request approved."),
+    REQUEST_LOG_ACTIONS["confirm"]: _("Exhibition request confirmed."),
     REQUEST_LOG_ACTIONS["reject"]: _("Exhibition request rejected."),
     REQUEST_LOG_ACTIONS["withdraw"]: _("Exhibition request withdrawn."),
     REQUEST_LOG_ACTIONS["reopen"]: _("Exhibition request reopened for review."),

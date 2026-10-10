@@ -30,6 +30,7 @@ PLACEHOLDER_DOCS = (
     ("{request_name}", _lazy("The request / organisation name")),
     ("{request_code}", _lazy("The request's unique code")),
     ("{request_url}", _lazy("Link for the applicant to view or edit the request")),
+    ("{confirmation_url}", _lazy("Link for the applicant to confirm they will take part (accepted email only)")),
     ("{name}", _lazy("The applicant's name")),
     ("{exhibitor_name}", _lazy("The exhibitor / sponsor name (access email only)")),
     ("{booth_id}", _lazy("The exhibitor's booth ID (access email only)")),
@@ -80,8 +81,9 @@ DEFAULT_TEMPLATE_SOURCES = {
         gettext_noop(
             "Hello,\n\n"
             "we are happy to let you know that your request \u201c{request_name}\u201d "
-            "for {event_name} has been accepted. We will be in touch with the next "
-            "steps.\n\n"
+            "for {event_name} has been accepted. Please confirm that you will take part:\n"
+            "{confirmation_url}\n\n"
+            "We will be in touch with the next steps.\n\n"
             "Best regards,\n"
             "The {event_name} team"
         ),
@@ -249,6 +251,18 @@ def build_exhibitor_context(event, exhibitor):
 def request_public_url(exhibition_request):
     path = reverse(
         "plugins:exhibition:request.user_edit",
+        kwargs={
+            "organizer": exhibition_request.event.organizer.slug,
+            "event": exhibition_request.event.slug,
+            "code": exhibition_request.code,
+        },
+    )
+    return urljoin(django_settings.SITE_URL, path)
+
+
+def request_confirmation_url(exhibition_request):
+    path = reverse(
+        "plugins:exhibition:request.user_confirm",
         kwargs={
             "organizer": exhibition_request.event.organizer.slug,
             "event": exhibition_request.event.slug,

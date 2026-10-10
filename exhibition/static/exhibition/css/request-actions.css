@@ -47,6 +47,11 @@
     border-color: #21ba45;
 }
 
+.request-action-confirm {
+    color: #21ba45;
+    border-color: #21ba45;
+}
+
 .request-action-reject {
     color: #db2828;
     border-color: #db2828;

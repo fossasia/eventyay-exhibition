@@ -155,5 +155,5 @@ def test_post_returns_updated_actions_and_bulk_actions(event):
         assert payload["ok"] is True
         result = payload["results"][0]
         assert result["state"] == "accepted"
-        assert set(result["actions"]) == {"reject", "withdraw", "reopen"}
+        assert set(result["actions"]) == {"confirm", "reject", "withdraw", "reopen"}
         assert result["bulk_actions"] == ["reject"]

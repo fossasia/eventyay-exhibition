@@ -119,6 +119,11 @@
                                         <i class="fa fa-check"></i>
                                     </button>
                                 {% endif %}
+                                {% if "confirm" in exhibition_request.review_actions %}
+                                    <button type="button" class="btn btn-success btn-sm request-action-btn request-action-confirm" data-request-action="confirm" data-request-code="{{ exhibition_request.code }}" title="{% trans 'Confirm for applicant' %}" data-toggle="tooltip">
+                                        <i class="fa fa-check-circle"></i>
+                                    </button>
+                                {% endif %}
                                 {% if "reject" in exhibition_request.review_actions %}
                                     <button type="button" class="btn btn-danger btn-sm request-action-btn request-action-reject" data-request-action="reject" data-request-code="{{ exhibition_request.code }}" title="{% trans 'Reject' %}" data-toggle="tooltip">
                                         <i class="fa fa-times"></i>
@@ -158,11 +163,13 @@
     {% if can_manage %}
         <div data-request-i18n
              data-confirm-approve="{% trans 'Approve the selected requests and create their organization profiles?' %}"
+             data-confirm-confirm-one="{% trans 'Confirm this request on behalf of the applicant?' %}"
              data-confirm-reject="{% trans 'Reject the selected requests?' %}"
              data-confirm-reject-one="{% trans 'Reject this request?' %}"
              data-confirm-withdraw-one="{% trans 'Withdraw this request?' %}"
              data-confirm-reopen-one="{% trans 'Reopen this request for review?' %}"
              data-label-approve="{% trans 'Approve' %}"
+             data-label-confirm="{% trans 'Confirm for applicant' %}"
              data-label-reject="{% trans 'Reject' %}"
              data-label-withdraw="{% trans 'Withdraw' %}"
              data-label-reopen="{% trans 'Reopen for review' %}"

@@ -1348,7 +1348,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if self.read_only:
             for field in self.fields.values():
                 field.disabled = True
-        elif instance and instance.pk and instance.state == ExhibitionRequestState.ACCEPTED:
+        elif instance and instance.pk and instance.is_accepted:
             name_field = self.fields.get("name")
             if name_field is not None:
                 name_field.disabled = True
@@ -2159,7 +2159,7 @@ class ExhibitionComposeForm(forms.Form):
         choices=[
             (state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT
         ],
-        initial=[ExhibitionRequestState.ACCEPTED],
+        initial=[ExhibitionRequestState.ACCEPTED, ExhibitionRequestState.CONFIRMED],
         widget=forms.CheckboxSelectMultiple,
     )
     organization_type = forms.ChoiceField(

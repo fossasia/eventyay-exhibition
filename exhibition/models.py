@@ -548,9 +548,12 @@ class ExhibitionRequestState(models.TextChoices):
     DRAFT = "draft", _("draft")
     SUBMITTED = "submitted", _("submitted")
     ACCEPTED = "accepted", _("accepted")
+    CONFIRMED = "confirmed", _("confirmed")
     REJECTED = "rejected", _("rejected")
     WITHDRAWN = "withdrawn", _("withdrawn")
 
+
+ACCEPTED_REQUEST_STATES = frozenset({ExhibitionRequestState.ACCEPTED, ExhibitionRequestState.CONFIRMED})
 
 REQUEST_STATE_TRANSITIONS = {
     ExhibitionRequestState.DRAFT: frozenset({ExhibitionRequestState.SUBMITTED}),
@@ -562,6 +565,14 @@ REQUEST_STATE_TRANSITIONS = {
         }
     ),
     ExhibitionRequestState.ACCEPTED: frozenset(
+        {
+            ExhibitionRequestState.CONFIRMED,
+            ExhibitionRequestState.SUBMITTED,
+            ExhibitionRequestState.REJECTED,
+            ExhibitionRequestState.WITHDRAWN,
+        }
+    ),
+    ExhibitionRequestState.CONFIRMED: frozenset(
         {
             ExhibitionRequestState.SUBMITTED,
             ExhibitionRequestState.REJECTED,
@@ -579,6 +590,7 @@ REQUEST_STATE_TRANSITIONS = {
 
 REQUEST_REVIEW_ACTIONS = {
     "approve": ExhibitionRequestState.ACCEPTED,
+    "confirm": ExhibitionRequestState.CONFIRMED,
     "reject": ExhibitionRequestState.REJECTED,
     "withdraw": ExhibitionRequestState.WITHDRAWN,
     "reopen": ExhibitionRequestState.SUBMITTED,
@@ -590,6 +602,7 @@ LOG_PREFIX = "eventyay.plugins.exhibition"
 
 REQUEST_LOG_ACTIONS = {
     "approve": f"{LOG_PREFIX}.request.approved",
+    "confirm": f"{LOG_PREFIX}.request.confirmed",
     "reject": f"{LOG_PREFIX}.request.rejected",
     "withdraw": f"{LOG_PREFIX}.request.withdrawn",
     "reopen": f"{LOG_PREFIX}.request.reopened",
@@ -722,11 +735,15 @@ class ExhibitionRequest(LoggedModel):
         return str(self.name)
 
     @property
+    def is_accepted(self):
+        return self.state in ACCEPTED_REQUEST_STATES
+
+    @property
     def editable(self):
         return self.state in {
             ExhibitionRequestState.DRAFT,
             ExhibitionRequestState.SUBMITTED,
-            ExhibitionRequestState.ACCEPTED,
+            *ACCEPTED_REQUEST_STATES,
         }
 
     def can_transition_to(self, target_state):
@@ -784,6 +801,19 @@ class ExhibitionRequest(LoggedModel):
         queue_request_email(self.event, self, REQUEST_ACCEPTED, requestor=requestor)
         return exhibitor
 
+    def confirm(self, requestor=None):
+        """Confirm participation only while the request is still accepted; ``False`` if it changed meanwhile."""
+        updated = ExhibitionRequest.objects.filter(pk=self.pk, state=ExhibitionRequestState.ACCEPTED).update(
+            state=ExhibitionRequestState.CONFIRMED, updated=timezone.now()
+        )
+        if not updated:
+            self.refresh_from_db(fields=["state"])
+            return False
+        previous = self.state
+        self.state = ExhibitionRequestState.CONFIRMED
+        self.log_transition("confirm", previous, requestor=requestor)
+        return True
+
     def reject(self, requestor=None):
         """Reject the request, hide any organization profile and queue the rejection email."""
         from .mail import REQUEST_REJECTED, queue_request_email
@@ -798,6 +828,10 @@ class ExhibitionRequest(LoggedModel):
     @property
     def can_be_withdrawn(self):
         return self.can_transition_to(ExhibitionRequestState.WITHDRAWN)
+
+    @property
+    def can_be_confirmed(self):
+        return self.state == ExhibitionRequestState.ACCEPTED
 
     @property
     def can_be_reinstated(self):
@@ -821,11 +855,11 @@ class ExhibitionRequest(LoggedModel):
 
     @property
     def requires_open_call_to_edit(self):
-        return self.state != ExhibitionRequestState.ACCEPTED
+        return not self.is_accepted
 
     @property
     def edited_after_acceptance(self):
-        return self.state == ExhibitionRequestState.ACCEPTED and self.profile_edited_at is not None
+        return self.is_accepted and self.profile_edited_at is not None
 
     def submitter_profile_values(self):
         """Serialise the submitter-owned profile fields into a comparable {key: text} mapping."""

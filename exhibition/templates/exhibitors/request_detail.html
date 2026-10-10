@@ -196,7 +196,12 @@
                     {% trans "Reject" %}
                 </button>
             {% endif %}
-            {% if can_edit_exhibitor and exhibition_request.state == "accepted" and exhibition_request.approved_exhibitor_id %}
+            {% if can_manage and exhibition_request.state == "accepted" %}
+                <button type="submit" class="btn btn-success btn-lg" name="action" value="confirm">
+                    {% trans "Confirm for applicant" %}
+                </button>
+            {% endif %}
+            {% if can_edit_exhibitor and exhibition_request.is_accepted and exhibition_request.approved_exhibitor_id %}
                 <a class="btn btn-primary btn-lg" href="{% url 'plugins:exhibition:edit' organizer=request.event.organizer.slug event=request.event.slug pk=exhibition_request.approved_exhibitor_id %}">
                     {% trans "Open profile" %}
                 </a>

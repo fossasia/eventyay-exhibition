@@ -54,6 +54,7 @@ from .views import (
     SponsorGroupFrontPageToggleView,
     SponsorGroupReorderView,
     SponsorReorderView,
+    UserRequestConfirmView,
     UserRequestCreateView,
     UserRequestEditView,
     UserRequestListView,
@@ -97,6 +98,11 @@ urlpatterns = [
         "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/",
         UserRequestEditView.as_view(),
         name="request.user_edit",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/confirm/",
+        UserRequestConfirmView.as_view(),
+        name="request.user_confirm",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/requests/<str:code>/withdraw/",
