@@ -51,6 +51,7 @@ from .models import (
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
     LOG_REQUEST_CHANGED,
+    LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
     ExhibitionQuestion,
@@ -373,6 +374,7 @@ LOG_ENTRY_LABELS = {
     REQUEST_LOG_ACTIONS["withdraw"]: _("Exhibition request withdrawn."),
     REQUEST_LOG_ACTIONS["reopen"]: _("Exhibition request reopened for review."),
     LOG_REQUEST_CHANGED: _("Exhibition request changed."),
+    LOG_REQUEST_EMAILED: _("Email to the applicant"),
     LOG_ORGANIZATION_CREATED: _("Organization profile created from an approved request."),
     LOG_ORGANIZATION_REACTIVATED: _("Organization profile reactivated after re-approval."),
     LOG_ORGANIZATION_SYNCED: _("Organization profile updated from the submitter's changes."),
@@ -437,6 +439,14 @@ def exhibition_logentry_display(sender, logentry, **kwargs):
                 new=request_state_label(data["to"]),
             )
             return f"{label} {transition}"
+
+    if logentry.action_type == LOG_REQUEST_EMAILED:
+        data = logentry.parsed_data
+        if data.get("sent"):
+            return _("Email \u201c{subject}\u201d sent to the applicant.").format(subject=data.get("subject", ""))
+        return _("Email \u201c{subject}\u201d to the applicant placed in the outbox.").format(
+            subject=data.get("subject", "")
+        )
 
     changed = changed_field_labels(logentry)
     if changed:

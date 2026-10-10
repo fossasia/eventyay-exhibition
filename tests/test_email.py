@@ -5,10 +5,12 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.http import Http404
 from django.test import RequestFactory
 from django.utils import timezone
 from django.utils.translation import get_language
 from django_scopes import scopes_disabled
+from eventyay.base.models import LogEntry
 from eventyay.base.models.auth import User
 from i18nfield.strings import LazyI18nString
 
@@ -20,6 +22,7 @@ from exhibition.forms import (
     ExhibitionMailTemplatesForm,
 )
 from exhibition.models import (
+    LOG_REQUEST_EMAILED,
     ExhibitionEmailQueue,
     ExhibitionRequest,
     ExhibitionRequestState,
@@ -1217,3 +1220,97 @@ def test_no_credentials_go_out_while_lead_scanning_is_off(mail_event):
         assert not _access_emails(mail_event).exists()
 
     assert _message_texts(request) == []
+
+
+@pytest.mark.django_db
+def test_request_message_template_is_editable_under_email_templates(mail_event):
+    form = ExhibitionMailTemplatesForm(obj=mail_event)
+
+    assert mail_helpers.subject_settings_key(mail_helpers.REQUEST_MESSAGE) in form.fields
+    assert mail_helpers.body_settings_key(mail_helpers.REQUEST_MESSAGE) in form.fields
+
+
+def _single_compose_view(event, exhibition_request, data=None):
+    request = _organiser_request(event, data=data)
+    request.GET = request.GET.copy()
+    request.GET["request"] = exhibition_request.code
+    view = EmailComposeView()
+    view.request = request
+    view.kwargs = {}
+    return view, request
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_drops_the_bulk_filters(mail_event):
+    form = ExhibitionComposeForm(event=mail_event, single_recipient=True)
+
+    assert not {"states", "organization_type", "sponsor_group"} & set(form.fields)
+    assert {"subject", "body", "scheduled_at"} <= set(form.fields)
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_is_prefilled_from_the_request_message_template(mail_event, exhibition_request):
+    view, _request = _single_compose_view(mail_event, exhibition_request)
+
+    with scopes_disabled():
+        initial = view.get_initial()
+
+    expected_subject, expected_body = mail_helpers.get_email_template(mail_event, mail_helpers.REQUEST_MESSAGE)
+    assert str(initial["subject"]) == str(expected_subject)
+    assert str(initial["body"]) == str(expected_body)
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_rejects_an_unknown_request(mail_event):
+    request = _organiser_request(mail_event)
+    request.GET = request.GET.copy()
+    request.GET["request"] = "NOPE"
+    view = EmailComposeView()
+    view.request = request
+
+    with scopes_disabled(), pytest.raises(Http404):
+        view.single_request
+
+
+def _single_compose_form(event):
+    form = ExhibitionComposeForm(
+        data=_compose_data(event, subject="About {request_name}", body="<p>More details please.</p>"),
+        event=event,
+        single_recipient=True,
+    )
+    assert form.is_valid(), form.errors
+    return form
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_emails_only_that_applicant(mail_event, exhibition_request):
+    _request(mail_event, "Someone Else", ExhibitionRequestState.SUBMITTED, email="else@example.com")
+    view, request = _single_compose_view(mail_event, exhibition_request, {"_save": "save"})
+
+    with scopes_disabled():
+        response = view.form_valid(_single_compose_form(mail_event))
+        queued = ExhibitionEmailQueue.objects.get(event=mail_event)
+        logged = LogEntry.objects.filter(action_type=LOG_REQUEST_EMAILED, object_id=exhibition_request.pk)
+
+        assert queued.exhibition_request == exhibition_request
+        assert queued.to_email == "applicant@example.com"
+        assert queued.subject == "About Acme Corp"
+        assert queued.sent_at is None
+        assert logged.get().parsed_data["sent"] is False
+    assert response.status_code == 302
+    assert exhibition_request.code in response.url
+    assert _message_texts(request) == ["The email has been placed in the outbox."]
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_can_send_right_away(mail_event, exhibition_request):
+    view, request = _single_compose_view(mail_event, exhibition_request, {"_send": "send"})
+
+    with patch("eventyay.base.services.mail.mail") as mocked_mail:
+        with scopes_disabled():
+            view.form_valid(_single_compose_form(mail_event))
+            queued = ExhibitionEmailQueue.objects.get(event=mail_event)
+
+    assert queued.sent_at is not None
+    assert mocked_mail.call_count == 1
+    assert _message_texts(request) == ["The email has been sent."]

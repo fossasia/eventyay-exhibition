@@ -3,6 +3,7 @@
 {% load static %}
 {% load bootstrap3 %}
 {% load exhibition_email %}
+{% load event_tags %}
 
 {% block title %}{{ request.event.name }} - {% trans "Compose email" %}{% endblock %}
 
@@ -18,11 +19,18 @@
 
 {% block exhibitors_content %}
     <p class="text-muted">
-        {% trans "Send an update to a group of applicants. One email is queued per recipient, with placeholders resolved individually." %}
+        {% if single_request %}
+            {% trans "Send an email to this applicant. Placeholders are resolved for them." %}
+        {% else %}
+            {% trans "Send an update to a group of applicants. One email is queued per recipient, with placeholders resolved individually." %}
+        {% endif %}
     </p>
 
     {% if custom_templates %}
         <form action="" method="get" class="form-inline custom-template-picker">
+            {% if single_request %}
+                <input type="hidden" name="request" value="{{ single_request.code }}">
+            {% endif %}
             <label for="id_template_picker" class="control-label">{% trans "Load from template" %}</label>
             <select name="template" id="id_template_picker" class="form-control input-sm">
                 <option value="">{% trans "Select a saved template…" %}</option>
@@ -39,9 +47,23 @@
         {% bootstrap_form_errors form %}
         <fieldset>
             <legend>{% trans "Recipients" %}</legend>
-            {% bootstrap_field form.states layout="control" %}
-            {% bootstrap_field form.organization_type layout="control" %}
-            {% bootstrap_field form.sponsor_group layout="control" %}
+            {% if single_request %}
+                <div class="form-group">
+                    <label class="col-md-3 control-label">{% trans "To" %}</label>
+                    <div class="col-md-9">
+                        <p class="form-control-static">
+                            <a href="{{ single_request_url }}">{{ single_request.name|event_localize }}</a>
+                            {% if single_recipient %}
+                                &lt;{{ single_recipient }}&gt;
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            {% else %}
+                {% bootstrap_field form.states layout="control" %}
+                {% bootstrap_field form.organization_type layout="control" %}
+                {% bootstrap_field form.sponsor_group layout="control" %}
+            {% endif %}
         </fieldset>
         <fieldset>
             <legend>{% trans "Message" %}</legend>

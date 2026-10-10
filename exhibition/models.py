@@ -596,6 +596,7 @@ REQUEST_LOG_ACTIONS = {
 }
 
 LOG_REQUEST_CHANGED = f"{LOG_PREFIX}.request.changed"
+LOG_REQUEST_EMAILED = f"{LOG_PREFIX}.request.emailed"
 LOG_ORGANIZATION_CREATED = f"{LOG_PREFIX}.organization.created"
 LOG_ORGANIZATION_REACTIVATED = f"{LOG_PREFIX}.organization.reactivated"
 LOG_ORGANIZATION_ADDED = f"{LOG_PREFIX}.organization.added"
