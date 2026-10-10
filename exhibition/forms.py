@@ -337,9 +337,36 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 answer.options.clear()
 
 
-class SessionSelectWidget(forms.CheckboxSelectMultiple):
+class SearchableSelectWidget(forms.CheckboxSelectMultiple):
+    """Multi-select shown as chips with a searchable dropdown of the remaining options."""
+
     template_name = "exhibitors/session_select.html"
     option_template_name = "exhibitors/session_select_option.html"
+    placeholder = _("Nothing selected")
+    search_placeholder = _("Search…")
+    empty_text = _("Nothing matches your search.")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.option_details = {}
+
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        context["widget"]["placeholder"] = self.placeholder
+        context["widget"]["search_placeholder"] = self.search_placeholder
+        context["widget"]["empty_text"] = self.empty_text
+        return context
+
+    def create_option(self, *args, **kwargs):
+        option = super().create_option(*args, **kwargs)
+        option["detail"] = self.option_details.get(str(option["value"]), "")
+        return option
+
+
+class SessionSelectWidget(SearchableSelectWidget):
+    placeholder = _("No sessions selected")
+    search_placeholder = _("Search sessions…")
+    empty_text = _("No sessions match your search.")
 
 
 class SessionChoiceField(forms.ModelMultipleChoiceField):
@@ -2145,8 +2172,18 @@ class ExhibitionEmailQueueForm(forms.ModelForm):
         return scheduled_at
 
 
+class OrganizationSelectWidget(SearchableSelectWidget):
+    placeholder = _("No organizations selected")
+    search_placeholder = _("Search by organization name or email…")
+    empty_text = _("No organizations match your search.")
+
+
+REQUEST_CHOICE_PREFIX = "request-"
+PROFILE_CHOICE_PREFIX = "profile-"
+
+
 class ExhibitionComposeForm(forms.Form):
-    """Compose a broadcast email to a filtered group of applicants."""
+    """Compose a broadcast email to a filtered group of applicants, or to chosen organizations."""
 
     ORGANIZATION_TYPE_CHOICES = (
         ("", _("Exhibitors and sponsors")),
@@ -2154,13 +2191,13 @@ class ExhibitionComposeForm(forms.Form):
         ("sponsor", _("Sponsors only")),
     )
 
-    states = forms.MultipleChoiceField(
+    state = forms.ChoiceField(
         label=_("Application state"),
         choices=[
-            (state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT
+            ("", _("Any state")),
+            *((state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT),
         ],
-        initial=[ExhibitionRequestState.ACCEPTED],
-        widget=forms.CheckboxSelectMultiple,
+        required=False,
     )
     organization_type = forms.ChoiceField(
         label=_("Organization type"),
@@ -2173,6 +2210,12 @@ class ExhibitionComposeForm(forms.Form):
         required=False,
         empty_label=_("Any sponsor group"),
     )
+    organizations = forms.MultipleChoiceField(
+        label=_("Send to specific organizations"),
+        widget=OrganizationSelectWidget,
+        required=False,
+        help_text=_("When you select organizations here, the filters above are ignored."),
+    )
     subject = I18nFormField(label=_("Subject"), widget=I18nTextInput, max_length=255)
     scheduled_at = forms.DateTimeField(
         label=_("Send at"),
@@ -2183,13 +2226,17 @@ class ExhibitionComposeForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         self.event = kwargs.pop("event")
+        show_emails = kwargs.pop("show_emails", True)
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
+        self.set_organization_choices(show_emails)
         self.fields["body"] = ExhibitionEmailBodyFormField(
             label=_("Body"),
             placeholders=mail_helpers.placeholder_names(self.event, mail_helpers.REQUEST_PLACEHOLDER_CONTEXT),
         )
-        self.order_fields(["states", "organization_type", "sponsor_group", "subject", "body", "scheduled_at"])
+        self.order_fields(
+            ["state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at"]
+        )
         locales = self.event.settings.get("locales")
         self.fields["subject"].widget.enabled_locales = locales
         self.fields["body"].widget.enabled_locales = locales
@@ -2222,6 +2269,58 @@ class ExhibitionComposeForm(forms.Form):
         if scheduled_at and scheduled_at <= timezone.now():
             raise forms.ValidationError(_("The scheduled time must be in the future."))
         return scheduled_at
+
+    def set_organization_choices(self, show_emails):
+        """Offer every application plus the profiles organizers created without one."""
+        entries = []
+        for exhibition_request in mail_helpers.compose_recipients(self.event):
+            email = (exhibition_request.email or "").strip() or exhibition_request.user.email
+            state = exhibition_request.get_state_display()
+            entries.append(
+                (
+                    f"{REQUEST_CHOICE_PREFIX}{exhibition_request.pk}",
+                    localize_event_text(exhibition_request.name) or str(exhibition_request.name),
+                    f"{email} · {state}" if show_emails else state,
+                )
+            )
+        for profile in self.organizer_created_profiles():
+            entries.append(
+                (
+                    f"{PROFILE_CHOICE_PREFIX}{profile.pk}",
+                    localize_event_text(profile.name) or str(profile.name),
+                    profile.email if show_emails else "",
+                )
+            )
+        entries.sort(key=lambda entry: entry[1].lower())
+        field = self.fields["organizations"]
+        field.choices = [(value, label) for value, label, _detail in entries]
+        field.widget.option_details = {value: detail for value, _label, detail in entries}
+
+    def organizer_created_profiles(self):
+        return ExhibitorInfo.objects.filter(
+            event=self.event, source_requests__isnull=True, email__isnull=False
+        ).exclude(email="")
+
+    def chosen_pks(self, prefix):
+        return [
+            value[len(prefix) :] for value in self.cleaned_data.get("organizations") or () if value.startswith(prefix)
+        ]
+
+    def recipients(self):
+        """Applications and profiles to email: the chosen organizations, otherwise everyone matching the filters."""
+        if self.cleaned_data.get("organizations"):
+            exhibition_requests = mail_helpers.compose_recipients(self.event).filter(
+                pk__in=self.chosen_pks(REQUEST_CHOICE_PREFIX)
+            )
+            profiles = self.organizer_created_profiles().filter(pk__in=self.chosen_pks(PROFILE_CHOICE_PREFIX))
+            return exhibition_requests, profiles
+        exhibition_requests = mail_helpers.compose_recipients(
+            self.event,
+            states=[self.cleaned_data["state"]] if self.cleaned_data["state"] else None,
+            organization_type=self.cleaned_data["organization_type"],
+            sponsor_group=self.cleaned_data["sponsor_group"],
+        )
+        return exhibition_requests, ExhibitorInfo.objects.none()
 
 
 class ExhibitionMailTemplatesForm(SettingsForm):
