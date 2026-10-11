@@ -8,6 +8,7 @@
 {% block custom_header %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/history-panel.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/request-email.css' %}">
     <script defer src="{% static 'exhibition/js/request-review.js' %}"></script>
 {% endblock %}
 
@@ -18,6 +19,13 @@
 {% endblock %}
 
 {% block exhibitors_content %}
+    {% if can_email %}
+        <p>
+            <a class="btn btn-default" href="{% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug %}?request={{ exhibition_request.code }}">
+                <i class="fa fa-envelope"></i> {% trans "Send email" %}
+            </a>
+        </p>
+    {% endif %}
     {% if exhibition_request.edited_after_acceptance %}
         <div class="panel panel-warning" id="post-acceptance-changes">
             <div class="panel-heading">
@@ -203,6 +211,49 @@
             {% endif %}
         </div>
     </form>
+    {% if emails %}
+        <div class="panel panel-default exhibition-request-emails">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Emails" %}</h3>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-condensed">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Date" %}</th>
+                            <th>{% trans "Subject" %}</th>
+                            {% if not hide_applicant_emails %}<th>{% trans "Recipient" %}</th>{% endif %}
+                            <th>{% trans "Status" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for email in emails %}
+                            <tr>
+                                <td>{{ email.sent_at|default:email.created|date:"SHORT_DATETIME_FORMAT" }}</td>
+                                <td>
+                                    {% if email.sent_at %}
+                                        <a href="{% url 'plugins:exhibition:email.preview' organizer=request.event.organizer.slug event=request.event.slug pk=email.pk %}">{{ email.subject }}</a>
+                                    {% else %}
+                                        <a href="{% url 'plugins:exhibition:email.edit' organizer=request.event.organizer.slug event=request.event.slug pk=email.pk %}">{{ email.subject }}</a>
+                                    {% endif %}
+                                </td>
+                                {% if not hide_applicant_emails %}<td>{{ email.to_email }}</td>{% endif %}
+                                <td>
+                                    {% if email.sent_at %}
+                                        <span class="label label-success">{% trans "Sent" %}</span>
+                                    {% elif email.scheduled_at %}
+                                        <span class="label label-info">{% trans "Scheduled" %}</span>
+                                    {% else %}
+                                        <span class="label label-default">{% trans "In outbox" %}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
     {% if can_manage %}
         <div class="panel panel-default exhibition-history">
             <div class="panel-heading">

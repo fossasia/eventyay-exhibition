@@ -2226,10 +2226,15 @@ class ExhibitionComposeForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         self.event = kwargs.pop("event")
+        single_recipient = kwargs.pop("single_recipient", False)
         show_emails = kwargs.pop("show_emails", True)
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
-        self.set_organization_choices(show_emails)
+        if single_recipient:
+            for name in ("state", "organization_type", "sponsor_group", "organizations"):
+                self.fields.pop(name)
+        else:
+            self.set_organization_choices(show_emails)
         self.fields["body"] = ExhibitionEmailBodyFormField(
             label=_("Body"),
             placeholders=mail_helpers.placeholder_names(self.event, mail_helpers.REQUEST_PLACEHOLDER_CONTEXT),
@@ -2328,7 +2333,7 @@ class ExhibitionMailTemplatesForm(SettingsForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for role in mail_helpers.LIFECYCLE_ROLES:
+        for role in mail_helpers.TEMPLATE_ROLES:
             default_subject, default_body = mail_helpers.default_template_initial(role, self.locales)
             # The panel heading already names the template, so the fields are not prefixed with it.
             self.fields[mail_helpers.subject_settings_key(role)] = I18nFormField(
