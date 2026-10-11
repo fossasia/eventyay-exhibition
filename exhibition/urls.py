@@ -12,6 +12,7 @@ from .api import (
     TagListView,
     VoucherRedemptionRetrieveView,
 )
+from .dashboard import MyExhibitionsView, MyExhibitionVouchersView
 from .views import (
     CustomEmailTemplateCreateView,
     CustomEmailTemplateDeleteView,
@@ -49,6 +50,7 @@ from .views import (
     RequestDetailView,
     RequestListView,
     SettingsView,
+    SponsorGroupDeleteView,
     SponsorGroupFrontPageToggleView,
     SponsorGroupReorderView,
     SponsorReorderView,
@@ -60,6 +62,12 @@ from .views import (
 )
 
 urlpatterns = [
+    path("common/exhibitions/", MyExhibitionsView.as_view(), name="my_exhibitions"),
+    path(
+        "common/exhibitions/<int:pk>/vouchers/",
+        MyExhibitionVouchersView.as_view(),
+        name="my_exhibitions.vouchers",
+    ),
     path(
         "<str:organizer>/<str:event>/exhibition/",
         PublicExhibitorListView.as_view(),
@@ -153,6 +161,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/call",
         SettingsView.as_view(active_tab="call"),
         name="settings.call",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/delete",
+        SponsorGroupDeleteView.as_view(),
+        name="settings.sponsors.delete_group",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/settings/sponsors/groups/<int:pk>/toggle-front-page",

@@ -1,4 +1,5 @@
 import pytest
+from conftest import STORED_IMAGES
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 from django_scopes import scopes_disabled
@@ -33,6 +34,7 @@ def _accepted_request(event):
         email="old@example.com",
         state=ExhibitionRequestState.ACCEPTED,
         approved_exhibitor=exhibitor,
+        **STORED_IMAGES,
     )
     return exhibition_request, exhibitor
 

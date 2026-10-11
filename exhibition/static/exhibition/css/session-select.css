@@ -131,6 +131,13 @@
     overflow-wrap: anywhere;
 }
 
+.exhibition-session-option-detail {
+    display: block;
+    color: #777;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
 .exhibition-session-empty {
     margin: 0;
     padding: 10px 12px;

@@ -36,10 +36,27 @@
                     <tbody dragsort-url="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% for field in request_fields %}
                         <tr dragsort-id="{{ field.dragsort_id }}">
-                            <th>
+                            <th class="{% if field.lock_notice %}info-toggle-header{% endif %}">
                                 {% if field.is_custom %}
                                     <a href="{% url 'plugins:exhibition:call.questions.edit' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}">{{ field.label }}</a>
                                     <small class="text-muted">{% trans "Custom" %}</small>
+                                {% elif field.lock_notice %}
+                                    <div class="info-toggle-wrapper">
+                                        <span>{{ field.label }}</span>
+                                        <span class="info-toggle" data-toggle="info-box" role="button" tabindex="0" aria-expanded="false" aria-label="{% blocktrans trimmed with field=field.label %}Why {{ field }} cannot be removed{% endblocktrans %}">
+                                            <i class="fa fa-info-circle text-info"></i>
+                                        </span>
+                                        <div class="inline-info-box d-none">
+                                            <div class="talk-info-box">
+                                                <div class="talk-info-icon">
+                                                    <i class="fa fa-info-circle"></i>
+                                                </div>
+                                                <div class="talk-info-content">
+                                                    <span>{{ field.lock_notice }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 {% else %}
                                     {{ field.label }}
                                 {% endif %}

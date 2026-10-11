@@ -30,7 +30,14 @@ from eventyay.common.forms.mixins import (
     EventLocalizedModelChoiceField,
     EventLocalizedModelMultipleChoiceField,
 )
-from eventyay.common.forms.widgets import EmailEditorWidget, HtmlDateTimeInput, I18nEmailEditorWidget
+from eventyay.common.forms.widgets import (
+    EmailEditorWidget,
+    HtmlDateTimeInput,
+    I18nEmailEditorWidget,
+    I18nRichTextWidget,
+    RichTextWidget,
+)
+from eventyay.common.templatetags.filesize import filesize
 from eventyay.common.urls import normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.consts import SizeKey
@@ -71,6 +78,18 @@ from .social_links import (
     get_social_link_value,
 )
 from .utils import localized_value_for, merge_localized_value, pool_tag_choices
+
+
+def flag_oversized_upload(form, field_name, submitted):
+    """Reject an upload past the limit the field advertises, which ImageField itself does not check."""
+    if not isinstance(submitted, UploadedFile):
+        return False
+    key = SizeKey.UPLOAD_SIZE_PDF if field_name == "slides" else SizeKey.UPLOAD_SIZE_IMAGE
+    max_size = django_settings.MAX_SIZE_CONFIG[key]
+    if submitted.size <= max_size:
+        return False
+    form.add_error(field_name, _("The upload limit is {size}.").format(size=filesize(max_size)))
+    return True
 
 
 def get_tz_help(event):
@@ -318,9 +337,36 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 answer.options.clear()
 
 
-class SessionSelectWidget(forms.CheckboxSelectMultiple):
+class SearchableSelectWidget(forms.CheckboxSelectMultiple):
+    """Multi-select shown as chips with a searchable dropdown of the remaining options."""
+
     template_name = "exhibitors/session_select.html"
     option_template_name = "exhibitors/session_select_option.html"
+    placeholder = _("Nothing selected")
+    search_placeholder = _("Search…")
+    empty_text = _("Nothing matches your search.")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.option_details = {}
+
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        context["widget"]["placeholder"] = self.placeholder
+        context["widget"]["search_placeholder"] = self.search_placeholder
+        context["widget"]["empty_text"] = self.empty_text
+        return context
+
+    def create_option(self, *args, **kwargs):
+        option = super().create_option(*args, **kwargs)
+        option["detail"] = self.option_details.get(str(option["value"]), "")
+        return option
+
+
+class SessionSelectWidget(SearchableSelectWidget):
+    placeholder = _("No sessions selected")
+    search_placeholder = _("Search sessions…")
+    empty_text = _("No sessions match your search.")
 
 
 class SessionChoiceField(forms.ModelMultipleChoiceField):
@@ -511,14 +557,15 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         if self.instance and self.instance.pk:
             self.initial["lead_scanning_scope_by_device"] = self.instance.lead_scanning_scope_by_device
-        description_field = self.fields.get("description")
-        if description_field:
-            widget = description_field.widget
-            if isinstance(widget, forms.MultiWidget):
-                for sub_widget in widget.widgets:
-                    sub_widget.attrs.setdefault("rows", 4)
-            else:
-                widget.attrs.setdefault("rows", 4)
+        if "description" in self.fields:
+            self.fields["description"] = I18nFormField(
+                label=self.fields["description"].label,
+                required=False,
+                widget=I18nRichTextWidget,
+                widget_kwargs={"attrs": {"rows": 4}},
+            )
+            if self.event:
+                self.fields["description"].widget.enabled_locales = self.event.settings.get("locales")
         self.profile_field_settings = {}
         self.ordered_profile_keys = []
         if self.event:
@@ -591,8 +638,8 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 if index == 0:
                     if setting.get("custom_label"):
                         field.label = setting["custom_label"]
-                    if setting.get("custom_help_text"):
-                        field.help_text = setting["custom_help_text"]
+                    if setting.get("help_text"):
+                        field.help_text = setting["help_text"]
                 field._required = is_required
                 if key in self.PROFILE_COMPOSITE_KEYS or key == "booth_name":
                     continue
@@ -617,12 +664,18 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         setting = self.profile_field_settings.get(key)
         return bool(setting["active"] and setting["required"]) if setting else False
 
-    def _validate_required_file(self, field_name, has_new_upload):
-        """Flag a required file field when no upload or existing file is present."""
-        if not self.profile_key_is_required(field_name) or field_name not in self.fields:
+    def _validate_required_file(self, field_name, submitted):
+        """Flag a required file field when nothing is uploaded and nothing stored remains."""
+        if field_name not in self.fields:
             return
-        has_existing = bool(getattr(self.instance, f"visible_{field_name}_url", ""))
-        if not has_new_upload and not has_existing:
+        if flag_oversized_upload(self, field_name, submitted):
+            return
+        if not self.profile_key_is_required(field_name):
+            return
+        if isinstance(submitted, UploadedFile):
+            return
+        has_existing = submitted is not False and bool(getattr(self.instance, f"visible_{field_name}_url", ""))
+        if not has_existing:
             self.add_error(field_name, _("This field is required."))
 
     @property
@@ -675,7 +728,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             }:
                 self.add_error("slides", _("Slides upload must be a PDF file."))
 
-        self._validate_required_file("slides", has_new_slides_upload)
+        self._validate_required_file("slides", submitted_slides)
 
         for image_field in self.file_fields:
             if image_field == "slides" or image_field not in self.fields:
@@ -685,7 +738,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 self.files,
                 self.add_prefix(image_field),
             )
-            self._validate_required_file(image_field, isinstance(submitted_image, UploadedFile))
+            self._validate_required_file(image_field, submitted_image)
 
         if self.organization_type == "sponsor":
             is_sponsor = True
@@ -904,8 +957,8 @@ class CallSettingsForm(I18nModelForm):
         self.fields["call_text"] = I18nFormField(
             label=self.fields["call_text"].label,
             required=False,
-            widget=I18nEmailEditorWidget,
-            widget_kwargs={"attrs": {"rows": 8, "data-tiptap-profile": "richtext"}},
+            widget=I18nRichTextWidget,
+            widget_kwargs={"attrs": {"rows": 8}},
         )
         if self.event:
             self.fields["call_text"].widget.enabled_locales = self.event.settings.get("locales")
@@ -1205,7 +1258,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
     description = forms.CharField(
         required=False,
         label=_("Organization description"),
-        widget=forms.Textarea(attrs={"rows": 4}),
+        widget=RichTextWidget(attrs={"rows": 4}),
     )
     booth_name = forms.CharField(
         max_length=100,
@@ -1410,8 +1463,8 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 if index == 0:
                     if setting.get("custom_label"):
                         field.label = setting["custom_label"]
-                    if setting.get("custom_help_text"):
-                        field.help_text = setting["custom_help_text"]
+                    if setting.get("help_text"):
+                        field.help_text = setting["help_text"]
                 field._required = is_required
                 if key in file_field_keys or key == "booth_name":
                     continue
@@ -1519,8 +1572,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 self.files,
                 self.add_prefix("slides"),
             )
-        has_new_slides_upload = isinstance(submitted_slides, UploadedFile)
-        self.validate_required_file("slides", has_new_slides_upload)
+        self.validate_required_file("slides", submitted_slides)
         for image_field in ("logo", "banner"):
             if image_field not in self.fields:
                 continue
@@ -1529,7 +1581,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 self.files,
                 self.add_prefix(image_field),
             )
-            self.validate_required_file(image_field, isinstance(submitted_image, UploadedFile))
+            self.validate_required_file(image_field, submitted_image)
 
         if not cleaned_data["is_exhibitor"]:
             cleaned_data["booth_name"] = ""
@@ -1543,16 +1595,20 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
         return cleaned_data
 
-    def validate_required_file(self, field_name, has_new_upload):
-        """Flag a required file field when nothing is uploaded and nothing is stored."""
+    def validate_required_file(self, field_name, submitted):
+        """Flag a required file field when nothing is uploaded and nothing stored remains."""
+        if field_name not in self.fields:
+            return
+        if flag_oversized_upload(self, field_name, submitted):
+            return
         if self.draft_save:
             return
         if not self.field_setting_is_active(field_name) or not self.field_setting_is_required(field_name):
             return
-        if field_name not in self.fields:
+        if isinstance(submitted, UploadedFile):
             return
-        has_existing = bool(getattr(self.instance, f"visible_{field_name}_url", ""))
-        if not has_new_upload and not has_existing:
+        has_existing = submitted is not False and bool(getattr(self.instance, f"visible_{field_name}_url", ""))
+        if not has_existing:
             self.add_error(field_name, _("This field is required."))
 
     def save(self, commit=True):
@@ -2116,8 +2172,18 @@ class ExhibitionEmailQueueForm(forms.ModelForm):
         return scheduled_at
 
 
+class OrganizationSelectWidget(SearchableSelectWidget):
+    placeholder = _("No organizations selected")
+    search_placeholder = _("Search by organization name or email…")
+    empty_text = _("No organizations match your search.")
+
+
+REQUEST_CHOICE_PREFIX = "request-"
+PROFILE_CHOICE_PREFIX = "profile-"
+
+
 class ExhibitionComposeForm(forms.Form):
-    """Compose a broadcast email to a filtered group of applicants."""
+    """Compose a broadcast email to a filtered group of applicants, or to chosen organizations."""
 
     ORGANIZATION_TYPE_CHOICES = (
         ("", _("Exhibitors and sponsors")),
@@ -2125,13 +2191,13 @@ class ExhibitionComposeForm(forms.Form):
         ("sponsor", _("Sponsors only")),
     )
 
-    states = forms.MultipleChoiceField(
+    state = forms.ChoiceField(
         label=_("Application state"),
         choices=[
-            (state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT
+            ("", _("Any state")),
+            *((state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT),
         ],
-        initial=[ExhibitionRequestState.ACCEPTED],
-        widget=forms.CheckboxSelectMultiple,
+        required=False,
     )
     organization_type = forms.ChoiceField(
         label=_("Organization type"),
@@ -2144,6 +2210,12 @@ class ExhibitionComposeForm(forms.Form):
         required=False,
         empty_label=_("Any sponsor group"),
     )
+    organizations = forms.MultipleChoiceField(
+        label=_("Send to specific organizations"),
+        widget=OrganizationSelectWidget,
+        required=False,
+        help_text=_("When you select organizations here, the filters above are ignored."),
+    )
     subject = I18nFormField(label=_("Subject"), widget=I18nTextInput, max_length=255)
     scheduled_at = forms.DateTimeField(
         label=_("Send at"),
@@ -2154,13 +2226,17 @@ class ExhibitionComposeForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         self.event = kwargs.pop("event")
+        show_emails = kwargs.pop("show_emails", True)
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
+        self.set_organization_choices(show_emails)
         self.fields["body"] = ExhibitionEmailBodyFormField(
             label=_("Body"),
             placeholders=mail_helpers.placeholder_names(self.event, mail_helpers.REQUEST_PLACEHOLDER_CONTEXT),
         )
-        self.order_fields(["states", "organization_type", "sponsor_group", "subject", "body", "scheduled_at"])
+        self.order_fields(
+            ["state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at"]
+        )
         locales = self.event.settings.get("locales")
         self.fields["subject"].widget.enabled_locales = locales
         self.fields["body"].widget.enabled_locales = locales
@@ -2193,6 +2269,58 @@ class ExhibitionComposeForm(forms.Form):
         if scheduled_at and scheduled_at <= timezone.now():
             raise forms.ValidationError(_("The scheduled time must be in the future."))
         return scheduled_at
+
+    def set_organization_choices(self, show_emails):
+        """Offer every application plus the profiles organizers created without one."""
+        entries = []
+        for exhibition_request in mail_helpers.compose_recipients(self.event):
+            email = (exhibition_request.email or "").strip() or exhibition_request.user.email
+            state = exhibition_request.get_state_display()
+            entries.append(
+                (
+                    f"{REQUEST_CHOICE_PREFIX}{exhibition_request.pk}",
+                    localize_event_text(exhibition_request.name) or str(exhibition_request.name),
+                    f"{email} · {state}" if show_emails else state,
+                )
+            )
+        for profile in self.organizer_created_profiles():
+            entries.append(
+                (
+                    f"{PROFILE_CHOICE_PREFIX}{profile.pk}",
+                    localize_event_text(profile.name) or str(profile.name),
+                    profile.email if show_emails else "",
+                )
+            )
+        entries.sort(key=lambda entry: entry[1].lower())
+        field = self.fields["organizations"]
+        field.choices = [(value, label) for value, label, _detail in entries]
+        field.widget.option_details = {value: detail for value, _label, detail in entries}
+
+    def organizer_created_profiles(self):
+        return ExhibitorInfo.objects.filter(
+            event=self.event, source_requests__isnull=True, email__isnull=False
+        ).exclude(email="")
+
+    def chosen_pks(self, prefix):
+        return [
+            value[len(prefix) :] for value in self.cleaned_data.get("organizations") or () if value.startswith(prefix)
+        ]
+
+    def recipients(self):
+        """Applications and profiles to email: the chosen organizations, otherwise everyone matching the filters."""
+        if self.cleaned_data.get("organizations"):
+            exhibition_requests = mail_helpers.compose_recipients(self.event).filter(
+                pk__in=self.chosen_pks(REQUEST_CHOICE_PREFIX)
+            )
+            profiles = self.organizer_created_profiles().filter(pk__in=self.chosen_pks(PROFILE_CHOICE_PREFIX))
+            return exhibition_requests, profiles
+        exhibition_requests = mail_helpers.compose_recipients(
+            self.event,
+            states=[self.cleaned_data["state"]] if self.cleaned_data["state"] else None,
+            organization_type=self.cleaned_data["organization_type"],
+            sponsor_group=self.cleaned_data["sponsor_group"],
+        )
+        return exhibition_requests, ExhibitorInfo.objects.none()
 
 
 class ExhibitionMailTemplatesForm(SettingsForm):

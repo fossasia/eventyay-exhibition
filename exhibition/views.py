@@ -247,13 +247,21 @@ class PublicCallEnabledMixin:
     def has_private_call_access(self, settings):
         return self.request.session.get(call_access_session_key(self.request.event)) == settings.call_secret
 
+    def can_access_private_call(self, settings):
+        return self.has_private_call_access(settings)
+
+    def is_call_open(self, settings):
+        return settings.call_enabled and (
+            settings.call_is_open or (settings.call_private and self.has_private_call_access(settings))
+        )
+
     def dispatch(self, request, *args, **kwargs):
         settings = self.get_exhibition_settings()
         if self.require_call_enabled and not settings.call_enabled:
             raise Http404()
-        if self.hide_after_deadline and settings.call_hide_after_deadline and not settings.call_is_open:
+        if self.hide_after_deadline and settings.call_hide_after_deadline and not self.is_call_open(settings):
             raise Http404()
-        if self.enforce_private and settings.call_private and not self.has_private_call_access(settings):
+        if self.enforce_private and settings.call_private and not self.can_access_private_call(settings):
             raise Http404()
         return super().dispatch(request, *args, **kwargs)
 
@@ -462,6 +470,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         action = request.POST.get("action", "save_exhibitor_settings")
         active_tab = self.get_active_tab()
+        # Any form below that fails validation renders the page again, and the list context needs this.
+        self.object_list = self.get_queryset()
 
         if action == "save_exhibitor_settings":
             settings.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
@@ -477,7 +487,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         if action == "save_lead_settings":
             device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
             if not device_defaults_form.is_valid():
-                self.object_list = self.get_queryset()
                 return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
             device_defaults_form.save()
             settings.log_action(
@@ -545,7 +554,6 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 return redirect(self.get_settings_url("sponsors"))
 
             messages.error(self.request, _("We could not save your changes. See below for details."))
-            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     add_group_form=form,
@@ -568,26 +576,12 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 return redirect(self.get_settings_url("sponsors"))
 
             messages.error(self.request, _("We could not save your changes. See below for details."))
-            self.object_list = self.get_queryset()
             return self.render_to_response(
                 self.get_context_data(
                     edit_group_forms={group.pk: form},
                     expanded_group_pk=group.pk,
                 )
             )
-
-        if action == "delete_group":
-            group = get_object_or_404(SponsorGroup, pk=request.POST.get("group_id"), event=request.event)
-            if group.organizations.exists():
-                messages.error(
-                    self.request,
-                    _("This sponsor group cannot be deleted while it is assigned to organizations."),
-                )
-            else:
-                group.log_action(LOG_GROUP_DELETED, data={"name": group.localized_name}, user=request.user)
-                group.delete()
-                messages.success(self.request, _("Sponsor group deleted."))
-            return redirect(self.get_settings_url("sponsors"))
 
         messages.error(self.request, _("Unknown action."))
         return redirect(self.get_settings_url(active_tab))
@@ -762,7 +756,9 @@ class PublicExhibitorListView(PublicExhibitorBrowsingMixin, ListView):
 
     def get(self, request, *args, **kwargs):
         if "clear" in request.GET:
-            return redirect(request.path)
+            # Clearing the filters keeps an organizer in the preview they were looking at.
+            query = self.navigation_query(filtered=False)
+            return redirect(f"{request.path}?{query}" if query else request.path)
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -846,7 +842,10 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["event"] = self.request.event
-        context["settings"] = self.get_exhibition_settings()
+        settings = self.get_exhibition_settings()
+        context["settings"] = settings
+        context["call_is_open"] = self.is_call_open(settings)
+        context["private_call_access"] = settings.call_private and self.has_private_call_access(settings)
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -879,8 +878,8 @@ class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin,
     enforce_private = True
     require_call_enabled = False
 
-    def has_private_call_access(self, settings):
-        if super().has_private_call_access(settings):
+    def can_access_private_call(self, settings):
+        if super().can_access_private_call(settings):
             return True
         user = self.request.user
         if not user.is_authenticated:
@@ -897,9 +896,10 @@ class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin,
         context = super().get_context_data(**kwargs)
         settings = self.get_exhibition_settings()
         context["settings"] = settings
+        context["call_is_open"] = self.is_call_open(settings)
         for exhibition_request in context["exhibition_requests"]:
             exhibition_request.submitter_can_edit = exhibition_request.editable and (
-                not exhibition_request.requires_open_call_to_edit or settings.call_is_open
+                not exhibition_request.requires_open_call_to_edit or context["call_is_open"]
             )
         return context
 
@@ -1035,7 +1035,7 @@ class UserRequestCreateView(
             raise Http404()
         if settings.call_private and not self.has_private_call_access(settings):
             raise Http404()
-        if not settings.call_is_open:
+        if not self.is_call_open(settings):
             if settings.call_hide_after_deadline:
                 raise Http404()
             messages.error(request, _("The call for exhibitors is closed."))
@@ -1105,7 +1105,7 @@ class UserRequestEditView(
             return False
         if not self.object.requires_open_call_to_edit:
             return True
-        return self.get_exhibition_settings().call_is_open
+        return self.is_call_open(self.get_exhibition_settings())
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -1362,6 +1362,50 @@ class SponsorGroupFrontPageToggleView(EventPermissionRequiredMixin, View):
         group.show_on_front_page = not group.show_on_front_page
         group.save(update_fields=["show_on_front_page"])
         return JsonResponse({"show_on_front_page": group.show_on_front_page})
+
+
+class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
+    http_method_names = ["get", "post", "head", "options"]
+    model = SponsorGroup
+    permission = "can_change_settings"
+    template_name = "exhibitors/sponsor_group_delete.html"
+
+    def get_queryset(self):
+        return SponsorGroup.objects.filter(event=self.request.event)
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        if self.object.organizations.exists():
+            messages.error(
+                request,
+                _("This sponsor group cannot be deleted while it is assigned to organizations."),
+            )
+            return redirect(self.get_success_url())
+        return response
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = self.get_queryset().select_for_update().get(pk=self.object.pk)
+        if self.object.organizations.exists():
+            messages.error(
+                self.request,
+                _("This sponsor group cannot be deleted while it is assigned to organizations."),
+            )
+            return redirect(self.get_success_url())
+
+        self.object.log_action(
+            LOG_GROUP_DELETED,
+            data={"name": self.object.localized_name},
+            user=self.request.user,
+        )
+        messages.success(self.request, _("Sponsor group deleted."))
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse(
+            "plugins:exhibition:settings.sponsors",
+            kwargs=event_kwargs(self.request.event),
+        )
 
 
 class SponsorGroupReorderView(EventPermissionRequiredMixin, View):
@@ -1747,6 +1791,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": definition.get("supports_required", True),
                     "active_locked": definition.get("active_locked", False),
                     "required_locked": definition.get("required_locked", False),
+                    "lock_notice": definition.get("lock_notice", ""),
                     "answer_count": answer_counts.get(key, 0),
                     "is_custom": False,
                 }
@@ -1764,6 +1809,7 @@ class ExhibitionQuestionListView(EventPermissionRequiredMixin, ListView):
                     "supports_required": True,
                     "active_locked": False,
                     "required_locked": False,
+                    "lock_notice": "",
                     "answer_count": question.answer_count,
                     "is_custom": True,
                     "pk": question.pk,
@@ -2058,12 +2104,11 @@ class ExhibitionDefaultFieldEditView(DefaultFieldMixin, FormView):
         kwargs = super().get_form_kwargs()
         field_setting = self.get_field_setting()
         kwargs["field_setting"] = field_setting
-        kwargs.setdefault(
-            "initial",
+        kwargs.setdefault("initial", {}).update(
             {
                 "label": field_setting["custom_label"] or "",
                 "help_text": field_setting["custom_help_text"] or "",
-            },
+            }
         )
         return kwargs
 
@@ -2771,6 +2816,9 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
+        kwargs["show_emails"] = not should_hide_applicant_emails(
+            self.request.user, self.request.event, request=self.request
+        )
         return kwargs
 
     def get_initial(self):
@@ -2796,17 +2844,13 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         scheduled_at = form.cleaned_data.get("scheduled_at")
         send_now = "_send" in self.request.POST and not scheduled_at
 
-        recipients = mail_helpers.compose_recipients(
-            event,
-            states=form.cleaned_data["states"],
-            organization_type=form.cleaned_data["organization_type"],
-            sponsor_group=form.cleaned_data["sponsor_group"],
-        )
+        exhibition_requests, profiles = form.recipients()
         created = mail_helpers.queue_compose_emails(
             event,
-            recipients,
+            exhibition_requests,
             form.cleaned_data["subject"],
             form.cleaned_data["body"],
+            exhibitors=profiles,
             scheduled_at=scheduled_at,
             send_now=send_now,
             requestor=self.request.user,

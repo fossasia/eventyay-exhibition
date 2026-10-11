@@ -1,0 +1,94 @@
+{% extends "eventyay_common/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% translate "My Exhibitions" %}{% endblock %}
+
+{% block content %}
+    <h1>{% translate "My Exhibitions" %}</h1>
+
+    <div class="advanced-filter-search" data-advanced-filter-search>
+        <form class="filter-form advanced-filter-search-form" action="" method="get">
+            <div class="advanced-filter-search-bar">
+                <div class="input-group advanced-filter-search-query-group">
+                    <input id="id_search" type="text" name="search" class="form-control" placeholder="{% translate 'Search exhibitions…' %}" aria-label="{% translate 'Search exhibitions…' %}" value="{{ filter_form.search.value|default_if_none:'' }}">
+                    <span class="input-group-btn">
+                        <button class="btn btn-primary" type="submit">
+                            <span class="fa fa-search" aria-hidden="true"></span>
+                            {% translate "Search" %}
+                        </button>
+                    </span>
+                </div>
+                <div class="advanced-filter-field advanced-filter-field--inline">
+                    {% bootstrap_field filter_form.event layout='inline' %}
+                </div>
+                <div class="advanced-filter-search-actions">
+                    <button class="btn btn-primary" type="submit">
+                        <span class="fa fa-filter" aria-hidden="true"></span>
+                        {% translate "Filter" %}
+                    </button>
+                    <a href="{{ request.path }}" class="btn btn-default btn-clear-filter" aria-label="{% translate 'Clear filters' %}" title="{% translate 'Clear filters' %}">
+                        <span class="fa fa-eraser" aria-hidden="true"></span>
+                        <span class="sr-only">{% translate "Clear filters" %}</span>
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div data-ajax-results-region>
+        {% if entries %}
+            <div class="table-responsive mt-3">
+                <table class="table table-condensed table-hover events-table">
+                    <thead>
+                    <tr>
+                        <th>{% translate "Organization" %}</th>
+                        <th>{% translate "Event" %}</th>
+                        <th>{% translate "Status" %}</th>
+                        <th class="text-right"></th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for entry in entries %}
+                        <tr>
+                            <td class="event-name-col" data-label="{% translate 'Organization' %}">
+                                {% if entry.request_url %}
+                                    <a href="{{ entry.request_url }}">{{ entry.name }}</a>
+                                {% else %}
+                                    {{ entry.name }}
+                                {% endif %}
+                            </td>
+                            <td data-label="{% translate 'Event' %}">
+                                <a href="{% url 'presale:event.index' event=entry.event.slug organizer=entry.event.organizer.slug %}">
+                                    {{ entry.event.name }}
+                                </a>
+                            </td>
+                            <td data-label="{% translate 'Status' %}">
+                                <span class="label {{ entry.status_class }}">{{ entry.status }}</span>
+                            </td>
+                            <td class="text-right events-table__cell--no-border">
+                                {% if entry.vouchers_url %}
+                                    <a class="btn btn-default btn-sm" href="{{ entry.vouchers_url }}">
+                                        <i class="fa fa-ticket"></i> {% translate "Vouchers" %}
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% include "pretixcontrol/pagination.html" %}
+        {% elif has_active_filters %}
+            <div class="alert alert-info">{% translate "No exhibitions match your filters." %}</div>
+        {% else %}
+            {% url 'presale:events.upcoming' as upcoming_url %}
+            {% url 'eventyay_common:dashboard' as dashboard_url %}
+            {% translate "No exhibitions yet" as empty_title %}
+            {% translate "Apply to exhibit at an event, or ask an organizer to add you, and your exhibitions will appear here." as empty_description %}
+            {% translate "Find events" as empty_primary_label %}
+            {% translate "Go to dashboard" as empty_secondary_label %}
+            {% include "eventyay_common/includes/personal_empty_state.html" with icon="building-o" title=empty_title description=empty_description primary_url=upcoming_url primary_label=empty_primary_label secondary_url=dashboard_url secondary_label=empty_secondary_label %}
+        {% endif %}
+    </div>
+{% endblock %}

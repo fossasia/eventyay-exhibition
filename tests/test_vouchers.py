@@ -325,6 +325,32 @@ def test_queue_voucher_email_resolves_placeholders_with_the_vouchers_role(vouche
     assert vouchers[0].code in queued.body
 
 
+def test_my_exhibitions_url_is_absolute():
+    url = mail_helpers.my_exhibitions_url()
+
+    assert url.startswith(("http://", "https://"))
+    assert url.endswith("/common/exhibitions/")
+
+
+def test_default_voucher_template_links_to_my_exhibitions():
+    _subject, body = mail_helpers.DEFAULT_TEMPLATES[mail_helpers.VOUCHERS]
+
+    assert "{my_exhibitions_url}" in str(body)
+    assert "{login_email}" in str(body)
+
+
+@pytest.mark.django_db
+def test_voucher_email_points_the_exhibitor_to_my_exhibitions(voucher_event):
+    with scopes_disabled():
+        exhibitor = _mailed_exhibitor(voucher_event)
+        queued = mail_helpers.queue_voucher_email(voucher_event, exhibitor, _issue(exhibitor))
+
+    assert "{my_exhibitions_url}" not in queued.body
+    assert mail_helpers.my_exhibitions_url() in queued.body
+    assert "{login_email}" not in queued.body
+    assert "acme@example.com" in queued.body
+
+
 @pytest.mark.django_db
 def test_queue_voucher_email_returns_none_without_an_address(voucher_event):
     with scopes_disabled():

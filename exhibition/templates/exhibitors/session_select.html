@@ -9,7 +9,7 @@
        aria-controls="{{ widget.attrs.id }}-session-panel">
     <span class="exhibition-session-chips" data-session-chips data-remove-label="{% translate 'Remove' %}"></span>
     <span class="exhibition-session-placeholder" data-session-placeholder>
-      {% translate 'No sessions selected' %}
+      {{ widget.placeholder }}
     </span>
     <span class="exhibition-session-caret fa fa-chevron-down" aria-hidden="true"></span>
   </div>
@@ -19,9 +19,9 @@
       <input type="search"
              class="form-control exhibition-session-search"
              data-session-search
-             placeholder="{% translate 'Search sessions…' %}"
+             placeholder="{{ widget.search_placeholder }}"
              autocomplete="off"
-             aria-label="{% translate 'Search sessions' %}">
+             aria-label="{{ widget.search_placeholder }}">
       <button type="button" class="btn btn-default exhibition-session-clear" data-session-deselect-all>
         {% translate 'Deselect all' %}
       </button>
@@ -33,6 +33,7 @@
           <li class="exhibition-session-option"
               data-session-option
               data-session-label="{{ option.label }}"
+              data-session-search="{{ option.label }} {{ option.detail }}"
               role="option"
               aria-selected="{% if option.attrs.checked %}true{% else %}false{% endif %}">
             {% include option.template_name with widget=option %}
@@ -42,7 +43,7 @@
     </ul>
 
     <p class="exhibition-session-empty" data-session-empty hidden>
-      {% translate 'No sessions match your search.' %}
+      {{ widget.empty_text }}
     </p>
   </div>
 </div>

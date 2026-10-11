@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load bootstrap3 %}
 {% load event_tags %}
+{% load rich_text %}
 {% load static %}
 
 {% block custom_header %}
@@ -110,7 +111,7 @@
             </dl>
             {% if exhibition_request.description %}
                 <h4>{% trans "Description" %}</h4>
-                <p>{{ exhibition_request.description|event_localize|linebreaksbr }}</p>
+                <div class="exhibition-detail-description">{{ exhibition_request.description|event_localize|rich_text }}</div>
             {% endif %}
             {% if exhibition_request.notes %}
                 <h4>{% trans "Message to organizers" %}</h4>
