@@ -1327,8 +1327,8 @@ def test_send_request_organizer_email_deduplicates_members(mail_event, exhibitio
 
     send_mail.assert_called_once()
     assert send_mail.call_args.kwargs["email"] == "reviewer@example.com"
-    
-    
+
+
 @pytest.mark.django_db
 def test_request_message_template_is_editable_under_email_templates(mail_event):
     form = ExhibitionMailTemplatesForm(obj=mail_event)
