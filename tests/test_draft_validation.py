@@ -1,4 +1,5 @@
 from io import BytesIO
+from unittest.mock import patch
 
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
@@ -9,9 +10,9 @@ from eventyay.base.models import Team
 from eventyay.base.models.auth import User
 from PIL import Image
 
+from exhibition import mail as mail_helpers
 from exhibition.forms import ExhibitionRequestForm
 from exhibition.models import (
-    ExhibitionEmailQueue,
     ExhibitionQuestion,
     ExhibitionQuestionVariant,
     ExhibitionRequest,
@@ -222,8 +223,14 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         assert exhibition_request.state == ExhibitionRequestState.DRAFT
 
         image = BytesIO()
-        Image.new("RGB", (100, 100), "white").save(image, format="JPEG")
+        Image.new("RGB", (100, 100), color="white").save(image, format="PNG")
         image.seek(0)
+
+        logo = SimpleUploadedFile(
+            "test_logo.png",
+            image.getvalue(),
+            content_type="image/png",
+        )
 
         submit_request = RequestFactory().post(
             "/",
@@ -231,11 +238,7 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
                 action="submit",
                 name="Acme Corp Updated",
                 email="applicant@example.com",
-                logo=SimpleUploadedFile(
-                    "test_logo.jpg",
-                    image.read(),
-                    content_type="image/jpeg",
-                ),
+                logo=logo,
                 **{
                     "social_links-TOTAL_FORMS": "1",
                     "social_links-INITIAL_FORMS": "0",
@@ -257,16 +260,26 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
         view.object = exhibition_request
         view.request = submit_request
         view.kwargs = {"code": exhibition_request.code}
-        with TestCase.captureOnCommitCallbacks(execute=True):
+        with (
+            patch.object(mail_helpers, "mail") as send_mail,
+            TestCase.captureOnCommitCallbacks(execute=True),
+        ):
             response = view.post(submit_request, code=exhibition_request.code)
+
+        print("Response:", response.status_code)
+        print("Form errors:", view.get_form().errors)
+        print("Social errors:", view.social_media_formset.errors)
+        print("Social non-form errors:", view.social_media_formset.non_form_errors())
+        print("Extra errors:", view.extra_links_formset.errors)
+        print("Extra non-form errors:", view.extra_links_formset.non_form_errors())
 
         assert response.status_code == 302
         exhibition_request.refresh_from_db()
         assert exhibition_request.state == ExhibitionRequestState.SUBMITTED
-        assert ExhibitionEmailQueue.objects.filter(
-            exhibition_request=exhibition_request,
-            to_email="reviewer@example.com",
-        ).exists()
+        assert any(
+            call.kwargs.get("email") == "reviewer@example.com" and call.kwargs.get("auto_email") is False
+            for call in send_mail.call_args_list
+        )
 
         # Submit save with missing email fails
         invalid_submit_request = RequestFactory().post(
