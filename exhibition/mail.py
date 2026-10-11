@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.utils.html import escape
 from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, ngettext, override
 from eventyay.base.models import PriceModeChoices
+from eventyay.base.services.mail import mail
 from i18nfield.strings import LazyI18nString
 
 logger = logging.getLogger(__name__)
@@ -451,9 +452,9 @@ def _collect_team_members(teams, members, seen):
                 members.append(member)
 
 
-def queue_request_organizer_emails(event, request, action, *, send_now=False, requestor=None):
-    """Queue a notification for organizers who can manage exhibition requests."""
-    from .models import ExhibitionEmailQueue, ExhibitionRequest, ExhibitionRequestState
+def send_request_organizer_emails(event, request, action):
+    """Send a notification to organizers who can manage exhibition requests."""
+    from .models import ExhibitionRequest, ExhibitionRequestState
 
     teams = event.teams.filter(
         Q(can_change_exhibition_proposals=True) | Q(is_exhibition_reviewer=True)
@@ -470,7 +471,7 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
         _collect_team_members(teams, members, seen)
 
     if not members:
-        return []
+        return
 
     subject_tpl, body_tpl = get_email_template(event, REQUEST_ORGANIZER)
 
@@ -488,7 +489,6 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
         }
     )
 
-    created = []
     for member in members:
         locale = recipient_locale(event, member)
         with override(locale):
@@ -499,21 +499,21 @@ def queue_request_organizer_emails(event, request, action, *, send_now=False, re
                     "request_action": gettext(action),
                 }
             )
-        created.append(
-            ExhibitionEmailQueue.objects.create(
-                event=event,
-                exhibition_request=request,
-                role=REQUEST_ORGANIZER,
-                to_email=member.email.strip(),
+        try:
+            mail(
+                email=member.email.strip(),
                 subject=_render(subject_tpl, member_context, locale),
-                body=_render(body_tpl, member_context, locale),
-                locale=locale or "",
+                template=LazyI18nString(_render(body_tpl, member_context, locale)),
+                context={},
+                event=event,
+                locale=locale or None,
+                auto_email=False,
             )
-        )
-        if send_now:
-            created[-1].send(requestor=requestor)
-
-    return created
+        except Exception:
+            logger.exception(
+                "Failed to send organizer notification to member %s",
+                member.pk,
+            )
 
 
 def compose_recipients(event, states=None, organization_type=None, sponsor_group=None):

@@ -158,32 +158,9 @@ def send_request_confirmation(event, exhibition_request, requestor):
     )
 
 
-def send_request_organizer_notification(event, exhibition_request, action, requestor):
+def send_request_organizer_notification(event, exhibition_request, action):
     """Notify eligible organizers once the applicant action commits."""
-
-    def queue_organizer_emails():
-        from .tasks import send_queued_email
-
-        queued_emails = mail_helpers.queue_request_organizer_emails(
-            event,
-            exhibition_request,
-            action,
-            requestor=requestor,
-        )
-
-        for queued in queued_emails:
-            try:
-                send_queued_email.apply_async(
-                    args=[event.pk, queued.pk],
-                    retry=True,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to dispatch organizer notification email %s",
-                    queued.pk,
-                )
-
-    transaction.on_commit(queue_organizer_emails)
+    transaction.on_commit(lambda: mail_helpers.send_request_organizer_emails(event, exhibition_request, action))
 
 
 def queue_exhibitor_access_mail(request, exhibitor):
@@ -1093,7 +1070,6 @@ class UserRequestCreateView(
                 self.request.event,
                 self.object,
                 "submitted",
-                self.request.user,
             )
         messages.success(self.request, _("Your request has been saved."))
         return response
@@ -1174,7 +1150,6 @@ class UserRequestEditView(
                 self.request.event,
                 self.object,
                 "submitted",
-                self.request.user,
             )
         if form.changed_data:
             self.object.log_action(
@@ -1229,7 +1204,6 @@ class UserRequestWithdrawView(PublicCallEnabledMixin, PublicEventLoginRequiredMi
                 request.event,
                 self.object,
                 "withdrawn",
-                request.user,
             )
             messages.success(request, _("Your request has been withdrawn."))
         else:
@@ -1271,7 +1245,6 @@ class UserRequestReinstateView(PublicCallEnabledMixin, PublicEventLoginRequiredM
                 request.event,
                 self.object,
                 "reinstated",
-                request.user,
             )
             messages.success(request, _("Your request has been reinstated and is pending review again."))
         else:

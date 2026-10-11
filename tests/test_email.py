@@ -1221,7 +1221,9 @@ def test_no_credentials_go_out_while_lead_scanning_is_off(mail_event):
 
 
 @pytest.mark.django_db
-def test_queue_request_organizer_email_submitted(mail_event, exhibition_request):
+def test_send_request_organizer_email_submitted(mail_event, exhibition_request):
+    from exhibition.models import ExhibitionEmailQueue
+
     team = Team.objects.create(
         organizer=mail_event.organizer,
         all_events=True,
@@ -1234,25 +1236,28 @@ def test_queue_request_organizer_email_submitted(mail_event, exhibition_request)
     )
     team.members.add(member)
 
-    queued = mail_helpers.queue_request_organizer_emails(
-        mail_event,
-        exhibition_request,
-        "submitted",
-    )
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "submitted")
 
-    assert len(queued) == 1
-    assert queued[0].to_email == "reviewer@example.com"
-    assert "Exhibitor" in queued[0].body
-    assert "submitted" in queued[0].body
-    assert "Acme Corp" in queued[0].body
-    assert "Jane Applicant" in queued[0].body
-    assert "applicant@example.com" in queued[0].body
-    assert "{contact_name}" not in queued[0].body
-    assert "{pending_request_count}" not in queued[0].body
+    send_mail.assert_called_once()
+    kwargs = send_mail.call_args.kwargs
+    assert kwargs["email"] == "reviewer@example.com"
+    assert kwargs["event"] == mail_event
+    assert kwargs["auto_email"] is False
+
+    body = str(kwargs["template"])
+    assert "Exhibitor" in body
+    assert "submitted" in body
+    assert "Acme Corp" in body
+    assert "Jane Applicant" in body
+    assert "applicant@example.com" in body
+    assert "{contact_name}" not in body
+    assert "{pending_request_count}" not in body
+    assert not ExhibitionEmailQueue.objects.filter(exhibition_request=exhibition_request).exists()
 
 
 @pytest.mark.django_db
-def test_queue_request_organizer_email_withdrawn(mail_event, exhibition_request):
+def test_send_request_organizer_email_withdrawn(mail_event, exhibition_request):
     team = Team.objects.create(
         organizer=mail_event.organizer,
         all_events=True,
@@ -1265,19 +1270,16 @@ def test_queue_request_organizer_email_withdrawn(mail_event, exhibition_request)
     )
     team.members.add(member)
 
-    queued = mail_helpers.queue_request_organizer_emails(
-        mail_event,
-        exhibition_request,
-        "withdrawn",
-    )
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "withdrawn")
 
-    assert len(queued) == 1
-    assert queued[0].to_email == "manager@example.com"
-    assert "withdrawn" in queued[0].body
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["email"] == "manager@example.com"
+    assert "withdrawn" in str(send_mail.call_args.kwargs["template"])
 
 
 @pytest.mark.django_db
-def test_queue_request_organizer_email_falls_back_to_event_settings_team(mail_event, exhibition_request):
+def test_send_request_organizer_email_falls_back_to_event_settings_team(mail_event, exhibition_request):
     team = Team.objects.create(
         organizer=mail_event.organizer,
         all_events=True,
@@ -1290,19 +1292,16 @@ def test_queue_request_organizer_email_falls_back_to_event_settings_team(mail_ev
     )
     team.members.add(member)
 
-    queued = mail_helpers.queue_request_organizer_emails(
-        mail_event,
-        exhibition_request,
-        "reinstated",
-    )
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "reinstated")
 
-    assert len(queued) == 1
-    assert queued[0].to_email == "settings@example.com"
-    assert "reinstated" in queued[0].body
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["email"] == "settings@example.com"
+    assert "reinstated" in str(send_mail.call_args.kwargs["template"])
 
 
 @pytest.mark.django_db
-def test_queue_request_organizer_email_deduplicates_members(mail_event, exhibition_request):
+def test_send_request_organizer_email_deduplicates_members(mail_event, exhibition_request):
     first_team = Team.objects.create(
         organizer=mail_event.organizer,
         all_events=True,
@@ -1321,11 +1320,8 @@ def test_queue_request_organizer_email_deduplicates_members(mail_event, exhibiti
     first_team.members.add(member)
     second_team.members.add(member)
 
-    queued = mail_helpers.queue_request_organizer_emails(
-        mail_event,
-        exhibition_request,
-        "submitted",
-    )
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "submitted")
 
-    assert len(queued) == 1
-    assert queued[0].to_email == "reviewer@example.com"
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["email"] == "reviewer@example.com"
