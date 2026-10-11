@@ -1325,8 +1325,8 @@ def test_send_request_organizer_email_deduplicates_members(mail_event, exhibitio
 
     send_mail.assert_called_once()
     assert send_mail.call_args.kwargs["email"] == "reviewer@example.com"
-    
-    
+
+
 def _compose_form(event, **data):
     return ExhibitionComposeForm(
         data={
