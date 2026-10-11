@@ -254,12 +254,10 @@ def exhibition_mail_placeholders(sender, **kwargs):
             lambda exhibition_request: exhibition_request.code,
             "ABCD1234EFGH",
         ),
-                SimpleFunctionalMailTextPlaceholder(
+        SimpleFunctionalMailTextPlaceholder(
             "request_type",
             ["exhibition_request"],
-            lambda exhibition_request: (
-                _("Sponsor") if exhibition_request.is_sponsor else _("Exhibitor")
-            ),
+            lambda exhibition_request: _("Sponsor") if exhibition_request.is_sponsor else _("Exhibitor"),
             _("Exhibitor"),
         ),
         SimpleFunctionalMailTextPlaceholder(
@@ -282,8 +280,7 @@ def exhibition_mail_placeholders(sender, **kwargs):
             "contact_email",
             ["exhibition_request"],
             lambda exhibition_request: (
-                exhibition_request.email
-                or (exhibition_request.user.email if exhibition_request.user_id else "")
+                exhibition_request.email or (exhibition_request.user.email if exhibition_request.user_id else "")
             ),
             "jane@example.com",
         ),
