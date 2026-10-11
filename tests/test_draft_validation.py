@@ -239,6 +239,11 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
                 name="Acme Corp Updated",
                 email="applicant@example.com",
                 logo=logo,
+                banner=SimpleUploadedFile(
+                    "test_banner.png",
+                    image.getvalue(),
+                    content_type="image/png",
+                ),
                 **{
                     "social_links-TOTAL_FORMS": "1",
                     "social_links-INITIAL_FORMS": "0",
@@ -265,13 +270,6 @@ def test_user_request_edit_view_draft_and_submit_behavior(event):
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             response = view.post(submit_request, code=exhibition_request.code)
-
-        print("Response:", response.status_code)
-        print("Form errors:", view.get_form().errors)
-        print("Social errors:", view.social_media_formset.errors)
-        print("Social non-form errors:", view.social_media_formset.non_form_errors())
-        print("Extra errors:", view.extra_links_formset.errors)
-        print("Extra non-form errors:", view.extra_links_formset.non_form_errors())
 
         assert response.status_code == 302
         exhibition_request.refresh_from_db()
