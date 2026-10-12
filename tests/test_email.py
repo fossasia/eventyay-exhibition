@@ -5,10 +5,12 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.http import Http404
 from django.test import RequestFactory
 from django.utils import timezone
 from django.utils.translation import get_language
 from django_scopes import scopes_disabled
+from eventyay.base.models import LogEntry, Team
 from eventyay.base.models.auth import User
 from i18nfield.strings import LazyI18nString
 
@@ -20,6 +22,7 @@ from exhibition.forms import (
     ExhibitionMailTemplatesForm,
 )
 from exhibition.models import (
+    LOG_REQUEST_EMAILED,
     ExhibitionEmailQueue,
     ExhibitionRequest,
     ExhibitionRequestState,
@@ -692,7 +695,7 @@ def test_queue_compose_emails_send_now(mail_event):
 
 @pytest.mark.django_db
 def test_compose_form_requires_subject_and_body(mail_event):
-    form = ExhibitionComposeForm(data={"states": [ExhibitionRequestState.ACCEPTED]}, event=mail_event)
+    form = ExhibitionComposeForm(data={"state": ExhibitionRequestState.ACCEPTED}, event=mail_event)
     assert not form.is_valid()
     assert "subject" in form.errors
     assert "body" in form.errors
@@ -713,7 +716,7 @@ def test_compose_form_requires_subject_and_body(mail_event):
 def test_compose_form_rejects_empty_html_body(mail_event, empty_body):
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionRequestState.ACCEPTED],
+            "state": ExhibitionRequestState.ACCEPTED,
             **_compose_data(mail_event, subject="Hi", body=empty_body),
         },
         event=mail_event,
@@ -734,7 +737,7 @@ def test_compose_form_rejects_empty_html_body(mail_event, empty_body):
 def test_compose_form_accepts_valid_body(mail_event, valid_body):
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionRequestState.ACCEPTED],
+            "state": ExhibitionRequestState.ACCEPTED,
             **_compose_data(mail_event, subject="Hi", body=valid_body),
         },
         event=mail_event,
@@ -793,7 +796,7 @@ def test_compose_view_saves_to_outbox(mail_event):
     _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionRequestState.ACCEPTED],
+            "state": ExhibitionRequestState.ACCEPTED,
             "organization_type": "",
             **_compose_data(mail_event, subject="Hi", body="Body"),
         },
@@ -831,7 +834,7 @@ def test_queue_compose_emails_stores_scheduled_at(mail_event):
 def test_compose_form_rejects_past_scheduled_at(mail_event):
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionRequestState.ACCEPTED],
+            "state": ExhibitionRequestState.ACCEPTED,
             "scheduled_at": (timezone.now() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
             **_compose_data(mail_event, subject="Hi", body="Body"),
         },
@@ -847,7 +850,7 @@ def test_compose_view_schedules_emails(mail_event):
     when = timezone.now() + timedelta(days=1)
     form = ExhibitionComposeForm(
         data={
-            "states": [ExhibitionRequestState.ACCEPTED],
+            "state": ExhibitionRequestState.ACCEPTED,
             "organization_type": "",
             "scheduled_at": when.strftime("%Y-%m-%dT%H:%M"),
             **_compose_data(mail_event, subject="Hi", body="Body"),
@@ -1217,3 +1220,359 @@ def test_no_credentials_go_out_while_lead_scanning_is_off(mail_event):
         assert not _access_emails(mail_event).exists()
 
     assert _message_texts(request) == []
+
+
+@pytest.mark.django_db
+def test_send_request_organizer_email_submitted(mail_event, exhibition_request):
+    from exhibition.models import ExhibitionEmailQueue
+
+    team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        is_exhibition_reviewer=True,
+    )
+    member = User.objects.create_user(
+        email="reviewer@example.com",
+        password="pw",
+        fullname="Reviewer",
+    )
+    team.members.add(member)
+
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "submitted")
+
+    send_mail.assert_called_once()
+    kwargs = send_mail.call_args.kwargs
+    assert kwargs["email"] == "reviewer@example.com"
+    assert kwargs["event"] == mail_event
+    assert kwargs["auto_email"] is False
+
+    body = str(kwargs["template"])
+    assert "Exhibitor" in body
+    assert "submitted" in body
+    assert "Acme Corp" in body
+    assert "Jane Applicant" in body
+    assert "applicant@example.com" in body
+    assert "{contact_name}" not in body
+    assert "{pending_request_count}" not in body
+    assert not ExhibitionEmailQueue.objects.filter(exhibition_request=exhibition_request).exists()
+
+
+@pytest.mark.django_db
+def test_send_request_organizer_email_withdrawn(mail_event, exhibition_request):
+    team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        can_change_exhibition_proposals=True,
+    )
+    member = User.objects.create_user(
+        email="manager@example.com",
+        password="pw",
+        fullname="Manager",
+    )
+    team.members.add(member)
+
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "withdrawn")
+
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["email"] == "manager@example.com"
+    assert "withdrawn" in str(send_mail.call_args.kwargs["template"])
+
+
+@pytest.mark.django_db
+def test_send_request_organizer_email_falls_back_to_event_settings_team(mail_event, exhibition_request):
+    team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        can_change_event_settings=True,
+    )
+    member = User.objects.create_user(
+        email="settings@example.com",
+        password="pw",
+        fullname="Settings Manager",
+    )
+    team.members.add(member)
+
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "reinstated")
+
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["email"] == "settings@example.com"
+    assert "reinstated" in str(send_mail.call_args.kwargs["template"])
+
+
+@pytest.mark.django_db
+def test_send_request_organizer_email_deduplicates_members(mail_event, exhibition_request):
+    first_team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        is_exhibition_reviewer=True,
+    )
+    second_team = Team.objects.create(
+        organizer=mail_event.organizer,
+        all_events=True,
+        can_change_exhibition_proposals=True,
+    )
+    member = User.objects.create_user(
+        email="reviewer@example.com",
+        password="pw",
+        fullname="Reviewer",
+    )
+    first_team.members.add(member)
+    second_team.members.add(member)
+
+    with patch.object(mail_helpers, "mail") as send_mail:
+        mail_helpers.send_request_organizer_emails(mail_event, exhibition_request, "submitted")
+
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["email"] == "reviewer@example.com"
+
+
+@pytest.mark.django_db
+def test_request_message_template_is_editable_under_email_templates(mail_event):
+    form = ExhibitionMailTemplatesForm(obj=mail_event)
+
+    assert mail_helpers.subject_settings_key(mail_helpers.REQUEST_MESSAGE) in form.fields
+    assert mail_helpers.body_settings_key(mail_helpers.REQUEST_MESSAGE) in form.fields
+
+
+def _single_compose_view(event, exhibition_request, data=None):
+    request = _organiser_request(event, data=data)
+    request.GET = request.GET.copy()
+    request.GET["request"] = exhibition_request.code
+    view = EmailComposeView()
+    view.request = request
+    view.kwargs = {}
+    return view, request
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_drops_the_bulk_filters(mail_event):
+    form = ExhibitionComposeForm(event=mail_event, single_recipient=True)
+
+    assert not {"state", "organization_type", "sponsor_group", "organizations"} & set(form.fields)
+    assert {"subject", "body", "scheduled_at"} <= set(form.fields)
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_is_prefilled_from_the_request_message_template(mail_event, exhibition_request):
+    view, _request = _single_compose_view(mail_event, exhibition_request)
+
+    with scopes_disabled():
+        initial = view.get_initial()
+
+    expected_subject, expected_body = mail_helpers.get_email_template(mail_event, mail_helpers.REQUEST_MESSAGE)
+    assert str(initial["subject"]) == str(expected_subject)
+    assert str(initial["body"]) == str(expected_body)
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_rejects_an_unknown_request(mail_event):
+    request = _organiser_request(mail_event)
+    request.GET = request.GET.copy()
+    request.GET["request"] = "NOPE"
+    view = EmailComposeView()
+    view.request = request
+
+    with scopes_disabled(), pytest.raises(Http404):
+        view.single_request
+
+
+def _single_compose_form(event):
+    form = ExhibitionComposeForm(
+        data=_compose_data(event, subject="About {request_name}", body="<p>More details please.</p>"),
+        event=event,
+        single_recipient=True,
+    )
+    assert form.is_valid(), form.errors
+    return form
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_emails_only_that_applicant(mail_event, exhibition_request):
+    _request(mail_event, "Someone Else", ExhibitionRequestState.SUBMITTED, email="else@example.com")
+    view, request = _single_compose_view(mail_event, exhibition_request, {"_save": "save"})
+
+    with scopes_disabled():
+        response = view.form_valid(_single_compose_form(mail_event))
+        queued = ExhibitionEmailQueue.objects.get(event=mail_event)
+        logged = LogEntry.objects.filter(action_type=LOG_REQUEST_EMAILED, object_id=exhibition_request.pk)
+
+        assert queued.exhibition_request == exhibition_request
+        assert queued.to_email == "applicant@example.com"
+        assert queued.subject == "About Acme Corp"
+        assert queued.sent_at is None
+        assert logged.get().parsed_data["sent"] is False
+    assert response.status_code == 302
+    assert exhibition_request.code in response.url
+    assert _message_texts(request) == ["The email has been placed in the outbox."]
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_can_send_right_away(mail_event, exhibition_request):
+    view, request = _single_compose_view(mail_event, exhibition_request, {"_send": "send"})
+
+    with patch("eventyay.base.services.mail.mail") as mocked_mail:
+        with scopes_disabled():
+            view.form_valid(_single_compose_form(mail_event))
+            queued = ExhibitionEmailQueue.objects.get(event=mail_event)
+
+    assert queued.sent_at is not None
+    assert mocked_mail.call_count == 1
+    assert _message_texts(request) == ["The email has been sent."]
+
+
+def _compose_form(event, **data):
+    return ExhibitionComposeForm(
+        data={
+            "state": ExhibitionRequestState.ACCEPTED,
+            "organization_type": "",
+            **_compose_data(event, subject="Hi", body="<p>Body</p>"),
+            **data,
+        },
+        event=event,
+    )
+
+
+@pytest.mark.django_db
+def test_compose_form_offers_the_application_state_as_a_single_choice(mail_event):
+    field = ExhibitionComposeForm(event=mail_event).fields["state"]
+
+    assert [value for value, _label in field.choices] == ["", "submitted", "accepted", "rejected", "withdrawn"]
+    assert field.required is False
+    assert not field.initial
+
+
+@pytest.mark.django_db
+def test_compose_form_filters_recipients_by_the_chosen_state(mail_event):
+    _request(mail_event, "Accepted", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    submitted = _request(mail_event, "Submitted", ExhibitionRequestState.SUBMITTED, email="s@example.com")
+    form = _compose_form(mail_event, state=ExhibitionRequestState.SUBMITTED)
+
+    with scopes_disabled():
+        assert form.is_valid(), form.errors
+        exhibition_requests, profiles = form.recipients()
+        assert list(exhibition_requests) == [submitted]
+        assert not profiles.exists()
+
+
+@pytest.mark.django_db
+def test_compose_form_lists_applications_and_organizer_created_profiles(mail_event):
+    accepted = _request(mail_event, "Accepted", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    sponsor = _request(
+        mail_event,
+        "Sponsor",
+        ExhibitionRequestState.SUBMITTED,
+        email="s@example.com",
+        is_exhibitor=False,
+        is_sponsor=True,
+    )
+    _request(mail_event, "Draft", ExhibitionRequestState.DRAFT, email="d@example.com")
+    with scopes_disabled():
+        added = ExhibitorInfo.objects.create(event=mail_event, name="Added", email="added@example.com")
+        ExhibitorInfo.objects.create(event=mail_event, name="No Address", email="")
+        ExhibitorInfo.objects.create(event=mail_event, name="Null Address", email=None)
+        approved = ExhibitorInfo.objects.create(event=mail_event, name="Approved", email="ap@example.com")
+        accepted.approved_exhibitor = approved
+        accepted.save(update_fields=["approved_exhibitor"])
+
+        offered = dict(ExhibitionComposeForm(event=mail_event).fields["organizations"].choices)
+
+    assert set(offered) == {f"request-{accepted.pk}", f"request-{sponsor.pk}", f"profile-{added.pk}"}
+
+
+@pytest.mark.django_db
+def test_chosen_organizations_override_the_filters(mail_event):
+    _request(mail_event, "Accepted", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    rejected = _request(mail_event, "Rejected", ExhibitionRequestState.REJECTED, email="r@example.com")
+    with scopes_disabled():
+        added = ExhibitorInfo.objects.create(event=mail_event, name="Added", email="added@example.com")
+    form = _compose_form(
+        mail_event,
+        organization_type="sponsor",
+        organizations=[f"request-{rejected.pk}", f"profile-{added.pk}"],
+    )
+
+    with scopes_disabled():
+        assert form.is_valid(), form.errors
+        exhibition_requests, profiles = form.recipients()
+        created = mail_helpers.queue_compose_emails(mail_event, exhibition_requests, "S", "B", exhibitors=profiles)
+
+    assert {row.to_email for row in created} == {"r@example.com", "added@example.com"}
+    assert {row.exhibitor_id for row in created} == {None, added.pk}
+    assert all(row.sent_at is None for row in created)
+    assert len({row.batch for row in created}) == 1
+
+
+@pytest.mark.django_db
+def test_organization_options_show_email_and_state_unless_emails_are_hidden(mail_event):
+    exhibition_request = _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    with scopes_disabled():
+        added = ExhibitorInfo.objects.create(event=mail_event, name="Added", email="added@example.com")
+        shown = ExhibitionComposeForm(event=mail_event).fields["organizations"].widget.option_details
+        hidden = (
+            ExhibitionComposeForm(event=mail_event, show_emails=False).fields["organizations"].widget.option_details
+        )
+
+    assert shown[f"request-{exhibition_request.pk}"] == "a@example.com · accepted"
+    assert shown[f"profile-{added.pk}"] == "added@example.com"
+    assert hidden[f"request-{exhibition_request.pk}"] == "accepted"
+    assert hidden[f"profile-{added.pk}"] == ""
+
+
+@pytest.mark.django_db
+def test_compose_fills_the_organization_name_for_organizer_created_profiles(mail_event):
+    with scopes_disabled():
+        added = ExhibitorInfo.objects.create(event=mail_event, name="Added Co", email="added@example.com")
+        created = mail_helpers.queue_compose_emails(mail_event, [], "Hello {request_name}", "Body", exhibitors=[added])
+
+    assert created[0].subject == "Hello Added Co"
+
+
+@pytest.mark.django_db
+def test_compose_view_emails_only_the_chosen_organizations(mail_event):
+    _request(mail_event, "Accepted", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    rejected = _request(mail_event, "Rejected", ExhibitionRequestState.REJECTED, email="r@example.com")
+    with scopes_disabled():
+        added = ExhibitorInfo.objects.create(event=mail_event, name="Added", email="added@example.com")
+    form = _compose_form(mail_event, organizations=[f"request-{rejected.pk}", f"profile-{added.pk}"])
+
+    view = EmailComposeView()
+    view.request = _organiser_request(mail_event)
+    with scopes_disabled():
+        assert form.is_valid(), form.errors
+        response = view.form_valid(form)
+        queued = set(ExhibitionEmailQueue.objects.filter(event=mail_event).values_list("to_email", flat=True))
+
+    assert response.status_code == 302
+    assert queued == {"r@example.com", "added@example.com"}
+
+
+@pytest.mark.django_db
+def test_compose_form_without_a_state_reaches_every_non_draft_application(mail_event):
+    accepted = _request(mail_event, "Accepted", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    withdrawn = _request(mail_event, "Withdrawn", ExhibitionRequestState.WITHDRAWN, email="w@example.com")
+    _request(mail_event, "Draft", ExhibitionRequestState.DRAFT, email="d@example.com")
+    form = _compose_form(mail_event, state="")
+
+    with scopes_disabled():
+        assert form.is_valid(), form.errors
+        exhibition_requests, _profiles = form.recipients()
+        assert set(exhibition_requests) == {accepted, withdrawn}
+
+
+@pytest.mark.django_db
+def test_single_recipient_compose_logs_a_scheduled_email_as_scheduled(mail_event, exhibition_request):
+    view, request = _single_compose_view(mail_event, exhibition_request, {"_send": "send"})
+    form = _single_compose_form(mail_event)
+    form.cleaned_data["scheduled_at"] = timezone.now() + timedelta(days=1)
+
+    with patch("exhibition.tasks.send_scheduled_email.apply_async"):
+        with scopes_disabled():
+            view.form_valid(form)
+            logged = LogEntry.objects.get(action_type=LOG_REQUEST_EMAILED, object_id=exhibition_request.pk)
+
+    assert logged.parsed_data["scheduled"] is True
+    assert logged.parsed_data["sent"] is False
+    assert _message_texts(request) == ["The email has been scheduled."]

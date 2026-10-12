@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 from urllib.parse import quote, urlencode
 
 from defusedcsv import csv
@@ -72,6 +73,7 @@ from .models import (
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
     LOG_REQUEST_CHANGED,
+    LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     QUESTION_OPTION_VARIANTS,
     REQUEST_DEFAULT_FIELD_KEYS,
@@ -110,6 +112,8 @@ from .utils import (
     should_hide_applicant_emails,
     sync_exhibitor_from_request,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def event_kwargs(event):
@@ -150,8 +154,14 @@ def send_request_confirmation(event, exhibition_request, requestor):
             mail_helpers.REQUEST_NEW,
             send_now=True,
             requestor=requestor,
-        )
+        ),
+        robust=True,
     )
+
+
+def send_request_organizer_notification(event, exhibition_request, action):
+    """Notify eligible organizers once the applicant action commits."""
+    transaction.on_commit(lambda: mail_helpers.send_request_organizer_emails(event, exhibition_request, action))
 
 
 def queue_exhibitor_access_mail(request, exhibitor):
@@ -238,13 +248,21 @@ class PublicCallEnabledMixin:
     def has_private_call_access(self, settings):
         return self.request.session.get(call_access_session_key(self.request.event)) == settings.call_secret
 
+    def can_access_private_call(self, settings):
+        return self.has_private_call_access(settings)
+
+    def is_call_open(self, settings):
+        return settings.call_enabled and (
+            settings.call_is_open or (settings.call_private and self.has_private_call_access(settings))
+        )
+
     def dispatch(self, request, *args, **kwargs):
         settings = self.get_exhibition_settings()
         if self.require_call_enabled and not settings.call_enabled:
             raise Http404()
-        if self.hide_after_deadline and settings.call_hide_after_deadline and not settings.call_is_open:
+        if self.hide_after_deadline and settings.call_hide_after_deadline and not self.is_call_open(settings):
             raise Http404()
-        if self.enforce_private and settings.call_private and not self.has_private_call_access(settings):
+        if self.enforce_private and settings.call_private and not self.can_access_private_call(settings):
             raise Http404()
         return super().dispatch(request, *args, **kwargs)
 
@@ -739,7 +757,9 @@ class PublicExhibitorListView(PublicExhibitorBrowsingMixin, ListView):
 
     def get(self, request, *args, **kwargs):
         if "clear" in request.GET:
-            return redirect(request.path)
+            # Clearing the filters keeps an organizer in the preview they were looking at.
+            query = self.navigation_query(filtered=False)
+            return redirect(f"{request.path}?{query}" if query else request.path)
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -823,7 +843,10 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["event"] = self.request.event
-        context["settings"] = self.get_exhibition_settings()
+        settings = self.get_exhibition_settings()
+        context["settings"] = settings
+        context["call_is_open"] = self.is_call_open(settings)
+        context["private_call_access"] = settings.call_private and self.has_private_call_access(settings)
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -856,8 +879,8 @@ class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin,
     enforce_private = True
     require_call_enabled = False
 
-    def has_private_call_access(self, settings):
-        if super().has_private_call_access(settings):
+    def can_access_private_call(self, settings):
+        if super().can_access_private_call(settings):
             return True
         user = self.request.user
         if not user.is_authenticated:
@@ -874,9 +897,10 @@ class UserRequestListView(PublicCallEnabledMixin, PublicEventLoginRequiredMixin,
         context = super().get_context_data(**kwargs)
         settings = self.get_exhibition_settings()
         context["settings"] = settings
+        context["call_is_open"] = self.is_call_open(settings)
         for exhibition_request in context["exhibition_requests"]:
             exhibition_request.submitter_can_edit = exhibition_request.editable and (
-                not exhibition_request.requires_open_call_to_edit or settings.call_is_open
+                not exhibition_request.requires_open_call_to_edit or context["call_is_open"]
             )
         return context
 
@@ -1012,7 +1036,7 @@ class UserRequestCreateView(
             raise Http404()
         if settings.call_private and not self.has_private_call_access(settings):
             raise Http404()
-        if not settings.call_is_open:
+        if not self.is_call_open(settings):
             if settings.call_hide_after_deadline:
                 raise Http404()
             messages.error(request, _("The call for exhibitors is closed."))
@@ -1043,6 +1067,11 @@ class UserRequestCreateView(
         self.save_link_formsets()
         if form.instance.state == ExhibitionRequestState.SUBMITTED:
             send_request_confirmation(self.request.event, self.object, self.request.user)
+            send_request_organizer_notification(
+                self.request.event,
+                self.object,
+                "submitted",
+            )
         messages.success(self.request, _("Your request has been saved."))
         return response
 
@@ -1077,7 +1106,7 @@ class UserRequestEditView(
             return False
         if not self.object.requires_open_call_to_edit:
             return True
-        return self.get_exhibition_settings().call_is_open
+        return self.is_call_open(self.get_exhibition_settings())
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -1118,6 +1147,11 @@ class UserRequestEditView(
             and previous_state != ExhibitionRequestState.SUBMITTED
         ):
             send_request_confirmation(self.request.event, self.object, self.request.user)
+            send_request_organizer_notification(
+                self.request.event,
+                self.object,
+                "submitted",
+            )
         if form.changed_data:
             self.object.log_action(
                 LOG_REQUEST_CHANGED,
@@ -1167,6 +1201,11 @@ class UserRequestWithdrawView(PublicCallEnabledMixin, PublicEventLoginRequiredMi
         self.object = self.get_object()
         if self.object.can_be_withdrawn:
             self.object.withdraw(requestor=request.user)
+            send_request_organizer_notification(
+                request.event,
+                self.object,
+                "withdrawn",
+            )
             messages.success(request, _("Your request has been withdrawn."))
         else:
             messages.error(request, _("This request can no longer be withdrawn."))
@@ -1203,6 +1242,11 @@ class UserRequestReinstateView(PublicCallEnabledMixin, PublicEventLoginRequiredM
         self.object = self.get_object()
         if self.object.can_be_reinstated:
             self.object.reopen(requestor=request.user)
+            send_request_organizer_notification(
+                request.event,
+                self.object,
+                "reinstated",
+            )
             messages.success(request, _("Your request has been reinstated and is pending review again."))
         else:
             messages.error(request, _("This request can no longer be reinstated."))
@@ -1563,6 +1607,8 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
         context["hide_applicant_emails"] = should_hide_applicant_emails(
             self.request.user, self.request.event, request=self.request
         )
+        context["can_email"] = bool(mail_helpers.request_recipient(self.object))
+        context["emails"] = self.object.emails.order_by("-created")
         return context
 
     @transaction.atomic
@@ -2764,19 +2810,45 @@ EMAIL_MANAGE_PERMISSION = (
 
 
 class EmailComposeView(EventPermissionRequiredMixin, FormView):
-    """Compose a broadcast email to a filtered group of applicants."""
+    """Compose a broadcast email to a filtered group of applicants, or to one applicant via ``?request=<code>``."""
 
     permission = EMAIL_MANAGE_PERMISSION
     template_name = "exhibitors/email_compose.html"
     form_class = ExhibitionComposeForm
 
+    @cached_property
+    def single_request(self):
+        code = self.request.GET.get("request")
+        if not code:
+            return None
+        exhibition_request = get_object_or_404(
+            ExhibitionRequest.objects.select_related("user"), event=self.request.event, code=code
+        )
+        if not mail_helpers.request_recipient(exhibition_request):
+            raise Http404()
+        return exhibition_request
+
+    def single_request_url(self):
+        return reverse(
+            "plugins:exhibition:request.detail",
+            kwargs={**event_kwargs(self.request.event), "code": self.single_request.code},
+        )
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
+        kwargs["single_recipient"] = self.single_request is not None
+        kwargs["show_emails"] = not should_hide_applicant_emails(
+            self.request.user, self.request.event, request=self.request
+        )
         return kwargs
 
     def get_initial(self):
         initial = super().get_initial()
+        if self.single_request is not None:
+            initial["subject"], initial["body"] = mail_helpers.get_email_template(
+                self.request.event, mail_helpers.REQUEST_MESSAGE
+            )
         template_pk = self.request.GET.get("template")
         if template_pk:
             template = ExhibitionCustomEmailTemplate.objects.filter(event=self.request.event, pk=template_pk).first()
@@ -2789,6 +2861,9 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context["custom_templates"] = ExhibitionCustomEmailTemplate.objects.filter(event=self.request.event)
         context["locales"] = self.request.event.settings.locales
+        if self.single_request is not None:
+            context["single_request"] = self.single_request
+            context["single_recipient"] = request_email_recipient(self.request, self.single_request)
         return context
 
     def form_valid(self, form):
@@ -2798,17 +2873,16 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         scheduled_at = form.cleaned_data.get("scheduled_at")
         send_now = "_send" in self.request.POST and not scheduled_at
 
-        recipients = mail_helpers.compose_recipients(
-            event,
-            states=form.cleaned_data["states"],
-            organization_type=form.cleaned_data["organization_type"],
-            sponsor_group=form.cleaned_data["sponsor_group"],
-        )
+        if self.single_request is not None:
+            exhibition_requests, profiles = [self.single_request], []
+        else:
+            exhibition_requests, profiles = form.recipients()
         created = mail_helpers.queue_compose_emails(
             event,
-            recipients,
+            exhibition_requests,
             form.cleaned_data["subject"],
             form.cleaned_data["body"],
+            exhibitors=profiles,
             scheduled_at=scheduled_at,
             send_now=send_now,
             requestor=self.request.user,
@@ -2820,6 +2894,11 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         if scheduled_at:
             for queued in created:
                 send_scheduled_email.apply_async(args=[event.pk, queued.pk], eta=scheduled_at)
+
+        if self.single_request is not None:
+            return self.single_request_done(created[0], scheduled_at)
+
+        if scheduled_at:
             messages.success(
                 self.request,
                 _("%(count)d emails have been scheduled.") % {"count": len(created)},
@@ -2834,9 +2913,36 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         )
         return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
 
+    def single_request_done(self, queued, scheduled_at):
+        """Note the email on the applicant's request and return to its review page."""
+        self.single_request.log_action(
+            LOG_REQUEST_EMAILED,
+            user=self.request.user,
+            data={
+                "subject": queued.subject,
+                "to": queued.to_email,
+                "sent": bool(queued.sent_at),
+                "scheduled": bool(scheduled_at),
+            },
+        )
+        if scheduled_at:
+            messages.success(self.request, _("The email has been scheduled."))
+        elif queued.sent_at:
+            messages.success(self.request, _("The email has been sent."))
+        else:
+            messages.success(self.request, _("The email has been placed in the outbox."))
+        return redirect(self.single_request_url())
+
     def form_invalid(self, form):
         messages.error(self.request, _("We could not save your changes. See below for details."))
         return super().form_invalid(form)
+
+
+def request_email_recipient(request, exhibition_request):
+    """Recipient address as the current user may see it, hidden for reviewers who cannot see emails."""
+    if should_hide_applicant_emails(request.user, request.event, request=request):
+        return None
+    return mail_helpers.request_recipient(exhibition_request)
 
 
 def group_email_entries(emails):
@@ -3266,8 +3372,10 @@ class EmailTemplatesView(EventPermissionRequiredMixin, TemplateView):
                 (mail_helpers.REQUEST_NEW, _("Request received (confirmation)")),
                 (mail_helpers.REQUEST_ACCEPTED, _("Request accepted")),
                 (mail_helpers.REQUEST_REJECTED, _("Request rejected")),
+                (mail_helpers.REQUEST_ORGANIZER, _("Request notification (organizer)")),
                 (mail_helpers.EXHIBITOR_ACCESS, _("Exhibitor lead scanning key")),
                 (mail_helpers.VOUCHERS, _("Vouchers")),
+                (mail_helpers.REQUEST_MESSAGE, _("Request more information")),
             )
         ]
         context["custom_panels"] = custom_panels
@@ -3306,7 +3414,7 @@ class EmailTemplatePreviewView(EventPermissionRequiredMixin, View):
         elif custom_pk is not None:
             if not ExhibitionCustomEmailTemplate.objects.filter(event=request.event, pk=custom_pk).exists():
                 return JsonResponse({"detail": _("Unknown template.")}, status=400)
-        elif role in mail_helpers.LIFECYCLE_ROLES:
+        elif role in mail_helpers.TEMPLATE_ROLES:
             pass
         else:
             return JsonResponse({"detail": _("Unknown template.")}, status=400)

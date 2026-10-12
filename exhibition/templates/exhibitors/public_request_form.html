@@ -8,6 +8,7 @@
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-add.css' %}">
     <script defer src="{% static 'exhibition/js/content-locale-direction.js' %}"></script>
+    <script type="module" src="{% static 'common/js/tiptapLoader.js' %}" data-tiptap-js="{% static 'editor/editor.js' %}" data-tiptap-css="{% static 'editor/editor.css' %}"></script>
 {% endblock %}
 
 {% block call_content %}

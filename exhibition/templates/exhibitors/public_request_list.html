@@ -50,7 +50,7 @@
                 </tbody>
             </table>
         </div>
-        {% if settings.call_is_open %}
+        {% if call_is_open %}
             <p>
                 <a class="btn btn-success btn-lg" href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Create a new request" %}
@@ -59,7 +59,7 @@
         {% endif %}
     {% else %}
         <p class="text-center">{% trans "You have not submitted an exhibition request yet." %}</p>
-        {% if settings.call_is_open %}
+        {% if call_is_open %}
             <p class="text-center">
                 <a class="btn btn-success btn-lg btn-block" href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
                     {% trans "Submit a request" %}

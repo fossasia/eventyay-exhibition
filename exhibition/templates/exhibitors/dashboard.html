@@ -127,6 +127,11 @@
                 <span class="label label-default">{% trans "Disabled" %}</span>
                 {% trans "The call is not published, so nobody can submit a request." %}
               </p>
+            {% elif exhibition_settings.call_private %}
+              <p><span class="label label-success">{% trans "Open" %}</span></p>
+              <p class="text-muted">
+                {% trans "Requests can be submitted through the private link, even after the deadline." %}
+              </p>
             {% elif exhibition_settings.call_is_open %}
               <p><span class="label label-success">{% trans "Open" %}</span></p>
               {% if exhibition_settings.call_deadline %}

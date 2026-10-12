@@ -68,6 +68,7 @@ function initSessionSelect(widget) {
             return
         }
         box.checked = selected
+        box.dispatchEvent(new Event('change', { bubbles: true }))
         option.setAttribute('aria-selected', selected ? 'true' : 'false')
         if (selected) {
             addChip(option)
@@ -87,7 +88,8 @@ function initSessionSelect(widget) {
         var visible = 0
         options.forEach(function (option) {
             var box = checkboxOf(option)
-            var hide = (box && box.checked) || (term && optionLabel(option).toLowerCase().indexOf(term) === -1)
+            var haystack = (option.dataset.sessionSearch || optionLabel(option)).toLowerCase()
+            var hide = (box && box.checked) || (term && haystack.indexOf(term) === -1)
             option.hidden = !!hide
             if (!hide) {
                 visible += 1

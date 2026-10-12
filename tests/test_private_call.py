@@ -1,7 +1,12 @@
+from datetime import timedelta
+
 import pytest
 from django.http import Http404
 from django.test import RequestFactory
+from django.urls import reverse
+from django.utils import timezone
 from django_scopes import scopes_disabled
+from eventyay.base.models.auth import User
 
 from exhibition.models import ExhibitorSettings
 from exhibition.signals import exhibition_presale_nav_tab
@@ -45,9 +50,9 @@ def test_private_access_requires_matching_session_secret(event):
     with scopes_disabled():
         settings = make_call_settings(event, private=True)
         view = _call_view(event)
-        assert view.has_private_call_access(settings) is False
+        assert view.can_access_private_call(settings) is False
         view.request.session[call_access_session_key(event)] = settings.call_secret
-        assert view.has_private_call_access(settings) is True
+        assert view.can_access_private_call(settings) is True
 
 
 def _secret_view(event):
@@ -117,7 +122,7 @@ def test_request_list_hidden_for_private_call_without_access(event):
         view = UserRequestListView()
         view.request = _request(event)
         view.request.user = User.objects.create_user(email="stranger@e.com", password="pw")
-        assert view.has_private_call_access(settings) is False
+        assert view.can_access_private_call(settings) is False
 
 
 @pytest.mark.django_db
@@ -139,7 +144,7 @@ def test_request_list_visible_to_existing_applicant(event):
         view = UserRequestListView()
         view.request = _request(event)
         view.request.user = applicant
-        assert view.has_private_call_access(settings) is True
+        assert view.can_access_private_call(settings) is True
 
 
 @pytest.mark.django_db
@@ -163,3 +168,55 @@ def test_owner_action_views_not_gated_by_private_secret(event, view_class):
         view.request = _request(event)
         gate_blocks = view.enforce_private and settings.call_private and not view.has_private_call_access(settings)
         assert gate_blocks is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("enabled", "private", "status", "message"),
+    [
+        (
+            True,
+            True,
+            "Open",
+            "Requests can be submitted through the private link, even after the deadline.",
+        ),
+        (True, False, "Closed", "The deadline passed on"),
+        (False, True, "Disabled", "The call is not published, so nobody can submit a request."),
+    ],
+)
+def test_dashboard_shows_private_call_status(event, client, settings, enabled, private, status, message):
+    settings.DEBUG = True
+    settings.LANGUAGES = [("en", "English")]
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        ExhibitorSettings.objects.create(
+            event=event,
+            call_enabled=enabled,
+            call_private=private,
+            call_deadline=timezone.now() - timedelta(days=1),
+            exhibitors_access_mail_subject="",
+            exhibitors_access_mail_body="",
+        )
+        organizer = User.objects.create_user(email="organizer@example.org", password=None)
+        team = event.organizer.teams.create(name="Organizers", all_events=True, can_change_event_settings=True)
+        team.members.add(organizer)
+    client.force_login(organizer)
+
+    response = client.get(
+        reverse(
+            "plugins:exhibition:dashboard",
+            kwargs={"organizer": event.organizer.slug, "event": event.slug},
+        ),
+        follow=True,
+    )
+
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert f">{status}</span>" in html
+    assert message in html
+    if enabled and private:
+        assert ">Closed</span>" not in html
+        assert "The deadline passed on" not in html

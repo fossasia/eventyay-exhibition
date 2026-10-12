@@ -1,0 +1,35 @@
+.exhibition-voucher-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.exhibition-voucher-tabs {
+    display: inline-flex;
+}
+
+.exhibition-voucher-tabs form {
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+.exhibition-voucher-tabs .btn {
+    white-space: nowrap;
+    border-radius: 0;
+    border-style: solid;
+    border-width: 1px;
+}
+
+.exhibition-voucher-tabs form:first-child .btn {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+.exhibition-voucher-tabs form:last-child .btn {
+    margin-left: -1px;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}

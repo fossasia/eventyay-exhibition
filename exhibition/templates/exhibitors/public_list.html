@@ -16,6 +16,7 @@
             {% include "exhibitors/_public_preview_notice.html" %}
             <h2 id="exhibition-heading">{% trans "Exhibition" %}</h2>
             <form method="get" action="" class="exhibition-public-filter" role="search">
+                {% if preview_unpublished %}<input type="hidden" name="preview" value="1">{% endif %}
                 <div class="exhibition-public-filter-field">
                     {{ filter_form.query }}
                 </div>
