@@ -53,23 +53,6 @@
     opacity: 1;
 }
 
-.exhibition-lang-chip.has-error {
-    border-color: #a94442;
-    color: #a94442;
-}
-
-.exhibition-lang-chip.has-error.is-active {
-    background: #a94442;
-    border-color: #a94442;
-    color: #fff;
-}
-
-.exhibition-lang-chip.has-error::after {
-    content: "\f071";
-    font-family: FontAwesome;
-    font-size: 11px;
-}
-
 .i18n-form-group .exhibition-lang-hidden,
 .mail-preview.exhibition-lang-hidden {
     display: none;

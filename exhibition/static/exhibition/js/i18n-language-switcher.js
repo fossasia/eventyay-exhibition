@@ -28,12 +28,8 @@
         return max > 0 && String(unit.input.value || '').length > max
     }
 
-    // Which chips to mark for the fields that failed validation. A required field that was left
-    // empty in every language is not the fault of any one language: filling in whichever one is
-    // shown is enough, so it only marks the selected chip ("missing") instead of all of them.
-    function errorsByLocale(units) {
+    function localesWithErrors(units) {
         var flagged = {}
-        var missing = false
         var groups = new Map()
         units.forEach(function (unit) {
             if (!unit.group || !unit.group.closest('.has-error')) {
@@ -48,17 +44,13 @@
             var empty = groupUnits.filter(function (unit) {
                 return !hasContent(unit)
             })
-            if (empty.length === groupUnits.length) {
-                missing = true
-                return
-            }
             var overLength = groupUnits.filter(isOverLength)
             var culprits = empty.length ? empty : overLength.length ? overLength : groupUnits
             culprits.forEach(function (unit) {
                 flagged[unit.locale] = true
             })
         })
-        return { flagged: flagged, missing: missing }
+        return flagged
     }
 
     function initSwitcher(root) {
@@ -87,7 +79,7 @@
             chip.hidden = !offered
             return offered
         })
-        var errors = errorsByLocale(units)
+        var flagged = localesWithErrors(units)
         var current = null
 
         function refresh() {
@@ -95,7 +87,6 @@
                 var locale = chip.dataset.locale
                 var active = locale === current
                 chip.classList.toggle('is-active', active)
-                chip.classList.toggle('has-error', !!errors.flagged[locale] || (errors.missing && active))
                 chip.setAttribute('aria-selected', active ? 'true' : 'false')
                 chip.tabIndex = active ? 0 : -1
             })
@@ -137,7 +128,7 @@
             })
             if (added) {
                 units = collectUnits(scope)
-                errors = errorsByLocale(units)
+                flagged = localesWithErrors(units)
                 apply(current)
             }
         }).observe(scope, { childList: true, subtree: true })
@@ -147,7 +138,7 @@
         })
         var initial =
             order.filter(function (locale) {
-                return errors.flagged[locale]
+                return flagged[locale]
             })[0] ||
             order.filter(function (locale) {
                 return units.some(function (unit) {
