@@ -2221,8 +2221,8 @@ class OrganizationSelectWidget(SearchableSelectWidget):
     empty_text = _("No organizations match your search.")
 
 
-REQUEST_CHOICE_PREFIX = "request-"
-PROFILE_CHOICE_PREFIX = "profile-"
+REQUEST_CHOICE_PREFIX = mail_helpers.REQUEST_CHOICE_PREFIX
+PROFILE_CHOICE_PREFIX = mail_helpers.PROFILE_CHOICE_PREFIX
 
 
 class ExhibitionComposeForm(forms.Form):
@@ -2353,30 +2353,17 @@ class ExhibitionComposeForm(forms.Form):
         field.widget.option_details = {value: detail for value, _label, detail in entries}
 
     def organizer_created_profiles(self):
-        return ExhibitorInfo.objects.filter(
-            event=self.event, source_requests__isnull=True, email__isnull=False
-        ).exclude(email="")
-
-    def chosen_pks(self, prefix):
-        return [
-            value[len(prefix) :] for value in self.cleaned_data.get("organizations") or () if value.startswith(prefix)
-        ]
+        return mail_helpers.organizer_created_profiles(self.event)
 
     def recipients(self):
         """Applications and profiles to email: the chosen organizations, otherwise everyone matching the filters."""
-        if self.cleaned_data.get("organizations"):
-            exhibition_requests = mail_helpers.compose_recipients(self.event).filter(
-                pk__in=self.chosen_pks(REQUEST_CHOICE_PREFIX)
-            )
-            profiles = self.organizer_created_profiles().filter(pk__in=self.chosen_pks(PROFILE_CHOICE_PREFIX))
-            return exhibition_requests, profiles
-        exhibition_requests = mail_helpers.compose_recipients(
+        return mail_helpers.resolve_compose_recipients(
             self.event,
-            states=[self.cleaned_data["state"]] if self.cleaned_data["state"] else None,
+            organizations=self.cleaned_data.get("organizations") or (),
+            state=self.cleaned_data["state"],
             organization_type=self.cleaned_data["organization_type"],
             sponsor_group=self.cleaned_data["sponsor_group"],
         )
-        return exhibition_requests, ExhibitorInfo.objects.none()
 
 
 class ExhibitionMailTemplatesForm(SettingsForm):

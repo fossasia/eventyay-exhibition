@@ -37,7 +37,15 @@
             {% for draft in drafts %}
                 {% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug as compose_url %}
                 <tr>
-                    <td>{{ draft.recipient_summary }}</td>
+                    <td>
+                        {% with count=draft.recipient_count %}
+                            {% blocktrans trimmed count counter=count %}
+                                {{ counter }} recipient
+                            {% plural %}
+                                {{ counter }} recipients
+                            {% endblocktrans %}
+                        {% endwith %}
+                    </td>
                     <td>
                         <a href="{{ compose_url }}?draft={{ draft.pk }}">
                             {% if draft.subject %}{{ draft.subject }}{% else %}<span class="text-muted">{% trans "(no subject)" %}</span>{% endif %}

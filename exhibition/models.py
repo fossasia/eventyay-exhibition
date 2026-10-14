@@ -8,7 +8,7 @@ from django.db import models, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
-from django.utils.translation import gettext_lazy as _, ngettext
+from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
 from eventyay.base.models import Device, Event, Voucher
 from eventyay.base.models.base import LoggedModel
@@ -1370,24 +1370,21 @@ class ExhibitionEmailDraft(models.Model):
                 setattr(self, name, cleaned_data[name])
         self.organizations = list(self.organizations or [])
 
-    def recipient_summary(self):
-        """Short description of who this draft is addressed to, for the drafts list.
+    def recipient_count(self):
+        """How many addresses this draft would reach if queued now, resolved the way the compose form does."""
+        from .mail import compose_recipient_emails, resolve_compose_recipients
 
-        Follows the compose form's precedence: one applicant, else the chosen organizations, else the filters.
-        """
         if self.exhibition_request_id:
-            return localize_event_text(self.exhibition_request.name) or str(self.exhibition_request.name)
-        if self.organizations:
-            count = len(self.organizations)
-            return ngettext("%(count)d organization", "%(count)d organizations", count) % {"count": count}
-        parts = []
-        if self.state:
-            parts.append(str(ExhibitionRequestState(self.state).label).capitalize())
-        if self.organization_type:
-            parts.append(str(_("Exhibitors only") if self.organization_type == "exhibitor" else _("Sponsors only")))
-        if self.sponsor_group_id:
-            parts.append(localize_event_text(self.sponsor_group.name) or str(self.sponsor_group.name))
-        return " · ".join(parts) or str(_("All applicants"))
+            exhibition_requests, profiles = [self.exhibition_request], ()
+        else:
+            exhibition_requests, profiles = resolve_compose_recipients(
+                self.event,
+                organizations=self.organizations or (),
+                state=self.state,
+                organization_type=self.organization_type,
+                sponsor_group=self.sponsor_group,
+            )
+        return len(compose_recipient_emails(exhibition_requests, profiles))
 
 
 class ExhibitionCustomEmailTemplate(models.Model):

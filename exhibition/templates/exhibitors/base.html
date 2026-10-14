@@ -109,12 +109,12 @@
       </a>
       <ul class="nav nav-second-level">
         <li>
-          <a href="{% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'email.compose' and not request.GET.draft %}class="active"{% endif %}>
+          <a href="{% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'email.compose' %}class="active"{% endif %}>
             <span class="sidebar-text">{% trans "Compose" %}</span>
           </a>
         </li>
         <li>
-          <a href="{% url 'plugins:exhibition:email.drafts' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'email.drafts' or url_name == 'email.draft.delete' or url_name == 'email.compose' and request.GET.draft %}class="active"{% endif %}>
+          <a href="{% url 'plugins:exhibition:email.drafts' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'email.drafts' or url_name == 'email.draft.delete' %}class="active"{% endif %}>
             <span class="sidebar-text">{% trans "Drafts" %}</span>
           </a>
         </li>

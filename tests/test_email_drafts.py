@@ -5,10 +5,11 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.http import Http404
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
+from django.urls import reverse
 from django.utils import timezone
 from django_scopes import scopes_disabled
-from eventyay.base.models import Event
+from eventyay.base.models import Event, Team
 from eventyay.base.models.auth import User
 
 from exhibition.forms import REQUEST_CHOICE_PREFIX, ExhibitionComposeForm
@@ -228,20 +229,56 @@ def test_discarding_a_draft_deletes_it(mail_event):
 
 
 @pytest.mark.django_db
-def test_recipient_summary_follows_the_compose_precedence(mail_event):
-    acme = _request(mail_event, "Acme", email="a@example.com")
+def test_recipient_count_resolves_recipients_like_the_compose_form(mail_event):
     with scopes_disabled():
         gold = SponsorGroup.objects.create(event=mail_event, name="Gold")
+    acme = _request(mail_event, "Acme", email="a@example.com")
+    _request(mail_event, "Globex", email="g@example.com", is_sponsor=True, sponsor_group=gold)
+    _request(mail_event, "Initech", ExhibitionRequestState.SUBMITTED, email="i@example.com")
+    _request(mail_event, "Acme Again", email="A@example.com")  # same address as Acme, emailed once
 
-        def summary(**fields):
-            return ExhibitionEmailDraft(event=mail_event, **fields).recipient_summary()
+    with scopes_disabled():
 
-        assert summary() == "All applicants"
-        assert summary(state="accepted", organization_type="sponsor", sponsor_group=gold) == (
-            "Accepted · Sponsors only · Gold"
-        )
-        assert summary(state="accepted", organizations=["request-1", "profile-2"]) == "2 organizations"
-        assert summary(exhibition_request=acme, organizations=["request-1"]) == "Acme"
+        def count(**fields):
+            return ExhibitionEmailDraft(event=mail_event, **fields).recipient_count()
+
+        assert count() == 3
+        assert count(state="accepted") == 2
+        assert count(state="accepted", organization_type="sponsor", sponsor_group=gold) == 1
+        assert count(state="submitted", organizations=[f"{REQUEST_CHOICE_PREFIX}{acme.pk}"]) == 1
+        assert count(exhibition_request=acme, state="submitted") == 1
+
+
+def _organizer_client(event, settings):
+    """Logged-in organizer, with the same settings ``test_main`` uses to render control pages."""
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    settings.DEBUG_TOOLBAR_CONFIG = {"SHOW_TOOLBAR_CALLBACK": lambda request: False}
+    user = User.objects.create_user(email="organizer@example.com", password="pw")
+    with scopes_disabled():
+        team = Team.objects.create(organizer=event.organizer, all_events=True, can_change_event_settings=True)
+        team.members.add(user)
+    client = Client()
+    client.force_login(user)
+    return client
+
+
+@pytest.mark.django_db
+def test_drafts_list_shows_how_many_recipients_each_draft_reaches(mail_event, settings):
+    _request(mail_event, "Acme", email="a@example.com")
+    _request(mail_event, "Globex", email="g@example.com")
+    with scopes_disabled():
+        ExhibitionEmailDraft.objects.create(event=mail_event, subject="To everyone", state="accepted")
+    url = reverse(
+        "plugins:exhibition:email.drafts",
+        kwargs={"organizer": mail_event.organizer.slug, "event": mail_event.slug},
+    )
+
+    response = _organizer_client(mail_event, settings).get(url)
+
+    assert response.status_code == 200
+    assert "2 recipients" in response.content.decode()
 
 
 @pytest.mark.django_db
