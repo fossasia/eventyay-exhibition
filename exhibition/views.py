@@ -80,6 +80,7 @@ from .models import (
     REQUEST_DEFAULT_FIELDS,
     REQUEST_REVIEW_ACTIONS,
     ExhibitionCustomEmailTemplate,
+    ExhibitionEmailDraft,
     ExhibitionEmailQueue,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
@@ -2884,14 +2885,30 @@ EMAIL_MANAGE_PERMISSION = (
 
 
 class EmailComposeView(EventPermissionRequiredMixin, FormView):
-    """Compose a broadcast email to a filtered group of applicants, or to one applicant via ``?request=<code>``."""
+    """Compose a broadcast email to a filtered group of applicants, or to one applicant via ``?request=<code>``.
+
+    ``?draft=<pk>`` reopens a saved draft; queuing it removes the draft.
+    """
 
     permission = EMAIL_MANAGE_PERMISSION
     template_name = "exhibitors/email_compose.html"
     form_class = ExhibitionComposeForm
 
     @cached_property
+    def draft(self):
+        pk = self.request.GET.get("draft")
+        if not pk:
+            return None
+        return get_object_or_404(ExhibitionEmailDraft, event=self.request.event, pk=pk)
+
+    @property
+    def saving_draft(self):
+        return self.request.method == "POST" and "_draft" in self.request.POST
+
+    @cached_property
     def single_request(self):
+        if self.draft is not None:
+            return self.draft.exhibition_request
         code = self.request.GET.get("request")
         if not code:
             return None
@@ -2915,11 +2932,14 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         kwargs["show_emails"] = not should_hide_applicant_emails(
             self.request.user, self.request.event, request=self.request
         )
+        kwargs["saving_draft"] = self.saving_draft
         return kwargs
 
     def get_initial(self):
         initial = super().get_initial()
-        if self.single_request is not None:
+        if self.draft is not None:
+            initial.update(self.draft.form_initial())
+        elif self.single_request is not None:
             initial["subject"], initial["body"] = mail_helpers.get_email_template(
                 self.request.event, mail_helpers.REQUEST_MESSAGE
             )
@@ -2935,13 +2955,24 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context["custom_templates"] = ExhibitionCustomEmailTemplate.objects.filter(event=self.request.event)
         context["locales"] = self.request.event.settings.locales
+        context["draft"] = self.draft
         if self.single_request is not None:
             context["single_request"] = self.single_request
             context["single_recipient"] = request_email_recipient(self.request, self.single_request)
         return context
 
+    def save_draft(self, form):
+        draft = self.draft or ExhibitionEmailDraft(event=self.request.event, exhibition_request=self.single_request)
+        draft.fill_from_form(form.cleaned_data)
+        draft.save()
+        messages.success(self.request, _("The draft has been saved."))
+        return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
+
     def form_valid(self, form):
         from .tasks import send_scheduled_email
+
+        if self.saving_draft:
+            return self.save_draft(form)
 
         event = self.request.event
         scheduled_at = form.cleaned_data.get("scheduled_at")
@@ -2964,6 +2995,9 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         if not created:
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)
+
+        if self.draft is not None:
+            self.draft.delete()
 
         if scheduled_at:
             for queued in created:
@@ -3152,6 +3186,35 @@ class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
 
     def base_queryset(self):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=False)
+
+
+class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView):
+    """Composed emails saved for later. They stay here, unsent, until queued from the compose screen."""
+
+    permission = EMAIL_MANAGE_PERMISSION
+    template_name = "exhibitors/email_drafts.html"
+    context_object_name = "drafts"
+
+    def get_queryset(self):
+        return ExhibitionEmailDraft.objects.filter(event=self.request.event).select_related(
+            "exhibition_request", "sponsor_group"
+        )
+
+
+class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
+    """Discard a saved draft."""
+
+    model = ExhibitionEmailDraft
+    permission = EMAIL_MANAGE_PERMISSION
+    template_name = "exhibitors/email_draft_delete.html"
+    context_object_name = "draft"
+
+    def get_queryset(self):
+        return ExhibitionEmailDraft.objects.filter(event=self.request.event)
+
+    def get_success_url(self):
+        messages.success(self.request, _("The draft has been discarded."))
+        return reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
 
 
 class EmailEditView(EventPermissionRequiredMixin, UpdateView):

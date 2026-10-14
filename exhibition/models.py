@@ -8,7 +8,7 @@ from django.db import models, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, ngettext
 from django_countries import Countries
 from eventyay.base.models import Device, Event, Voucher
 from eventyay.base.models.base import LoggedModel
@@ -1312,6 +1312,82 @@ class ExhibitionEmailQueue(LoggedModel):
         )
 
     send.alters_data = True
+
+
+class ExhibitionEmailDraft(models.Model):
+    """A composed email saved for later, kept as the organizer left it and never queued or sent.
+
+    Queued rows hold text already rendered for one recipient, so a draft instead keeps
+    the raw subject and body with their placeholders, plus the recipient choices.
+    """
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_email_drafts",
+    )
+    exhibition_request = models.ForeignKey(
+        ExhibitionRequest,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="email_drafts",
+    )
+    state = models.CharField(max_length=40, blank=True, default="")
+    organization_type = models.CharField(max_length=40, blank=True, default="")
+    sponsor_group = models.ForeignKey(
+        SponsorGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    organizations = models.JSONField(default=list, blank=True)
+    subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
+    body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    FORM_FIELDS = ("state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at")
+
+    class Meta:
+        verbose_name = _("Email draft")
+        verbose_name_plural = _("Email drafts")
+        ordering = ("-updated", "-pk")
+
+    def __str__(self):
+        return str(self.subject or "") or str(_("(no subject)"))
+
+    def form_initial(self):
+        """Compose form values that restore this draft for editing."""
+        return {name: getattr(self, name) for name in self.FORM_FIELDS}
+
+    def fill_from_form(self, cleaned_data):
+        """Copy the compose form's values onto the draft; fields the form leaves out keep their defaults."""
+        for name in self.FORM_FIELDS:
+            if name in cleaned_data:
+                setattr(self, name, cleaned_data[name])
+        self.organizations = list(self.organizations or [])
+
+    def recipient_summary(self):
+        """Short description of who this draft is addressed to, for the drafts list.
+
+        Follows the compose form's precedence: one applicant, else the chosen organizations, else the filters.
+        """
+        if self.exhibition_request_id:
+            return localize_event_text(self.exhibition_request.name) or str(self.exhibition_request.name)
+        if self.organizations:
+            count = len(self.organizations)
+            return ngettext("%(count)d organization", "%(count)d organizations", count) % {"count": count}
+        parts = []
+        if self.state:
+            parts.append(str(ExhibitionRequestState(self.state).label).capitalize())
+        if self.organization_type:
+            parts.append(str(_("Exhibitors only") if self.organization_type == "exhibitor" else _("Sponsors only")))
+        if self.sponsor_group_id:
+            parts.append(localize_event_text(self.sponsor_group.name) or str(self.sponsor_group.name))
+        return " · ".join(parts) or str(_("All applicants"))
 
 
 class ExhibitionCustomEmailTemplate(models.Model):
