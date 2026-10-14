@@ -1425,24 +1425,31 @@ class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
     def get_queryset(self):
         return SponsorGroup.objects.filter(event=self.request.event)
 
+    def deletion_blocker(self):
+        """Why the group cannot be deleted yet, or ``None`` when nothing still depends on it."""
+        if self.object.organizations.exists():
+            return _("This sponsor group cannot be deleted while it is assigned to organizations.")
+        if self.object.email_drafts.exists():
+            return _(
+                "This sponsor group cannot be deleted while email drafts are addressed to it. "
+                "Edit or discard those drafts first."
+            )
+        return None
+
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
-        if self.object.organizations.exists():
-            messages.error(
-                request,
-                _("This sponsor group cannot be deleted while it is assigned to organizations."),
-            )
+        blocker = self.deletion_blocker()
+        if blocker:
+            messages.error(request, blocker)
             return redirect(self.get_success_url())
         return response
 
     @transaction.atomic
     def form_valid(self, form):
         self.object = self.get_queryset().select_for_update().get(pk=self.object.pk)
-        if self.object.organizations.exists():
-            messages.error(
-                self.request,
-                _("This sponsor group cannot be deleted while it is assigned to organizations."),
-            )
+        blocker = self.deletion_blocker()
+        if blocker:
+            messages.error(self.request, blocker)
             return redirect(self.get_success_url())
 
         self.object.log_action(
@@ -3226,6 +3233,23 @@ class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView
         return ExhibitionEmailDraft.objects.filter(event=self.request.event).select_related(
             "exhibition_request", "sponsor_group"
         )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Drafts with the same audience share one recipient lookup per page.
+        counts = {}
+        for draft in context["drafts"]:
+            selection = (
+                draft.exhibition_request_id,
+                tuple(sorted(draft.organizations or ())),
+                draft.state,
+                draft.organization_type,
+                draft.sponsor_group_id,
+            )
+            if selection not in counts:
+                counts[selection] = draft.recipient_count()
+            draft.recipient_total = counts[selection]
+        return context
 
 
 class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):

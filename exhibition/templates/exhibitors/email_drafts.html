@@ -38,13 +38,11 @@
                 {% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug as compose_url %}
                 <tr>
                     <td>
-                        {% with count=draft.recipient_count %}
-                            {% blocktrans trimmed count counter=count %}
-                                {{ counter }} recipient
-                            {% plural %}
-                                {{ counter }} recipients
-                            {% endblocktrans %}
-                        {% endwith %}
+                        {% blocktrans trimmed count counter=draft.recipient_total %}
+                            {{ counter }} recipient
+                        {% plural %}
+                            {{ counter }} recipients
+                        {% endblocktrans %}
                     </td>
                     <td>
                         <a href="{{ compose_url }}?draft={{ draft.pk }}">

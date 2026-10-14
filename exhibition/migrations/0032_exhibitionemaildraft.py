@@ -47,8 +47,8 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         blank=True,
                         null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
+                        on_delete=django.db.models.deletion.RESTRICT,
+                        related_name="email_drafts",
                         to="exhibition.sponsorgroup",
                     ),
                 ),

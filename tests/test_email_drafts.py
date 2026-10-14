@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.db.models import RestrictedError
 from django.http import Http404
 from django.test import Client, RequestFactory
 from django.urls import reverse
@@ -20,7 +21,7 @@ from exhibition.models import (
     ExhibitionRequestState,
     SponsorGroup,
 )
-from exhibition.views import EmailComposeView, EmailDraftDeleteView, EmailDraftListView
+from exhibition.views import EmailComposeView, EmailDraftDeleteView, EmailDraftListView, SponsorGroupDeleteView
 
 
 @pytest.fixture
@@ -315,3 +316,30 @@ def test_saving_a_draft_that_was_queued_meanwhile_does_not_bring_it_back(mail_ev
         assert not ExhibitionEmailDraft.objects.filter(event=mail_event).exists()
     assert response.url.endswith("/emails/outbox")
     assert _messages(late) == ["This draft has already been sent or placed in the outbox."]
+
+
+@pytest.mark.django_db
+def test_a_sponsor_group_that_drafts_target_cannot_be_deleted(mail_event):
+    with scopes_disabled():
+        gold = SponsorGroup.objects.create(event=mail_event, name="Gold")
+        ExhibitionEmailDraft.objects.create(event=mail_event, subject="Gold only", sponsor_group=gold)
+
+        with pytest.raises(RestrictedError):
+            gold.delete()
+
+        view = SponsorGroupDeleteView()
+        view.setup(_compose_view(mail_event).request, pk=gold.pk)
+        view.object = gold
+        assert "email drafts are addressed to it" in str(view.deletion_blocker())
+
+
+@pytest.mark.django_db
+def test_a_sponsor_group_can_be_deleted_once_its_drafts_are_discarded(mail_event):
+    with scopes_disabled():
+        gold = SponsorGroup.objects.create(event=mail_event, name="Gold")
+        draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Gold only", sponsor_group=gold)
+
+        draft.delete()
+        gold.delete()
+
+        assert not SponsorGroup.objects.filter(pk=gold.pk).exists()

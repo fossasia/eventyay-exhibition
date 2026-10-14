@@ -1335,12 +1335,13 @@ class ExhibitionEmailDraft(models.Model):
     )
     state = models.CharField(max_length=40, blank=True, default="")
     organization_type = models.CharField(max_length=40, blank=True, default="")
+    # Clearing the group would widen the draft's audience, so a group stays while drafts filter by it.
     sponsor_group = models.ForeignKey(
         SponsorGroup,
-        on_delete=models.SET_NULL,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
-        related_name="+",
+        related_name="email_drafts",
     )
     organizations = models.JSONField(default=list, blank=True)
     subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
