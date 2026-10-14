@@ -2961,10 +2961,21 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             context["single_recipient"] = request_email_recipient(self.request, self.single_request)
         return context
 
+    def draft_already_queued(self):
+        messages.info(self.request, _("This draft has already been sent or placed in the outbox."))
+        return redirect("plugins:exhibition:email.outbox", **event_kwargs(self.request.event))
+
     def save_draft(self, form):
-        draft = self.draft or ExhibitionEmailDraft(event=self.request.event, exhibition_request=self.single_request)
-        draft.fill_from_form(form.cleaned_data)
-        draft.save()
+        with transaction.atomic():
+            if self.draft is None:
+                draft = ExhibitionEmailDraft(event=self.request.event, exhibition_request=self.single_request)
+            else:
+                # Saving the stale instance after a concurrent send deleted it would insert the draft again.
+                draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
+                if draft is None:
+                    return self.draft_already_queued()
+            draft.fill_from_form(form.cleaned_data)
+            draft.save()
         messages.success(self.request, _("The draft has been saved."))
         return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
 
@@ -3010,8 +3021,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
 
         created = self.queue_emails(form, scheduled_at, send_now)
         if created is None:
-            messages.info(self.request, _("This draft has already been sent or placed in the outbox."))
-            return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
+            return self.draft_already_queued()
         if not created:
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)

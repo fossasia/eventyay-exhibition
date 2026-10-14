@@ -263,3 +263,18 @@ def test_a_draft_already_queued_by_another_request_is_not_queued_again(mail_even
     assert mocked_mail.call_count == 0
     assert response.url.endswith("/emails/outbox")
     assert _messages(late) == ["This draft has already been sent or placed in the outbox."]
+
+
+@pytest.mark.django_db
+def test_saving_a_draft_that_was_queued_meanwhile_does_not_bring_it_back(mail_event):
+    with scopes_disabled():
+        draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Hi")
+        late = _compose_view(mail_event, post={"_draft": "draft"}, draft=draft)
+        late.draft  # loaded before the draft was queued by another request
+        ExhibitionEmailDraft.objects.filter(pk=draft.pk).delete()
+
+        response = _submit(late, _i18n(mail_event, subject="Edited"))
+
+        assert not ExhibitionEmailDraft.objects.filter(event=mail_event).exists()
+    assert response.url.endswith("/emails/outbox")
+    assert _messages(late) == ["This draft has already been sent or placed in the outbox."]
