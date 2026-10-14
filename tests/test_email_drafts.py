@@ -242,3 +242,24 @@ def test_recipient_summary_follows_the_compose_precedence(mail_event):
         )
         assert summary(state="accepted", organizations=["request-1", "profile-2"]) == "2 organizations"
         assert summary(exhibition_request=acme, organizations=["request-1"]) == "Acme"
+
+
+@pytest.mark.django_db
+def test_a_draft_already_queued_by_another_request_is_not_queued_again(mail_event):
+    _request(mail_event, "Acme", email="a@example.com")
+    with scopes_disabled():
+        draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Hi")
+        late = _compose_view(mail_event, post={"_send": "send"}, draft=draft)
+        late.draft  # loaded before the first submission went through
+        _submit(
+            _compose_view(mail_event, post={"_save": "save"}, draft=draft),
+            {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")},
+        )
+
+        with patch("eventyay.base.services.mail.mail") as mocked_mail:
+            response = _submit(late, {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+
+        assert ExhibitionEmailQueue.objects.filter(event=mail_event).count() == 1
+    assert mocked_mail.call_count == 0
+    assert response.url.endswith("/emails/outbox")
+    assert _messages(late) == ["This draft has already been sent or placed in the outbox."]

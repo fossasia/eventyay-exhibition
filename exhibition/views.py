@@ -2968,6 +2968,36 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         messages.success(self.request, _("The draft has been saved."))
         return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
 
+    def queue_emails(self, form, scheduled_at, send_now):
+        """Queue the composed email, consuming the draft it came from so that draft is queued only once.
+
+        Returns ``None`` when the draft was already queued by another request.
+        """
+        if self.single_request is not None:
+            exhibition_requests, profiles = [self.single_request], []
+        else:
+            exhibition_requests, profiles = form.recipients()
+        with transaction.atomic():
+            draft = None
+            if self.draft is not None:
+                # A second submission of the same draft waits on this lock, then finds the draft gone.
+                draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
+                if draft is None:
+                    return None
+            created = mail_helpers.queue_compose_emails(
+                self.request.event,
+                exhibition_requests,
+                form.cleaned_data["subject"],
+                form.cleaned_data["body"],
+                exhibitors=profiles,
+                scheduled_at=scheduled_at,
+                send_now=send_now,
+                requestor=self.request.user,
+            )
+            if created and draft is not None:
+                draft.delete()
+        return created
+
     def form_valid(self, form):
         from .tasks import send_scheduled_email
 
@@ -2978,26 +3008,13 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         scheduled_at = form.cleaned_data.get("scheduled_at")
         send_now = "_send" in self.request.POST and not scheduled_at
 
-        if self.single_request is not None:
-            exhibition_requests, profiles = [self.single_request], []
-        else:
-            exhibition_requests, profiles = form.recipients()
-        created = mail_helpers.queue_compose_emails(
-            event,
-            exhibition_requests,
-            form.cleaned_data["subject"],
-            form.cleaned_data["body"],
-            exhibitors=profiles,
-            scheduled_at=scheduled_at,
-            send_now=send_now,
-            requestor=self.request.user,
-        )
+        created = self.queue_emails(form, scheduled_at, send_now)
+        if created is None:
+            messages.info(self.request, _("This draft has already been sent or placed in the outbox."))
+            return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
         if not created:
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)
-
-        if self.draft is not None:
-            self.draft.delete()
 
         if scheduled_at:
             for queued in created:
