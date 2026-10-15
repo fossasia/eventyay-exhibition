@@ -6,6 +6,7 @@ import pytest
 from allauth.account.models import EmailAddress
 from django.http import Http404
 from django.test import RequestFactory
+from django.urls import resolve
 from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from eventyay.base.models import Order, OrderPosition, Product, Voucher
@@ -27,6 +28,7 @@ from exhibition.models import (
     ExhibitorSettings,
     ExhibitorVoucher,
 )
+from exhibition.signals import exhibition_nav_global
 from exhibition.utils import (
     build_voucher_redemption_csv,
     exhibitor_login_email,
@@ -244,6 +246,30 @@ def test_login_email_is_the_contact_email_for_organizer_added_exhibitors(event):
 def test_dashboard_link_is_hidden_without_any_exhibition(event):
     with scopes_disabled():
         assert not user_has_exhibitions(_user("nobody@example.com"))
+
+
+def _nav_labels(user, path):
+    request = RequestFactory().get(path)
+    request.user = user
+    request.resolver_match = resolve(path)
+    return [str(item["label"]) for item in exhibition_nav_global(None, request=request)]
+
+
+@pytest.mark.django_db
+def test_dashboard_nav_offers_my_exhibitions(event):
+    with scopes_disabled():
+        _exhibitor, user = _accepted(event)
+
+        assert _nav_labels(user, "/common/") == ["My Exhibitions"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("path", ["/admin/", "/admin/users/", "/control/global/social_auth/"])
+def test_admin_sidebar_leaves_out_my_exhibitions(event, path):
+    with scopes_disabled():
+        _exhibitor, user = _accepted(event)
+
+        assert _nav_labels(user, path) == []
 
 
 @pytest.mark.django_db
