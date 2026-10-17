@@ -112,3 +112,52 @@
 .request-edited-dot:focus {
     background: #df8a13;
 }
+
+/* Match the compact TeamShifts status control with a stable size for every state. */
+.request-state-select-wrapper,
+.request-state-select-wrapper select.required-status-dropdown {
+    width: 90px;
+    max-width: 90px;
+}
+
+.request-state-select-wrapper::after {
+    right: 6px;
+    color: #fff;
+    font-size: 10px;
+}
+
+.request-state-select-wrapper select.required-status-dropdown {
+    height: 18px;
+    border: none;
+    border-radius: .25em;
+    padding: 3px 20px 4px 8px;
+    font-size: 75%;
+    line-height: 1;
+    font-weight: 700;
+    text-align: left;
+    vertical-align: baseline;
+    color: #fff;
+    background-color: #767676;
+}
+
+.request-state-select-wrapper select[data-current="submitted"] {
+    background-color: #2185d0;
+}
+
+.request-state-select-wrapper select[data-current="accepted"],
+.request-state-select-wrapper select[data-current="confirmed"] {
+    background-color: #21ba45;
+}
+
+.request-state-select-wrapper select[data-current="rejected"] {
+    background-color: #db2828;
+}
+
+.request-state-select-wrapper select option {
+    background-color: #fff;
+    font-size: inherit;
+}
+
+.request-state-select-wrapper option[value=""] {
+    color: #333;
+}
