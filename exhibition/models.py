@@ -1211,7 +1211,11 @@ class ExhibitorTag(models.Model):
 
 
 class ExhibitorVoucher(models.Model):
-    exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="vouchers")
+    """A pool code handed to an organization; kept without one after deletion if it was emailed or used."""
+
+    exhibitor = models.ForeignKey(
+        ExhibitorInfo, on_delete=models.SET_NULL, null=True, blank=True, related_name="vouchers"
+    )
     voucher = models.OneToOneField(Voucher, on_delete=models.CASCADE, related_name="exhibitor_link")
     created = models.DateTimeField(auto_now_add=True)
 
@@ -1219,7 +1223,8 @@ class ExhibitorVoucher(models.Model):
         ordering = ("-created",)
 
     def __str__(self):
-        return f"{self.voucher.code} ({self.exhibitor.name})"
+        holder = self.exhibitor.name if self.exhibitor_id else "deleted organization"
+        return f"{self.voucher.code} ({holder})"
 
 
 class ExhibitorDevice(models.Model):

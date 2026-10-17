@@ -333,8 +333,56 @@ def unassigned_pool_vouchers(event, pool_tag):
 
     if not pool_tag:
         return Voucher.objects.none()
-    linked_ids = ExhibitorVoucher.objects.filter(exhibitor__event=event).values("voucher_id")
+    linked_ids = ExhibitorVoucher.objects.filter(voucher__event=event).values("voucher_id")
     return Voucher.objects.filter(event=event, tag=pool_tag).exclude(pk__in=linked_ids)
+
+
+def voucher_was_emailed(link, *, include_unsent=True):
+    """Whether a voucher email listing this code went to its organization, or is waiting to.
+
+    Such a code cannot go back to the pool: it would reach somebody else while the first
+    recipient still holds it in their inbox.
+    """
+    from .mail import VOUCHERS
+    from .models import ExhibitionEmailQueue
+
+    emails = ExhibitionEmailQueue.objects.filter(
+        exhibitor_id=link.exhibitor_id, role=VOUCHERS, created__gte=link.created
+    )
+    if not include_unsent:
+        emails = emails.filter(sent_at__isnull=False)
+    return emails.exists()
+
+
+def pending_voucher_emails(exhibitor):
+    from .mail import VOUCHERS
+    from .models import ExhibitionEmailQueue
+
+    return ExhibitionEmailQueue.objects.filter(exhibitor=exhibitor, role=VOUCHERS, sent_at__isnull=True)
+
+
+def split_vouchers_for_deletion(exhibitor):
+    """What deleting this organization does to each of its codes: returned, deleted, or kept.
+
+    Unused codes nobody received go back to the pool. Emailed codes that were never redeemed are
+    deleted from Tickets. Codes that were used, or that an order or cart still refers to, are kept
+    out of the pool for good. Its outbox voucher emails are discarded on deletion, so only emails
+    already sent count here.
+    """
+    from .models import ExhibitorVoucher
+
+    returnable, deletable, kept = [], [], []
+    for link in ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher"):
+        voucher = link.voucher
+        if voucher.redeemed:
+            kept.append(link)
+        elif not voucher_was_emailed(link, include_unsent=False):
+            returnable.append(link)
+        elif voucher.allow_delete() and not voucher.is_in_cart():
+            deletable.append(link)
+        else:
+            kept.append(link)
+    return returnable, deletable, kept
 
 
 def pool_remaining(event, pool_tag):
