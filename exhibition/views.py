@@ -1,16 +1,14 @@
-import io
 import json
 import logging
 from urllib.parse import quote, urlencode
 
-from defusedcsv import csv
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Max, Min, Q
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
 from django.urls import reverse
@@ -29,6 +27,7 @@ from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views import CreateView, PaginationMixin, UpdateView
 
 from . import mail as mail_helpers
+from .exports import EXPORT_FORMAT_XLSX, EXPORT_FORMATS, OrganizationsExporter
 from .filters import (
     EmailFilterForm,
     ExhibitorFilterForm,
@@ -111,6 +110,7 @@ from .utils import (
     resolve_voucher_defaults,
     should_hide_applicant_emails,
     sync_exhibitor_from_request,
+    with_voucher_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -610,6 +610,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
 
     def get_queryset(self):
         queryset = ExhibitorInfo.objects.filter(event=self.request.event).select_related("sponsor_group")
+        queryset = with_voucher_state(queryset, self.request.event)
         if self.organization_type == "sponsor":
             queryset = queryset.filter(is_sponsor=True).order_by("sponsor_position", "name", "pk")
         elif self.organization_type == "exhibitor":
@@ -624,33 +625,22 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
                 request.event.organizer, request.event, "can_change_event_settings", request=request
             ):
                 raise PermissionDenied()
-            return self.download_keys_csv()
+            return self.download()
         return super().get(request, *args, **kwargs)
 
-    def download_keys_csv(self):
-        queryset = self.get_queryset().prefetch_related("source_requests__user")
+    def download(self):
+        export_format = self.request.GET.get("_format", EXPORT_FORMAT_XLSX)
+        if export_format not in EXPORT_FORMATS:
+            return HttpResponseBadRequest(_("Unsupported export format."))
+        queryset = self.get_queryset()
         selected_pks = self.request.GET.getlist("pk")
         if selected_pks:
             queryset = queryset.filter(pk__in=selected_pks)
-
-        output = io.StringIO()
-        writer = csv.writer(output, quoting=csv.QUOTE_NONNUMERIC, delimiter=",")
-        writer.writerow([_("Name"), _("Booth ID"), _("Booth name"), _("Email"), _("Access key")])
-        for exhibitor in queryset:
-            writer.writerow(
-                [
-                    localize_event_text(exhibitor.name) or str(exhibitor.name),
-                    exhibitor.booth_id or "",
-                    exhibitor.localized_booth_name,
-                    exhibitor.recipient_email,
-                    exhibitor.key,
-                ]
-            )
-        filename = {
-            "sponsor": "sponsor-keys.csv",
-            "exhibitor": "exhibitor-keys.csv",
-        }.get(self.organization_type, "organization-keys.csv")
-        response = HttpResponse(output.getvalue().encode("utf-8"), content_type="text/csv; charset=utf-8")
+        exporter = OrganizationsExporter(self.request, queryset, self.organization_type)
+        filename, content_type, payload = exporter.render({"_format": export_format})
+        if content_type == "text/csv":
+            content_type += "; charset=utf-8"
+        response = HttpResponse(payload, content_type=content_type)
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         response["Cache-Control"] = "no-store"
         return response
@@ -665,7 +655,6 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         context["query_string"] = self.request.GET.urlencode()
         if self.organization_type == "sponsor":
             context["sponsor_group_sections"] = self.build_sponsor_group_sections(context["exhibitors"])
-        self.annotate_voucher_status(context["exhibitors"])
         return context
 
     def send_vouchers_url(self):
@@ -700,19 +689,6 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         if self.organization_type == "sponsor":
             return None
         return reverse("plugins:exhibition:public_list", kwargs=event_kwargs(self.request.event)) + "?preview=1"
-
-    def annotate_voucher_status(self, exhibitors):
-        ids = [exhibitor.pk for exhibitor in exhibitors]
-        if not ids:
-            return
-        rows = ExhibitionEmailQueue.objects.filter(exhibitor_id__in=ids, role=mail_helpers.VOUCHERS)
-        last_sent = dict(
-            rows.filter(sent_at__isnull=False).values_list("exhibitor_id").annotate(last_sent=Max("sent_at"))
-        )
-        pending = set(rows.filter(sent_at__isnull=True).values_list("exhibitor_id", flat=True))
-        for exhibitor in exhibitors:
-            exhibitor.voucher_sent_at = last_sent.get(exhibitor.pk)
-            exhibitor.voucher_pending = exhibitor.pk in pending
 
     def build_sponsor_group_sections(self, sponsors):
         groups = list(SponsorGroup.objects.filter(event=self.request.event).order_by("level", "pk"))
@@ -2460,15 +2436,6 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
 
-    def lock_voucher_links(self):
-        """Hold this organization's links so a concurrent return cannot drop a code we are about to email."""
-        return list(
-            ExhibitorVoucher.objects.filter(exhibitor=self.object)
-            .select_for_update()
-            .order_by("pk")
-            .values_list("pk", flat=True)
-        )
-
     def was_already_emailed(self, link):
         """Whether a voucher email went out after this code was assigned, and so lists it.
 
@@ -2520,23 +2487,41 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
 
     @transaction.atomic
     def send_vouchers(self, request):
-        """Take any requested vouchers from the pool, then outbox an email with the complete list."""
+        """Take any requested vouchers from the pool, then outbox an email with every unused code."""
         form = ExhibitorVoucherBatchForm(request.POST)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
-        if not self.object.recipient_email:
+        count = form.cleaned_data["count"] or 0
+        _email, vouchers, reason = mail_helpers.queue_unsent_voucher_email(
+            request.event, self.object, requestor=request.user, extra=count
+        )
+        if reason == mail_helpers.VOUCHER_SKIP_NO_EMAIL:
             messages.error(request, _("No email address is on file, so vouchers cannot be emailed."))
             return redirect(self.get_success_url())
-        count = form.cleaned_data["count"]
-        if count and not self.claim_vouchers(count):
+        if reason == mail_helpers.VOUCHER_SKIP_IN_OUTBOX:
+            messages.error(
+                request,
+                _(
+                    "A voucher email for this organization is already waiting in the outbox. "
+                    "Send or delete it there before preparing another one."
+                ),
+            )
+            return redirect(self.get_success_url())
+        if reason == mail_helpers.VOUCHER_SKIP_POOL_EMPTY:
             form.add_error("count", self.pool_short_message(count))
             return self.render_to_response(self.get_context_data(form=form))
-        self.lock_voucher_links()
-        vouchers = [link.voucher for link in self.voucher_links()]
-        if not vouchers:
+        if reason == mail_helpers.VOUCHER_SKIP_ALL_CLAIMED:
+            form.add_error(
+                "count",
+                _(
+                    "Every voucher this organization holds has already been claimed. "
+                    "Take more from the pool to email new ones."
+                ),
+            )
+            return self.render_to_response(self.get_context_data(form=form))
+        if reason:
             form.add_error("count", _("This organization holds no vouchers yet, so there is nothing to email."))
             return self.render_to_response(self.get_context_data(form=form))
-        mail_helpers.queue_voucher_email(request.event, self.object, vouchers, requestor=request.user)
         messages.success(
             request,
             ngettext(
@@ -2678,15 +2663,23 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         pool is drawn down as we go, so the preview reflects what the whole run would consume.
         """
         event_settings = event_exhibitor_settings(self.request.event)
+        waiting = mail_helpers.organizations_with_voucher_email_in_outbox(exhibitors)
         remaining = {}
-        sendable, no_email, no_vouchers, pool_short = [], [], [], []
+        sendable, no_email, no_vouchers, pool_short, all_claimed, in_outbox = [], [], [], [], [], []
         for exhibitor in exhibitors:
             if not exhibitor.recipient_email:
                 no_email.append(exhibitor)
                 continue
-            existing = len(mail_helpers.exhibitor_vouchers(exhibitor))
+            if exhibitor.pk in waiting:
+                in_outbox.append(exhibitor)
+                continue
+            existing = mail_helpers.exhibitor_vouchers(exhibitor)
             if existing:
-                exhibitor.voucher_total, exhibitor.voucher_new = existing, 0
+                unused = mail_helpers.unclaimed_vouchers(exhibitor, existing)
+                if not unused:
+                    all_claimed.append(exhibitor)
+                    continue
+                exhibitor.voucher_total, exhibitor.voucher_new = len(unused), 0
                 sendable.append(exhibitor)
                 continue
             defaults = resolve_voucher_defaults(exhibitor, event_settings=event_settings)
@@ -2702,14 +2695,14 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
             remaining[pool_tag] -= planned
             exhibitor.voucher_total = exhibitor.voucher_new = planned
             sendable.append(exhibitor)
-        return sendable, no_email, no_vouchers, pool_short
+        return sendable, no_email, no_vouchers, pool_short, all_claimed, in_outbox
 
     def post(self, request, *args, **kwargs):
         if not self.selected_pks():
             messages.info(request, self.nothing_selected_message())
             return redirect(self.list_url())
         exhibitors = list(self.target_queryset())
-        sendable, no_email, no_vouchers, pool_short = self.preview(exhibitors)
+        sendable, no_email, no_vouchers, pool_short, all_claimed, in_outbox = self.preview(exhibitors)
 
         if not request.POST.get("confirmed"):
             return render(
@@ -2721,47 +2714,75 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                     "no_email": no_email,
                     "no_vouchers": no_vouchers,
                     "pool_short": pool_short,
+                    "all_claimed": all_claimed,
+                    "in_outbox": in_outbox,
                     "selected": self.selected_pks(),
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
             )
 
-        if not sendable:
-            messages.info(request, _("There is nobody to send vouchers to in this selection."))
-            return redirect(self.list_url())
-
-        queued, skipped = self.queue_all(sendable, requestor=request.user)
-        messages.success(
-            request,
-            ngettext(
-                "%(count)d voucher email was placed in the outbox.",
-                "%(count)d voucher emails were placed in the outbox.",
-                len(queued),
-            )
-            % {"count": len(queued)},
-        )
-        missing_email = len(no_email) + len(skipped[mail_helpers.VOUCHER_SKIP_NO_EMAIL])
-        missing_vouchers = len(no_vouchers) + len(skipped[mail_helpers.VOUCHER_SKIP_NO_VOUCHERS])
-        if missing_email:
-            messages.warning(request, self.skipped_no_email_message(missing_email))
-        if missing_vouchers:
-            messages.warning(request, self.skipped_no_vouchers_message(missing_vouchers))
-        short = len(pool_short) + len(skipped[mail_helpers.VOUCHER_SKIP_POOL_EMPTY])
-        if short:
-            messages.warning(
+        skipped = {}
+        if sendable:
+            queued, skipped = self.queue_all(sendable, requestor=request.user)
+            messages.success(
                 request,
+                ngettext(
+                    "%(count)d voucher email was placed in the outbox.",
+                    "%(count)d voucher emails were placed in the outbox.",
+                    len(queued),
+                )
+                % {"count": len(queued)},
+            )
+        else:
+            messages.info(request, _("There is nobody to send vouchers to in this selection."))
+        self.report_skipped(
+            no_email=len(no_email) + len(skipped.get(mail_helpers.VOUCHER_SKIP_NO_EMAIL, [])),
+            no_vouchers=len(no_vouchers) + len(skipped.get(mail_helpers.VOUCHER_SKIP_NO_VOUCHERS, [])),
+            pool_short=len(pool_short) + len(skipped.get(mail_helpers.VOUCHER_SKIP_POOL_EMPTY, [])),
+            all_claimed=len(all_claimed) + len(skipped.get(mail_helpers.VOUCHER_SKIP_ALL_CLAIMED, [])),
+            in_outbox=len(in_outbox) + len(skipped.get(mail_helpers.VOUCHER_SKIP_IN_OUTBOX, [])),
+        )
+        return redirect(self.list_url())
+
+    def report_skipped(self, *, no_email, no_vouchers, pool_short, all_claimed, in_outbox):
+        if no_email:
+            messages.warning(self.request, self.skipped_no_email_message(no_email))
+        if no_vouchers:
+            messages.warning(self.request, self.skipped_no_vouchers_message(no_vouchers))
+        if pool_short:
+            messages.warning(
+                self.request,
                 ngettext(
                     "%(count)d was skipped because no unassigned codes were available from their pool.",
                     "%(count)d were skipped because no unassigned codes were available from their pool.",
-                    short,
+                    pool_short,
                 )
-                % {"count": short},
+                % {"count": pool_short},
             )
-        return redirect(self.list_url())
+        if all_claimed:
+            messages.info(
+                self.request,
+                ngettext(
+                    "%(count)d was skipped because all of their vouchers have already been claimed.",
+                    "%(count)d were skipped because all of their vouchers have already been claimed.",
+                    all_claimed,
+                )
+                % {"count": all_claimed},
+            )
+        if in_outbox:
+            messages.info(
+                self.request,
+                ngettext(
+                    "%(count)d was skipped because a voucher email for it is already waiting in the outbox.",
+                    "%(count)d were skipped because a voucher email for them is already waiting in the outbox.",
+                    in_outbox,
+                )
+                % {"count": in_outbox},
+            )
 
-    @transaction.atomic
     def queue_all(self, sendable, *, requestor):
+        # No transaction around the batch: each organization commits on its own and frees its lock.
         return mail_helpers.queue_voucher_emails(self.request.event, sendable, requestor=requestor, issue_missing=True)
 
     def nothing_selected_message(self):

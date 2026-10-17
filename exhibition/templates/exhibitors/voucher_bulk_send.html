@@ -47,9 +47,9 @@
                         {% else %}
                             <span class="text-muted">
                                 {% blocktrans trimmed count counter=exhibitor.voucher_total %}
-                                    &mdash; {{ counter }} existing voucher
+                                    &mdash; {{ counter }} unused voucher
                                 {% plural %}
-                                    &mdash; {{ counter }} existing vouchers
+                                    &mdash; {{ counter }} unused vouchers
                                 {% endblocktrans %}
                             </span>
                         {% endif %}
@@ -79,6 +79,27 @@
             <h4>{% trans "Skipped: voucher count is set to 0" %}</h4>
             <ul>
                 {% for exhibitor in no_vouchers %}
+                    <li>{{ exhibitor.name }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if all_claimed %}
+            <h4>{% trans "Skipped: all vouchers already claimed" %}</h4>
+            <ul>
+                {% for exhibitor in all_claimed %}
+                    <li>{{ exhibitor.name }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if in_outbox %}
+            <h4>{% trans "Skipped: a voucher email is already waiting in the outbox" %}</h4>
+            <p class="help-block">
+                {% trans "Send or discard the waiting email in the Outbox first, then send again if needed." %}
+            </p>
+            <ul>
+                {% for exhibitor in in_outbox %}
                     <li>{{ exhibitor.name }}</li>
                 {% endfor %}
             </ul>

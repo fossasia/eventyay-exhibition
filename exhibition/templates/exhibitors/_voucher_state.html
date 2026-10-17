@@ -1,0 +1,47 @@
+{% load i18n %}
+{% comment %}
+  Where one organization is in the voucher process, from the annotations added by
+  utils.with_voucher_state: a badge, a short second line, and a tooltip with the last
+  sent date and the claimed count. Colours and wording follow the TeamShifts Members list.
+{% endcomment %}
+{% with state=organization.voucher_state claimed=organization.voucher_claimed total=organization.voucher_total sent_at=organization.voucher_sent_at %}
+    {% if state == "outbox" %}
+        {% trans "Waiting in the outbox" as status_hint %}
+    {% elif sent_at %}
+        {% blocktrans trimmed with sent=sent_at|date:"SHORT_DATETIME_FORMAT" asvar status_hint %}Last sent {{ sent }}{% endblocktrans %}
+    {% else %}
+        {% trans "Not sent yet" as status_hint %}
+    {% endif %}
+    {% if total %}
+        {% blocktrans trimmed asvar claimed_hint %}{{ claimed }} of {{ total }} claimed{% endblocktrans %}
+    {% endif %}
+    <span class="organization-voucher-state" data-voucher-state="{{ state }}">
+        <span class="label {% if state == "claimed" %}label-success{% elif state == "sent" or state == "partial" %}label-info{% elif state == "outbox" %}label-warning{% else %}label-default{% endif %}"
+              title="{{ status_hint }}{% if claimed_hint %} · {{ claimed_hint }}{% endif %}" data-toggle="tooltip">
+            {% if state == "claimed" %}
+                {% trans "Claimed" %}
+            {% elif state == "partial" %}
+                {{ claimed_hint }}
+            {% elif state == "sent" %}
+                {% trans "Sent — not claimed" %}
+            {% elif state == "outbox" %}
+                {% trans "In outbox" %}
+            {% else %}
+                {% trans "Not sent" %}
+            {% endif %}
+        </span>
+        {% if state == "claimed" %}
+            <small class="organization-voucher-detail text-muted">{% blocktrans trimmed %}{{ claimed }} of {{ total }}{% endblocktrans %}</small>
+        {% elif state == "partial" and sent_at %}
+            <small class="organization-voucher-detail text-muted">{% blocktrans trimmed with sent=sent_at|date:"M j" %}Sent {{ sent }}{% endblocktrans %}</small>
+        {% elif state == "sent" %}
+            <small class="organization-voucher-detail text-muted">
+                {% if total %}
+                    {% blocktrans trimmed with sent=sent_at|date:"M j" %}{{ claimed }} of {{ total }} · sent {{ sent }}{% endblocktrans %}
+                {% else %}
+                    {% blocktrans trimmed with sent=sent_at|date:"M j" %}Sent {{ sent }}{% endblocktrans %}
+                {% endif %}
+            </small>
+        {% endif %}
+    </span>
+{% endwith %}

@@ -53,6 +53,12 @@ body.dragging .dragsort-button {
     white-space: nowrap;
 }
 
+.organization-voucher-detail {
+    display: block;
+    margin-top: 3px;
+    white-space: nowrap;
+}
+
 .organization-list-toolbar {
     display: flex;
     align-items: center;

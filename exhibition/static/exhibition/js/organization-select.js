@@ -11,7 +11,7 @@
 
         var selectAll = scope.querySelector('[data-organization-select-all]')
         var countLabel = scope.querySelector('[data-organization-selected-count]')
-        var downloadLink = scope.querySelector('[data-organization-download-link]')
+        var downloadLinks = Array.prototype.slice.call(scope.querySelectorAll('[data-organization-download-link]'))
         var sendButton = scope.querySelector('[data-organization-send-vouchers]')
         var sendForm = sendButton ? document.getElementById(sendButton.getAttribute('form')) : null
         var publishForm = document.getElementById('organization-publish')
@@ -21,7 +21,6 @@
         var publishModes = Array.prototype.slice.call(scope.querySelectorAll('[data-organization-publish-mode]'))
         var publishNeedsSelection = false
         var selectedLabel = scope.dataset.selectedLabel || 'selected'
-        var baseHref = downloadLink ? downloadLink.getAttribute('href') : null
         var store = window.ExhibitionSelection.create({ scope: scope })
 
         function checkboxes() {
@@ -49,10 +48,6 @@
             if (selectAll) {
                 selectAll.checked = selectable > 0 && total === selectable
                 selectAll.indeterminate = total > 0 && total < selectable
-            }
-            if (downloadLink) {
-                downloadLink.classList.toggle('disabled', total === 0)
-                downloadLink.setAttribute('aria-disabled', total === 0 ? 'true' : 'false')
             }
             if (sendButton) {
                 sendButton.disabled = total === 0
@@ -114,24 +109,23 @@
             }
         })
 
-        if (downloadLink && baseHref) {
-            downloadLink.addEventListener('click', function (event) {
+        downloadLinks.forEach(function (link) {
+            link.addEventListener('click', function (event) {
                 event.preventDefault()
                 var selected = store.ids()
-                if (!selected.length) {
-                    return
-                }
                 var searchParams = new URLSearchParams(window.location.search)
                 searchParams.delete('pk')
+                searchParams.delete('page')
                 searchParams.set('download', 'yes')
-                if (selected.length !== selectableIds().length) {
+                searchParams.set('_format', new URLSearchParams(link.search).get('_format'))
+                if (selected.length && selected.length !== selectableIds().length) {
                     selected.forEach(function (value) {
                         searchParams.append('pk', value)
                     })
                 }
                 window.location.href = window.location.pathname + '?' + searchParams.toString()
             })
-        }
+        })
 
         if (sendForm) {
             sendForm.addEventListener('submit', function (event) {

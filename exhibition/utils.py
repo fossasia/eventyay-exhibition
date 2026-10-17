@@ -3,10 +3,24 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django_scopes import scope
-from eventyay.base.models import TalkSlot
+from eventyay.base.models import Order, OrderPosition, TalkSlot
 from eventyay.common.urls import get_url_origin, normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.talk_rules.agenda import is_agenda_visible
@@ -603,6 +617,44 @@ def attendee_field_labels(settings):
 
 def attendee_field_values(position, settings):
     return [getter(position) for _label, getter in attendee_field_specs(settings)]
+
+
+def with_voucher_state(queryset, event) -> QuerySet:
+    """Annotate voucher counts, the last send and an ``OrganizationVoucherState`` for the organizer lists."""
+    from .mail import VOUCHERS
+    from .models import ExhibitionEmailQueue, ExhibitorVoucher, OrganizationVoucherState
+
+    emails = ExhibitionEmailQueue.objects.filter(exhibitor=OuterRef("pk"), role=VOUCHERS)
+    with scope(organizer=event.organizer):
+        used = OrderPosition.objects.filter(voucher=OuterRef("voucher_id")).exclude(order__status=Order.STATUS_CANCELED)
+    links = ExhibitorVoucher.objects.filter(exhibitor=OuterRef("pk")).order_by().values("exhibitor")
+    total = links.annotate(count=Count("pk")).values("count")
+    claimed = links.filter(Exists(used)).annotate(count=Count("pk")).values("count")
+
+    queryset = queryset.annotate(
+        voucher_pending=Exists(emails.filter(sent_at__isnull=True)),
+        voucher_sent_at=Subquery(emails.filter(sent_at__isnull=False).order_by("-sent_at").values("sent_at")[:1]),
+        voucher_total=Coalesce(Subquery(total, output_field=IntegerField()), 0),
+        voucher_claimed=Coalesce(Subquery(claimed, output_field=IntegerField()), 0),
+    )
+    states = (
+        (Q(voucher_pending=True), OrganizationVoucherState.OUTBOX, 1),
+        (Q(voucher_total__gt=0, voucher_claimed=F("voucher_total")), OrganizationVoucherState.CLAIMED, 4),
+        (Q(voucher_claimed__gt=0), OrganizationVoucherState.PARTIAL, 3),
+        (Q(voucher_sent_at__isnull=False), OrganizationVoucherState.SENT, 2),
+    )
+    return queryset.annotate(
+        voucher_state=Case(
+            *(When(condition, then=Value(state.value)) for condition, state, _rank in states),
+            default=Value(OrganizationVoucherState.NOT_SENT.value),
+            output_field=CharField(),
+        ),
+        voucher_rank=Case(
+            *(When(condition, then=Value(rank)) for condition, _state, rank in states),
+            default=Value(0),
+            output_field=IntegerField(),
+        ),
+    )
 
 
 def exhibitor_unredeemed_vouchers(exhibitor):
