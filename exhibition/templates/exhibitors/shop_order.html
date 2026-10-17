@@ -1,0 +1,130 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load money %}
+{% load presale_locale %}
+
+{% block pagetitle %}{% trans "Order details" %}{% endblock %}
+
+{% block content %}
+    <main aria-label="{% trans 'Order details' %}">
+        {% if thanks %}
+            <div class="thank-you">
+                <span class="fa fa-check-circle" aria-hidden="true"></span>
+                <h2>{% trans "Thank you!" %}</h2>
+                {% if is_pending %}
+                    <p>
+                        {% trans "Your order has been placed successfully. See below for details." %}<br>
+                        <strong>{% trans "Please note that we still await your payment to complete the process." %}</strong>
+                    </p>
+                {% else %}
+                    <p>{% trans "Your order has been processed successfully! See below for details." %}</p>
+                {% endif %}
+                <p>{% trans "We have sent you an email with a link to this page." %}</p>
+                <div class="clearfix"></div>
+            </div>
+        {% endif %}
+        <h2>
+            {% blocktrans trimmed with code=order.code %}
+                Your order: {{ code }}
+            {% endblocktrans %}
+            {% include "exhibitors/_order_status.html" with order=order %}
+        </h2>
+        {% if is_pending %}
+            <div class="panel panel-primary">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{% trans "Payment" %}</h3>
+                </div>
+                <div class="panel-body">
+                    <p>
+                        <strong>{% blocktrans trimmed with total=order.total|money:order.currency %}
+                            A payment of {{ total }} is still pending for this order.
+                        {% endblocktrans %}</strong>
+                        {% if order.expires %}
+                            <strong>{% blocktrans trimmed with date=order.expires|date:"SHORT_DATE_FORMAT" %}
+                                Please complete your payment before {{ date }}
+                            {% endblocktrans %}</strong>
+                        {% endif %}
+                    </p>
+                    {% if payment_method %}<p><strong>{{ payment_method }}</strong></p>{% endif %}
+                    {% if payment_instructions %}<p>{{ payment_instructions|linebreaksbr }}</p>{% endif %}
+                    {% if can_change_payment %}
+                        <div class="text-right flip">
+                            <a href="{% url 'plugins:exhibition:shop.order.pay_change' organizer=request.event.organizer.slug event=request.event.slug code=order.code secret=order.secret %}" class="btn btn-default">
+                                {% trans "Re-try payment or choose another payment method" %}
+                            </a>
+                        </div>
+                    {% endif %}
+                    <div class="clearfix"></div>
+                </div>
+            </div>
+        {% endif %}
+        <div class="panel panel-primary cart">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Ordered items" %}</h3>
+            </div>
+            <div class="panel-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">{% trans "Product" %}</th>
+                            <th scope="col">{% trans "Exhibition booth" %}</th>
+                            <th scope="col" class="text-right">{% trans "Price" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for position in positions %}
+                            <tr>
+                                <td>{{ position.name|event_localize }}</td>
+                                <td>{% if position.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                                <td class="text-right">{{ position.price|money:order.currency }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th scope="row" colspan="2">{% trans "Total" %}</th>
+                            <th class="text-right">{{ order.total|money:order.currency }}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        <div class="panel panel-primary panel-contact">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Contact information" %}</h3>
+            </div>
+            <div class="panel-body">
+                <dl class="dl-horizontal">
+                    {% if order.organization_name %}
+                        <dt>{% trans "Organization" %}</dt>
+                        <dd>{{ order.organization_name }}</dd>
+                    {% endif %}
+                    <dt>{% trans "Contact person" %}</dt>
+                    <dd>{{ order.name }}</dd>
+                    <dt>{% trans "Email" %}</dt>
+                    <dd>{{ order.email }}</dd>
+                    {% if order.phone %}
+                        <dt>{% trans "Phone number" %}</dt>
+                        <dd>{{ order.phone }}</dd>
+                    {% endif %}
+                    {% if order.website %}
+                        <dt>{% trans "Website" %}</dt>
+                        <dd>{{ order.website }}</dd>
+                    {% endif %}
+                    {% if order.billing_address %}
+                        <dt>{% trans "Billing address" %}</dt>
+                        <dd>{{ order.billing_address|linebreaksbr }}</dd>
+                    {% endif %}
+                    {% if order.vat_id %}
+                        <dt>{% trans "VAT ID" %}</dt>
+                        <dd>{{ order.vat_id }}</dd>
+                    {% endif %}
+                    {% for answer in answers %}
+                        <dt>{{ answer.question.localized_question }}</dt>
+                        <dd>{{ answer.answer_string|linebreaksbr }}</dd>
+                    {% endfor %}
+                </dl>
+            </div>
+        </div>
+    </main>
+{% endblock %}

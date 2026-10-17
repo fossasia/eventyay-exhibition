@@ -1,0 +1,44 @@
+{% extends "exhibitors/shop_checkout_base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block inner %}
+    <p>{% trans "Before we continue, we need you to answer some questions." %}</p>
+    <p class="required-legend" aria-hidden="true">
+        {% blocktrans trimmed %}
+            You need to fill all fields that are marked with <span>*</span> to continue.
+        {% endblocktrans %}
+    </p>
+    <form class="form-horizontal" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% bootstrap_form_errors form type="non_fields" %}
+        <div class="panel-group" id="questions_group">
+            <details class="panel panel-default" open>
+                <summary class="panel-heading">
+                    <h4 class="panel-title">
+                        <strong>{% trans "Contact information" %}</strong>
+                        <i class="fa fa-angle-down collapse-indicator" aria-hidden="true"></i>
+                    </h4>
+                </summary>
+                <div id="contact">
+                    <div class="panel-body questions-form">
+                        {% bootstrap_form form layout="checkout" %}
+                    </div>
+                </div>
+            </details>
+        </div>
+        <div class="row checkout-button-row">
+            <div class="col-md-4 col-sm-6">
+                <a class="btn btn-block btn-default btn-lg" href="{{ prev_url }}">
+                    {% trans "Go back" %}
+                </a>
+            </div>
+            <div class="col-md-4 col-md-offset-4 col-sm-6">
+                <button class="btn btn-block btn-primary btn-lg" type="submit">
+                    {% trans "Continue" %}
+                </button>
+            </div>
+            <div class="clearfix"></div>
+        </div>
+    </form>
+{% endblock %}

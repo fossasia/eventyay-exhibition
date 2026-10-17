@@ -1,0 +1,32 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+
+{% block pagetitle %}{% trans "Checkout" %}{% endblock %}
+
+{% block content %}
+    <aside aria-label="{% trans 'Your selection' %}">
+        <details class="panel panel-default cart" open>
+            <summary class="panel-heading">
+                <h3 class="panel-title">
+                    <span>
+                        <i class="fa fa-shopping-cart" aria-hidden="true"></i>
+                        <strong>{% trans "Your selection" %}</strong>
+                    </span>
+                    <i class="fa fa-angle-down collapse-indicator" aria-hidden="true"></i>
+                </h3>
+            </summary>
+            <div class="panel-body">
+                {% include "exhibitors/_shop_order_summary.html" %}
+                <a href="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}#exhibition-packages">
+                    <span class="fa fa-edit" aria-hidden="true"></span>
+                    {% trans "Change selection" %}
+                </a>
+            </div>
+        </details>
+    </aside>
+    <main aria-label="{% trans 'Checkout' %}">
+        <h2>{% trans "Checkout" %}</h2>
+        {% include "exhibitors/_shop_checkout_flow.html" %}
+        {% block inner %}{% endblock %}
+    </main>
+{% endblock %}

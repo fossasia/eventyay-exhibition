@@ -1,0 +1,93 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load money %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Exhibition orders" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/list-controls.css' %}">
+    <script defer src="{% static 'exhibition/js/list-filters.js' %}"></script>
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Exhibition orders" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    {% if can_change_orders %}
+        <p class="list-toolbar">
+            <a href="{% url 'plugins:exhibition:orders.add' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
+                <i class="fa fa-plus"></i> {% trans "Create order" %}
+            </a>
+        </p>
+    {% endif %}
+    {% trans "Order" as label_code %}
+    {% trans "Organization" as label_organization %}
+    {% trans "Total" as label_total %}
+    {% trans "Status" as label_status %}
+    {% trans "Order date" as label_created %}
+    {% include "exhibitors/_filter_form.html" %}
+    <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    {% if orders %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                <tr>
+                    <th>{% include "exhibitors/_sort_header.html" with field="code" label=label_code %}</th>
+                    <th>{% include "exhibitors/_sort_header.html" with field="organization" label=label_organization %}</th>
+                    <th>{% trans "Products" %}</th>
+                    <th>{% trans "Contact" %}</th>
+                    <th class="text-right">{% include "exhibitors/_sort_header.html" with field="total" label=label_total %}</th>
+                    <th>{% trans "Payment method" %}</th>
+                    <th>{% include "exhibitors/_sort_header.html" with field="status" label=label_status %}</th>
+                    <th>{% include "exhibitors/_sort_header.html" with field="created" label=label_created %}</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for order in orders %}
+                    <tr>
+                        <td>
+                            <strong>
+                                <a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">{{ order.code }}</a>
+                            </strong>
+                        </td>
+                        <td>{{ order.organization_name|default:"—" }}</td>
+                        <td>
+                            {% for position in order.positions.all %}
+                                <div>
+                                    {{ position }}
+                                    <span class="text-muted">· {{ position.get_purpose_display }}</span>
+                                    {% if position.includes_booth %}
+                                        <span class="fa fa-map-marker text-muted" data-toggle="tooltip" title="{% trans 'Includes exhibition booth' %}" aria-hidden="true"></span>
+                                        <span class="sr-only">{% trans "Includes exhibition booth" %}</span>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {{ order.name }}<br>
+                            <span class="text-muted">{{ order.email }}</span>
+                        </td>
+                        <td class="text-right">{{ order.total|money:order.currency }}</td>
+                        <td>{{ order.payment_method_name|default:"—" }}</td>
+                        <td>{% include "exhibitors/_order_status.html" %}</td>
+                        <td>{{ order.created|date:"SHORT_DATETIME_FORMAT" }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-collection">
+            {% if filter_form.filtered %}
+                <p>{% trans "No exhibition orders match your filters." %}</p>
+            {% else %}
+                <p>{% trans "No exhibition orders have been placed yet." %}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+    {% include "pretixcontrol/pagination.html" %}
+    </div>
+{% endblock %}

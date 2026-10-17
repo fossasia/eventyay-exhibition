@@ -1,0 +1,113 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Order form" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'pretixcontrol/css/order-form-toggles.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/dragsort-table.css' %}">
+    <script defer src="{% static 'orga/js/dragsort.js' %}"></script>
+    <script defer src="{% static 'exhibition/js/call-questions.js' %}"></script>
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Order form" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        <fieldset>
+            <legend>{% trans "Form fields" %}</legend>
+            <p>
+                {% blocktrans trimmed %}
+                    Choose which fields buyers fill in when they order and drag any row to reorder it. A custom field is
+                    only asked to buyers of the products selected on it.
+                {% endblocktrans %}
+            </p>
+            <div class="table-responsive table-responsive-always mw-100">
+                <table class="table table-hover dragsort-table">
+                    <thead>
+                    <tr>
+                        <th>{% trans "Field" %}</th>
+                        <th class="text-center">{% trans "Active" %}</th>
+                        <th class="text-center">{% trans "Required" %}</th>
+                        <th>{% trans "Products" %}</th>
+                        <th class="text-center">{% trans "Answers" %}</th>
+                        <th class="text-right">{% trans "Settings" %}</th>
+                    </tr>
+                    </thead>
+                    <tbody dragsort-url="{% url 'plugins:exhibition:products.order_form' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    {% for field in order_fields %}
+                        <tr dragsort-id="{{ field.dragsort_id }}">
+                            <th class="{% if field.lock_notice %}info-toggle-header{% endif %}">
+                                {% if field.is_custom %}
+                                    <a href="{% url 'plugins:exhibition:products.order_form.fields.edit' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}">{{ field.label }}</a>
+                                    <small class="text-muted">{% trans "Custom" %}</small>
+                                    {% if field.has_dependency %}
+                                        <span class="fa fa-code-fork text-muted" data-toggle="tooltip" title="{% trans 'Only shown depending on another field' %}" aria-hidden="true"></span>
+                                    {% endif %}
+                                {% elif field.lock_notice %}
+                                    <div class="info-toggle-wrapper">
+                                        <span>{{ field.label }}</span>
+                                        <span class="info-toggle" data-toggle="info-box" role="button" tabindex="0" aria-expanded="false" aria-label="{% blocktrans trimmed with field=field.label %}Why {{ field }} cannot be removed{% endblocktrans %}">
+                                            <i class="fa fa-info-circle text-info"></i>
+                                        </span>
+                                        <div class="inline-info-box d-none">
+                                            <div class="talk-info-box">
+                                                <div class="talk-info-icon">
+                                                    <i class="fa fa-info-circle"></i>
+                                                </div>
+                                                <div class="talk-info-content">
+                                                    <span>{{ field.lock_notice }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    {{ field.label }}
+                                {% endif %}
+                            </th>
+                            {% include "exhibitors/_order_field_toggles.html" with input_prefix=field.input_prefix active=field.active required=field.required active_locked=field.active_locked required_locked=field.required_locked label=field.label %}
+                            <td>
+                                {% if field.is_custom %}
+                                    <ul class="list-unstyled">
+                                        {% for product in field.products %}
+                                            <li>{{ product }}</li>
+                                        {% empty %}
+                                            <li class="text-muted">{% trans "No products, so it is not asked" %}</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <span class="text-muted">{% trans "Every order" %}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">{{ field.answer_count }}</td>
+                            <td class="text-right">
+                                {% if field.is_custom %}
+                                    <a class="btn btn-default btn-sm" href="{% url 'plugins:exhibition:products.order_form.fields.edit' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+                                    <a class="btn btn-delete btn-danger btn-sm" href="{% url 'plugins:exhibition:products.order_form.fields.delete' organizer=request.event.organizer.slug event=request.event.slug pk=field.pk %}" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+                                {% endif %}
+                                <button type="button" draggable="true" class="btn btn-primary btn-sm dragsort-button" title="{% trans 'Move field' %}" aria-label="{% trans 'Move field' %}" data-toggle="tooltip">
+                                    <i class="fa fa-arrows"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-right">
+                <a class="btn btn-default" href="{% url 'plugins:exhibition:products.order_form.fields.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    <i class="fa fa-plus"></i> {% trans "New custom field" %}
+                </a>
+            </p>
+        </fieldset>
+
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+        </div>
+    </form>
+{% endblock %}

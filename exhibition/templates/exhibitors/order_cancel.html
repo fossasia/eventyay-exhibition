@@ -1,0 +1,30 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Cancel order" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Cancel order" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        <p>
+            {% blocktrans trimmed with code=order.code %}
+                Are you sure you want to cancel the order <strong>{{ code }}</strong>? This cannot be undone.
+            {% endblocktrans %}
+        </p>
+        {% if order.status == "paid" %}
+            <div class="alert alert-warning">
+                {% trans "This order has been paid. Cancelling it does not refund the payment, so settle any refund with the buyer yourself." %}
+            </div>
+        {% endif %}
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-danger btn-lg">{% trans "Cancel order" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">
+                {% trans "Keep order" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}

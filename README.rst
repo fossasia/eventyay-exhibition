@@ -28,6 +28,9 @@ Features
 - Enable exhibitor lead scanning and retrieve scanned lead data.
 - Support notes and tags for scanned leads.
 - Provide REST API endpoints for exhibitor data and lead scanning workflows.
+- Sell sponsorship and exhibition packages on the call for exhibitors page,
+  separate from the ticket shop, with booth quotas, an order form and organisation
+  profiles created from paid orders. See ``docs/sales.rst``.
 
 Image dimensions
 ----------------
