@@ -103,6 +103,7 @@ from .utils import (
     build_voucher_csv,
     claim_pool_vouchers,
     event_exhibitor_settings,
+    invitation_account,
     pool_remaining,
     provision_exhibitor_devices,
     public_exhibitor_sessions,
@@ -160,8 +161,17 @@ def send_request_confirmation(event, exhibition_request, requestor):
 
 
 def queue_profile_invitation(event, exhibitor):
-    """Queue the invitation to edit a created profile in the same transaction, for the organizer to send."""
-    return mail_helpers.queue_exhibitor_profile_email(event, exhibitor)
+    """Queue the invitation to edit a created profile in the same transaction, for the organizer to send.
+
+    An exhibitor without an account gets one, and the new-account email with a set-password link.
+    """
+    email = (exhibitor.email or "").strip()
+    if not exhibitor.is_exhibitor or not email:
+        return None
+    account, needs_password = invitation_account(email)
+    return mail_helpers.queue_exhibitor_profile_email(
+        event, exhibitor, invited_user=account if needs_password else None
+    )
 
 
 def send_request_organizer_notification(event, exhibition_request, action):
@@ -3449,7 +3459,8 @@ class EmailTemplatesView(EventPermissionRequiredMixin, TemplateView):
                 (mail_helpers.REQUEST_ORGANIZER, _("Request notification (organizer)")),
                 (mail_helpers.EXHIBITOR_ACCESS, _("Exhibitor lead scanning key")),
                 (mail_helpers.VOUCHERS, _("Vouchers")),
-                (mail_helpers.EXHIBITOR_PROFILE, _("Profile created for the exhibitor")),
+                (mail_helpers.EXHIBITOR_PROFILE, _("Profile created for the exhibitor (existing account)")),
+                (mail_helpers.EXHIBITOR_PROFILE_NEW_ACCOUNT, _("Profile created for the exhibitor (new account)")),
                 (mail_helpers.REQUEST_MESSAGE, _("Request more information")),
             )
         ]

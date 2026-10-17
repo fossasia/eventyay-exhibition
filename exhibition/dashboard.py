@@ -1,21 +1,25 @@
+from urllib.parse import quote
+
 from django import forms
 from django.contrib import messages
+from django.contrib.auth import logout
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from django.views.generic import ListView, UpdateView
+from django.views.generic import ListView, UpdateView, View
 from eventyay.base.models import Event
 
-from .forms import ExhibitorSelfEditForm
+from .forms import ExhibitorInvitationPasswordForm, ExhibitorSelfEditForm
 from .models import LOG_ORGANIZATION_CHANGED, ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo
 from .utils import (
     VOUCHER_CSV_FILENAME,
     VOUCHER_REDEMPTION_CSV_FILENAME,
+    accept_invitation,
     attendee_field_labels,
     attendee_field_values,
     build_voucher_csv,
@@ -23,6 +27,7 @@ from .utils import (
     event_exhibitor_settings,
     exhibitor_unredeemed_vouchers,
     exhibitor_voucher_redemptions,
+    invited_user_for_token,
     user_can_edit_profile,
     user_can_view_vouchers,
     user_exhibitors,
@@ -309,3 +314,39 @@ class MyExhibitionEditView(LoginRequiredMixin, ExhibitorLinkFormsetMixin, Update
 
     def get_success_url(self):
         return reverse("plugins:exhibition:my_exhibitions")
+
+
+class MyExhibitionInvitationView(View):
+    """Set-password link for an account created when an organizer added an exhibitor profile."""
+
+    template_name = "exhibitors/my_exhibition_invitation.html"
+
+    def invalid(self, request):
+        messages.error(
+            request,
+            _("This link is invalid, has already been used or has expired. Log in or reset your password instead."),
+        )
+        return redirect("auth.login")
+
+    def render_form(self, request, form):
+        return render(request, self.template_name, {"form": form})
+
+    def get(self, request, token):
+        user = invited_user_for_token(token)
+        if user is None:
+            return self.invalid(request)
+        return self.render_form(request, ExhibitorInvitationPasswordForm())
+
+    def post(self, request, token):
+        with transaction.atomic():
+            user = invited_user_for_token(token, lock=True)
+            if user is None:
+                return self.invalid(request)
+            form = ExhibitorInvitationPasswordForm(data=request.POST)
+            if not form.is_valid():
+                return self.render_form(request, form)
+            accept_invitation(user, form.cleaned_data["password"])
+        if request.user.is_authenticated and request.user.pk != user.pk:
+            logout(request)
+        messages.success(request, _("Your password has been set. Log in to open My Exhibitions."))
+        return redirect(f"{reverse('auth.login')}?next={quote(reverse('plugins:exhibition:my_exhibitions'))}")

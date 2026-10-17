@@ -24,6 +24,7 @@ from eventyay.presale.signals import (
 
 from .dashboard import user_has_exhibitions
 from .mail import (
+    invitation_url,
     my_exhibitions_url,
     render_device_tokens,
     render_voucher_list,
@@ -31,6 +32,7 @@ from .mail import (
     request_confirmation_url,
     request_public_url,
     sample_device_tokens,
+    sample_invitation_url,
     sample_voucher_list,
 )
 from .models import (
@@ -329,6 +331,12 @@ def exhibition_mail_placeholders(sender, **kwargs):
             ["exhibitor"],
             lambda exhibitor: localize_event_text(exhibitor.name) or str(exhibitor.name),
             _("Acme Corp"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "invitation_link",
+            ["invited_user"],
+            invitation_url,
+            sample_invitation_url,
         ),
         SimpleFunctionalMailTextPlaceholder(
             "login_email",

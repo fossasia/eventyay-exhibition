@@ -28,6 +28,7 @@ REQUEST_REJECTED = "request_rejected"
 EXHIBITOR_ACCESS = "exhibitor_access"
 VOUCHERS = "vouchers"
 EXHIBITOR_PROFILE = "exhibitor_profile"
+EXHIBITOR_PROFILE_NEW_ACCOUNT = "exhibitor_profile_new_account"
 REQUEST_MESSAGE = "request_message"
 
 LIFECYCLE_ROLES = (
@@ -38,6 +39,7 @@ LIFECYCLE_ROLES = (
     EXHIBITOR_ACCESS,
     VOUCHERS,
     EXHIBITOR_PROFILE,
+    EXHIBITOR_PROFILE_NEW_ACCOUNT,
 )
 TEMPLATE_ROLES = (*LIFECYCLE_ROLES, REQUEST_MESSAGE)
 
@@ -51,6 +53,10 @@ PLACEHOLDER_DOCS = (
     ("{exhibitor_name}", _lazy("The exhibitor / sponsor name (access email only)")),
     ("{booth_id}", _lazy("The exhibitor's booth ID (access email only)")),
     ("{login_email}", _lazy("The email address that opens the exhibitor's My Exhibitions page")),
+    (
+        "{invitation_link}",
+        _lazy("Link to set a password for the account created for the exhibitor (new-account profile email only)"),
+    ),
     ("{exhibitor_access_code}", _lazy("The exhibitor's secret access code (access email only)")),
     (
         "{device_tokens}",
@@ -157,8 +163,21 @@ DEFAULT_TEMPLATE_SOURCES = {
             "Dear {exhibitor_name},\n\n"
             "A profile for {exhibitor_name} has been created for {event_name}.\n\n"
             "You can edit your profile in My Exhibitions: {my_exhibitions_url}\n\n"
-            "To open it, log in or create an account with {login_email}. "
-            "If you create a new account, confirm the address from the email we send you first.\n\n"
+            "Log in with your account for {login_email} to open it. If you have not confirmed that "
+            "address on your account yet, confirm it from your account's email settings first.\n\n"
+            "If you have any questions, please don't hesitate to reach out.\n\n"
+            "The {event_name} organisers"
+        ),
+    ),
+    EXHIBITOR_PROFILE_NEW_ACCOUNT: (
+        gettext_noop("You have been added as an exhibitor for {event_name}"),
+        gettext_noop(
+            "Dear {exhibitor_name},\n\n"
+            "A profile for {exhibitor_name} has been created for {event_name}.\n\n"
+            "An account has been created for you with {login_email} \u2013 please follow this link "
+            "to set your account password:\n\n"
+            "{invitation_link}\n\n"
+            "Afterwards, you can edit your profile in My Exhibitions: {my_exhibitions_url}\n\n"
             "If you have any questions, please don't hesitate to reach out.\n\n"
             "The {event_name} organisers"
         ),
@@ -241,6 +260,7 @@ ROLE_PLACEHOLDER_CONTEXT = {
     EXHIBITOR_ACCESS: EXHIBITOR_PLACEHOLDER_CONTEXT,
     VOUCHERS: EXHIBITOR_PLACEHOLDER_CONTEXT,
     EXHIBITOR_PROFILE: EXHIBITOR_PLACEHOLDER_CONTEXT,
+    EXHIBITOR_PROFILE_NEW_ACCOUNT: [*EXHIBITOR_PLACEHOLDER_CONTEXT, "invited_user"],
     REQUEST_MESSAGE: REQUEST_PLACEHOLDER_CONTEXT,
 }
 
@@ -303,10 +323,10 @@ def build_request_context(event, exhibition_request):
     return context
 
 
-def build_exhibitor_context(event, exhibitor):
+def build_exhibitor_context(event, exhibitor, **extra):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibitor=exhibitor)
+    context = get_email_context(event=event, exhibitor=exhibitor, **extra)
     context.setdefault("event_name", str(event.name))
     return context
 
@@ -460,6 +480,16 @@ def _sample_redeem_url(event, code):
 
 def my_exhibitions_url(exhibitor=None):
     return urljoin(django_settings.SITE_URL, reverse("plugins:exhibition:my_exhibitions"))
+
+
+def invitation_url(invited_user):
+    path = reverse("plugins:exhibition:my_exhibitions.invitation", kwargs={"token": invited_user.pw_reset_token})
+    return urljoin(django_settings.SITE_URL, path)
+
+
+def sample_invitation_url(event=None):
+    path = reverse("plugins:exhibition:my_exhibitions.invitation", kwargs={"token": "SAMPLETOKEN123456"})
+    return urljoin(django_settings.SITE_URL, path)
 
 
 def sample_voucher_list(event=None):
@@ -674,8 +704,11 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
     )
 
 
-def queue_exhibitor_profile_email(event, exhibitor, *, send_now=False, requestor=None):
-    """Queue the invitation to edit a profile created for an exhibitor; ``None`` for sponsor-only profiles."""
+def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_now=False, requestor=None):
+    """Queue the invitation to edit a profile created for an exhibitor; ``None`` for sponsor-only profiles.
+
+    With ``invited_user`` the new-account template is used, carrying that account's set-password link.
+    """
     from .models import ExhibitionEmailQueue
 
     if not exhibitor.is_exhibitor:
@@ -684,14 +717,16 @@ def queue_exhibitor_profile_email(event, exhibitor, *, send_now=False, requestor
     if not to_email:
         return None
 
-    subject_tpl, body_tpl = get_email_template(event, EXHIBITOR_PROFILE)
+    role = EXHIBITOR_PROFILE_NEW_ACCOUNT if invited_user is not None else EXHIBITOR_PROFILE
+    subject_tpl, body_tpl = get_email_template(event, role)
     locale = recipient_locale(event)
-    context = build_exhibitor_context(event, exhibitor)
+    extra = {"invited_user": invited_user} if invited_user is not None else {}
+    context = build_exhibitor_context(event, exhibitor, **extra)
 
     queued = ExhibitionEmailQueue.objects.create(
         event=event,
         exhibitor=exhibitor,
-        role=EXHIBITOR_PROFILE,
+        role=role,
         to_email=to_email,
         subject=_render(subject_tpl, context, locale),
         body=_render(body_tpl, context, locale),

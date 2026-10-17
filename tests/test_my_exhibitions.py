@@ -500,5 +500,5 @@ def test_creating_a_profile_queues_the_invitation_without_sending_it(event):
             queue_profile_invitation(event, exhibitor)
 
         send.assert_not_called()
-        queued = ExhibitionEmailQueue.objects.get(event=event, role=mail_helpers.EXHIBITOR_PROFILE)
+        queued = ExhibitionEmailQueue.objects.get(event=event, exhibitor=exhibitor)
         assert queued.sent_at is None

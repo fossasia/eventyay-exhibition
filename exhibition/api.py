@@ -21,6 +21,7 @@ from .models import (
 )
 from .social_links import SOCIAL_LINK_SPECS
 from .utils import exhibitor_voucher_redemptions
+from .views import queue_profile_invitation
 
 UNSET = object()
 
@@ -340,8 +341,10 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
         context["event"] = self.request.event
         return context
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        serializer.save()
+        exhibitor = serializer.save()
+        queue_profile_invitation(self.request.event, exhibitor)
 
     def perform_update(self, serializer):
         serializer.save()
