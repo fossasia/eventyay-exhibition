@@ -1,0 +1,27 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Discard draft" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Discard draft" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        <p>
+            {% blocktrans trimmed with subject=draft %}
+                Are you sure you want to discard the draft “{{ subject }}”? This cannot be undone.
+            {% endblocktrans %}
+        </p>
+        <div class="form-group submit-group">
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:email.drafts' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+            <button type="submit" class="btn btn-danger btn-lg">
+                <i class="fa fa-trash"></i> {% trans "Discard" %}
+            </button>
+        </div>
+    </form>
+{% endblock %}

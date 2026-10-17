@@ -80,6 +80,7 @@ from .models import (
     REQUEST_DEFAULT_FIELDS,
     REQUEST_REVIEW_ACTIONS,
     ExhibitionCustomEmailTemplate,
+    ExhibitionEmailDraft,
     ExhibitionEmailQueue,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
@@ -1424,24 +1425,31 @@ class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
     def get_queryset(self):
         return SponsorGroup.objects.filter(event=self.request.event)
 
+    def deletion_blocker(self):
+        """Why the group cannot be deleted yet, or ``None`` when nothing still depends on it."""
+        if self.object.organizations.exists():
+            return _("This sponsor group cannot be deleted while it is assigned to organizations.")
+        if self.object.email_drafts.exists():
+            return _(
+                "This sponsor group cannot be deleted while email drafts are addressed to it. "
+                "Edit or discard those drafts first."
+            )
+        return None
+
     def get(self, request, *args, **kwargs):
         response = super().get(request, *args, **kwargs)
-        if self.object.organizations.exists():
-            messages.error(
-                request,
-                _("This sponsor group cannot be deleted while it is assigned to organizations."),
-            )
+        blocker = self.deletion_blocker()
+        if blocker:
+            messages.error(request, blocker)
             return redirect(self.get_success_url())
         return response
 
     @transaction.atomic
     def form_valid(self, form):
         self.object = self.get_queryset().select_for_update().get(pk=self.object.pk)
-        if self.object.organizations.exists():
-            messages.error(
-                self.request,
-                _("This sponsor group cannot be deleted while it is assigned to organizations."),
-            )
+        blocker = self.deletion_blocker()
+        if blocker:
+            messages.error(self.request, blocker)
             return redirect(self.get_success_url())
 
         self.object.log_action(
@@ -2884,14 +2892,30 @@ EMAIL_MANAGE_PERMISSION = (
 
 
 class EmailComposeView(EventPermissionRequiredMixin, FormView):
-    """Compose a broadcast email to a filtered group of applicants, or to one applicant via ``?request=<code>``."""
+    """Compose a broadcast email to a filtered group of applicants, or to one applicant via ``?request=<code>``.
+
+    ``?draft=<pk>`` reopens a saved draft; queuing it removes the draft.
+    """
 
     permission = EMAIL_MANAGE_PERMISSION
     template_name = "exhibitors/email_compose.html"
     form_class = ExhibitionComposeForm
 
     @cached_property
+    def draft(self):
+        pk = self.request.GET.get("draft")
+        if not pk:
+            return None
+        return get_object_or_404(ExhibitionEmailDraft, event=self.request.event, pk=pk)
+
+    @property
+    def saving_draft(self):
+        return self.request.method == "POST" and "_draft" in self.request.POST
+
+    @cached_property
     def single_request(self):
+        if self.draft is not None:
+            return self.draft.exhibition_request
         code = self.request.GET.get("request")
         if not code:
             return None
@@ -2915,11 +2939,14 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         kwargs["show_emails"] = not should_hide_applicant_emails(
             self.request.user, self.request.event, request=self.request
         )
+        kwargs["saving_draft"] = self.saving_draft
         return kwargs
 
     def get_initial(self):
         initial = super().get_initial()
-        if self.single_request is not None:
+        if self.draft is not None:
+            initial.update(self.draft.form_initial())
+        elif self.single_request is not None:
             initial["subject"], initial["body"] = mail_helpers.get_email_template(
                 self.request.event, mail_helpers.REQUEST_MESSAGE
             )
@@ -2935,32 +2962,73 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context["custom_templates"] = ExhibitionCustomEmailTemplate.objects.filter(event=self.request.event)
         context["locales"] = self.request.event.settings.locales
+        context["draft"] = self.draft
         if self.single_request is not None:
             context["single_request"] = self.single_request
             context["single_recipient"] = request_email_recipient(self.request, self.single_request)
         return context
 
+    def draft_already_queued(self):
+        messages.info(self.request, _("This draft has already been sent or placed in the outbox."))
+        return redirect("plugins:exhibition:email.outbox", **event_kwargs(self.request.event))
+
+    def save_draft(self, form):
+        with transaction.atomic():
+            if self.draft is None:
+                draft = ExhibitionEmailDraft(event=self.request.event, exhibition_request=self.single_request)
+            else:
+                # Saving the stale instance after a concurrent send deleted it would insert the draft again.
+                draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
+                if draft is None:
+                    return self.draft_already_queued()
+            draft.fill_from_form(form.cleaned_data)
+            draft.save()
+        messages.success(self.request, _("The draft has been saved."))
+        return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
+
+    def queue_emails(self, form, scheduled_at, send_now):
+        """Queue the composed email, consuming the draft it came from so that draft is queued only once.
+
+        Returns ``None`` when the draft was already queued by another request.
+        """
+        if self.single_request is not None:
+            exhibition_requests, profiles = [self.single_request], []
+        else:
+            exhibition_requests, profiles = form.recipients()
+        with transaction.atomic():
+            draft = None
+            if self.draft is not None:
+                # A second submission of the same draft waits on this lock, then finds the draft gone.
+                draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
+                if draft is None:
+                    return None
+            created = mail_helpers.queue_compose_emails(
+                self.request.event,
+                exhibition_requests,
+                form.cleaned_data["subject"],
+                form.cleaned_data["body"],
+                exhibitors=profiles,
+                scheduled_at=scheduled_at,
+                send_now=send_now,
+                requestor=self.request.user,
+            )
+            if created and draft is not None:
+                draft.delete()
+        return created
+
     def form_valid(self, form):
         from .tasks import send_scheduled_email
+
+        if self.saving_draft:
+            return self.save_draft(form)
 
         event = self.request.event
         scheduled_at = form.cleaned_data.get("scheduled_at")
         send_now = "_send" in self.request.POST and not scheduled_at
 
-        if self.single_request is not None:
-            exhibition_requests, profiles = [self.single_request], []
-        else:
-            exhibition_requests, profiles = form.recipients()
-        created = mail_helpers.queue_compose_emails(
-            event,
-            exhibition_requests,
-            form.cleaned_data["subject"],
-            form.cleaned_data["body"],
-            exhibitors=profiles,
-            scheduled_at=scheduled_at,
-            send_now=send_now,
-            requestor=self.request.user,
-        )
+        created = self.queue_emails(form, scheduled_at, send_now)
+        if created is None:
+            return self.draft_already_queued()
         if not created:
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)
@@ -3152,6 +3220,52 @@ class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
 
     def base_queryset(self):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=False)
+
+
+class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView):
+    """Composed emails saved for later. They stay here, unsent, until queued from the compose screen."""
+
+    permission = EMAIL_MANAGE_PERMISSION
+    template_name = "exhibitors/email_drafts.html"
+    context_object_name = "drafts"
+
+    def get_queryset(self):
+        return ExhibitionEmailDraft.objects.filter(event=self.request.event).select_related(
+            "exhibition_request", "sponsor_group"
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Drafts with the same audience share one recipient lookup per page.
+        counts = {}
+        for draft in context["drafts"]:
+            selection = (
+                draft.exhibition_request_id,
+                tuple(sorted(draft.organizations or ())),
+                draft.state,
+                draft.organization_type,
+                draft.sponsor_group_id,
+            )
+            if selection not in counts:
+                counts[selection] = draft.recipient_count()
+            draft.recipient_total = counts[selection]
+        return context
+
+
+class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
+    """Discard a saved draft."""
+
+    model = ExhibitionEmailDraft
+    permission = EMAIL_MANAGE_PERMISSION
+    template_name = "exhibitors/email_draft_delete.html"
+    context_object_name = "draft"
+
+    def get_queryset(self):
+        return ExhibitionEmailDraft.objects.filter(event=self.request.event)
+
+    def get_success_url(self):
+        messages.success(self.request, _("The draft has been discarded."))
+        return reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
 
 
 class EmailEditView(EventPermissionRequiredMixin, UpdateView):

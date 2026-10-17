@@ -17,7 +17,7 @@
 {% endblock %}
 
 {% block exhibitors_header %}
-    <h1>{% trans "Compose email" %}</h1>
+    <h1>{% if draft %}{% trans "Edit draft" %}{% else %}{% trans "Compose email" %}{% endif %}</h1>
 {% endblock %}
 
 {% block exhibitors_content %}
@@ -31,7 +31,9 @@
 
     {% if custom_templates %}
         <form action="" method="get" class="form-inline custom-template-picker">
-            {% if single_request %}
+            {% if draft %}
+                <input type="hidden" name="draft" value="{{ draft.pk }}">
+            {% elif single_request %}
                 <input type="hidden" name="request" value="{{ single_request.code }}">
             {% endif %}
             <label for="id_template_picker" class="control-label">{% trans "Load from template" %}</label>
@@ -104,6 +106,9 @@
         </fieldset>
         <div class="form-group submit-group">
             <div class="col-md-9 col-md-offset-3">
+                <button type="submit" class="btn btn-default btn-save" name="_draft" value="draft" formnovalidate>
+                    <i class="fa fa-file-text-o"></i> {% trans "Save as draft" %}
+                </button>
                 <button type="submit" class="btn btn-default btn-save" name="_save" value="save">
                     {% trans "Save to outbox" %}
                 </button>

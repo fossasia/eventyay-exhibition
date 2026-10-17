@@ -2221,8 +2221,8 @@ class OrganizationSelectWidget(SearchableSelectWidget):
     empty_text = _("No organizations match your search.")
 
 
-REQUEST_CHOICE_PREFIX = "request-"
-PROFILE_CHOICE_PREFIX = "profile-"
+REQUEST_CHOICE_PREFIX = mail_helpers.REQUEST_CHOICE_PREFIX
+PROFILE_CHOICE_PREFIX = mail_helpers.PROFILE_CHOICE_PREFIX
 
 
 class ExhibitionComposeForm(forms.Form):
@@ -2271,6 +2271,8 @@ class ExhibitionComposeForm(forms.Form):
         self.event = kwargs.pop("event")
         single_recipient = kwargs.pop("single_recipient", False)
         show_emails = kwargs.pop("show_emails", True)
+        # A draft may be saved half-written: subject, body and send time are only checked once it is queued.
+        self.saving_draft = kwargs.pop("saving_draft", False)
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
         if single_recipient:
@@ -2282,6 +2284,10 @@ class ExhibitionComposeForm(forms.Form):
             label=_("Body"),
             placeholders=mail_helpers.placeholder_names(self.event, mail_helpers.REQUEST_PLACEHOLDER_CONTEXT),
         )
+        if self.saving_draft:
+            for name in ("subject", "body"):
+                # I18nFormField checks ``one_required``, captured from ``required`` at construction.
+                self.fields[name].required = self.fields[name].one_required = False
         self.order_fields(
             ["state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at"]
         )
@@ -2298,6 +2304,8 @@ class ExhibitionComposeForm(forms.Form):
 
     def clean_body(self):
         body = self.cleaned_data.get("body")
+        if self.saving_draft:
+            return body
         if not body:
             raise forms.ValidationError(_("This field is required."))
         if isinstance(body, LazyI18nString):
@@ -2314,7 +2322,7 @@ class ExhibitionComposeForm(forms.Form):
 
     def clean_scheduled_at(self):
         scheduled_at = self.cleaned_data.get("scheduled_at")
-        if scheduled_at and scheduled_at <= timezone.now():
+        if scheduled_at and scheduled_at <= timezone.now() and not self.saving_draft:
             raise forms.ValidationError(_("The scheduled time must be in the future."))
         return scheduled_at
 
@@ -2345,30 +2353,17 @@ class ExhibitionComposeForm(forms.Form):
         field.widget.option_details = {value: detail for value, _label, detail in entries}
 
     def organizer_created_profiles(self):
-        return ExhibitorInfo.objects.filter(
-            event=self.event, source_requests__isnull=True, email__isnull=False
-        ).exclude(email="")
-
-    def chosen_pks(self, prefix):
-        return [
-            value[len(prefix) :] for value in self.cleaned_data.get("organizations") or () if value.startswith(prefix)
-        ]
+        return mail_helpers.organizer_created_profiles(self.event)
 
     def recipients(self):
         """Applications and profiles to email: the chosen organizations, otherwise everyone matching the filters."""
-        if self.cleaned_data.get("organizations"):
-            exhibition_requests = mail_helpers.compose_recipients(self.event).filter(
-                pk__in=self.chosen_pks(REQUEST_CHOICE_PREFIX)
-            )
-            profiles = self.organizer_created_profiles().filter(pk__in=self.chosen_pks(PROFILE_CHOICE_PREFIX))
-            return exhibition_requests, profiles
-        exhibition_requests = mail_helpers.compose_recipients(
+        return mail_helpers.resolve_compose_recipients(
             self.event,
-            states=[self.cleaned_data["state"]] if self.cleaned_data["state"] else None,
+            organizations=self.cleaned_data.get("organizations") or (),
+            state=self.cleaned_data["state"],
             organization_type=self.cleaned_data["organization_type"],
             sponsor_group=self.cleaned_data["sponsor_group"],
         )
-        return exhibition_requests, ExhibitorInfo.objects.none()
 
 
 class ExhibitionMailTemplatesForm(SettingsForm):
