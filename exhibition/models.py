@@ -80,34 +80,39 @@ def get_next_sponsor_position(event, sponsor_group):
     return (max_position if max_position is not None else -1) + 1
 
 
-def exhibitor_logo_path(instance, filename):
+# Django's default max_length for file fields is 100 and applies to the whole stored
+# path, so the exhibitor name must stay short enough to leave room for the filename.
+EXHIBITOR_PATH_NAME_MAX_LENGTH = 40
+
+
+def _exhibitor_path_name(instance):
     name = instance.name
     if isinstance(name, LazyI18nString):
         event = getattr(instance, "event", None)
         locale = getattr(event, "locale", None) if event is not None else None
         name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "logos", str(name), filename)
+    name = str(name).replace("/", "-").replace("\\", "-")
+    name = name[:EXHIBITOR_PATH_NAME_MAX_LENGTH].strip().rstrip(".").strip()
+    return name or "exhibitor"
+
+
+def _exhibitor_upload_path(instance, folder, filename):
+    return os.path.join("exhibitors", folder, _exhibitor_path_name(instance), filename)
+
+
+def exhibitor_logo_path(instance, filename):
+    return _exhibitor_upload_path(instance, "logos", filename)
 
 
 def exhibitor_banner_path(instance, filename):
-    name = instance.name
-    if isinstance(name, LazyI18nString):
-        event = getattr(instance, "event", None)
-        locale = getattr(event, "locale", None) if event is not None else None
-        name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "banners", str(name), filename)
+    return _exhibitor_upload_path(instance, "banners", filename)
 
 
 exhibitor_header_image_path = exhibitor_banner_path
 
 
 def exhibitor_slides_path(instance, filename):
-    name = instance.name
-    if isinstance(name, LazyI18nString):
-        event = getattr(instance, "event", None)
-        locale = getattr(event, "locale", None) if event is not None else None
-        name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "slides", str(name), filename)
+    return _exhibitor_upload_path(instance, "slides", filename)
 
 
 def request_file_path(instance, filename, file_type):
