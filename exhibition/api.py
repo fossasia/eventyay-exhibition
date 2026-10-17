@@ -19,6 +19,7 @@ from .models import (
     generate_booth_id,
     get_next_sponsor_group_level,
 )
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from .social_links import SOCIAL_LINK_SPECS
 from .utils import exhibitor_voucher_redemptions
 
@@ -107,11 +108,26 @@ class ExhibitorAuthView(views.APIView):
         key = request.data.get("key")
 
         if not key:
+            log_operation(
+                "auth.exhibitor",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="missing_parameters",
+                status=400,
+            )
             return Response({"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
             locale = _get_exhibitor_locale(exhibitor)
+            log_operation(
+                "auth.exhibitor",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                status=200,
+                object_id=exhibitor.id,
+                event_id=getattr(exhibitor, "event_id", None),
+            )
             return Response(
                 {
                     "success": True,
@@ -123,6 +139,13 @@ class ExhibitorAuthView(views.APIView):
                 status=status.HTTP_200_OK,
             )
         except ExhibitorInfo.DoesNotExist:
+            log_operation(
+                "auth.exhibitor",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="invalid_credentials",
+                status=401,
+            )
             return Response(
                 {"success": False, "error": "Invalid credentials"},
                 status=status.HTTP_401_UNAUTHORIZED,
