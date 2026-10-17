@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
+from django.db import transaction
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
@@ -710,6 +711,23 @@ def exhibitor_vouchers(exhibitor):
     return [link.voucher for link in links]
 
 
+def organizations_with_voucher_email_in_outbox(exhibitors):
+    from .models import ExhibitionEmailQueue
+
+    return set(
+        ExhibitionEmailQueue.objects.filter(
+            exhibitor__in=[exhibitor.pk for exhibitor in exhibitors], role=VOUCHERS, sent_at__isnull=True
+        ).values_list("exhibitor_id", flat=True)
+    )
+
+
+def unclaimed_vouchers(exhibitor, vouchers):
+    from .utils import exhibitor_unredeemed_vouchers
+
+    unused = set(exhibitor_unredeemed_vouchers(exhibitor).values_list("pk", flat=True))
+    return [voucher for voucher in vouchers if voucher.pk in unused]
+
+
 def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor=None):
     """Queue the voucher email for one exhibitor; ``None`` if there is no recipient address."""
     from .models import ExhibitionEmailQueue, ExhibitorSettings
@@ -747,6 +765,8 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
 VOUCHER_SKIP_NO_EMAIL = "no_email"
 VOUCHER_SKIP_NO_VOUCHERS = "no_vouchers"
 VOUCHER_SKIP_POOL_EMPTY = "pool_empty"
+VOUCHER_SKIP_ALL_CLAIMED = "all_claimed"
+VOUCHER_SKIP_IN_OUTBOX = "in_outbox"
 
 
 def claim_default_vouchers(exhibitor, *, event_settings=None):
@@ -763,27 +783,55 @@ def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=Fal
     With ``issue_missing``, an exhibitor holding no vouchers gets a batch created from their
     defaults first, so a bulk send does not skip everyone who was never issued vouchers by hand.
     """
-    from .utils import event_exhibitor_settings, resolve_voucher_defaults
+    from .utils import event_exhibitor_settings
 
     queued = []
-    skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: [], VOUCHER_SKIP_POOL_EMPTY: []}
+    skipped = {
+        VOUCHER_SKIP_NO_EMAIL: [],
+        VOUCHER_SKIP_NO_VOUCHERS: [],
+        VOUCHER_SKIP_POOL_EMPTY: [],
+        VOUCHER_SKIP_ALL_CLAIMED: [],
+        VOUCHER_SKIP_IN_OUTBOX: [],
+    }
     event_settings = event_exhibitor_settings(event) if issue_missing else None
     for exhibitor in exhibitors:
-        if not exhibitor.recipient_email:
-            skipped[VOUCHER_SKIP_NO_EMAIL].append(exhibitor)
-            continue
-        vouchers = exhibitor_vouchers(exhibitor)
-        if not vouchers and issue_missing:
-            wanted = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
-            if claim_default_vouchers(exhibitor, event_settings=event_settings):
-                vouchers = exhibitor_vouchers(exhibitor)
-            elif wanted:
-                skipped[VOUCHER_SKIP_POOL_EMPTY].append(exhibitor)
-                continue
-        if not vouchers:
-            skipped[VOUCHER_SKIP_NO_VOUCHERS].append(exhibitor)
-            continue
-        email = queue_voucher_email(event, exhibitor, vouchers, requestor=requestor)
-        if email is not None:
+        with transaction.atomic():
+            email, _vouchers, reason = queue_unsent_voucher_email(
+                event, exhibitor, requestor=requestor, issue_missing=issue_missing, event_settings=event_settings
+            )
+        if reason:
+            skipped[reason].append(exhibitor)
+        elif email is not None:
             queued.append(email)
     return queued, skipped
+
+
+def queue_unsent_voucher_email(event, exhibitor, *, requestor=None, extra=0, issue_missing=False, event_settings=None):
+    """Lock the organization and queue its unused codes; returns ``(email, vouchers, skip reason)``."""
+    from .models import ExhibitorInfo, ExhibitorVoucher
+    from .utils import claim_pool_vouchers, resolve_voucher_defaults
+
+    ExhibitorInfo.objects.select_for_update().get(pk=exhibitor.pk)
+    if not exhibitor.recipient_email:
+        return None, [], VOUCHER_SKIP_NO_EMAIL
+    if organizations_with_voucher_email_in_outbox([exhibitor]):
+        return None, [], VOUCHER_SKIP_IN_OUTBOX
+    if extra:
+        pool_tag = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["pool_tag"]
+        if not claim_pool_vouchers(exhibitor, extra, pool_tag=pool_tag):
+            return None, [], VOUCHER_SKIP_POOL_EMPTY
+    list(ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_for_update().order_by("pk").values_list("pk"))
+    vouchers = exhibitor_vouchers(exhibitor)
+    if vouchers:
+        vouchers = unclaimed_vouchers(exhibitor, vouchers)
+        if not vouchers:
+            return None, [], VOUCHER_SKIP_ALL_CLAIMED
+    elif issue_missing:
+        wanted = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
+        if claim_default_vouchers(exhibitor, event_settings=event_settings):
+            vouchers = exhibitor_vouchers(exhibitor)
+        elif wanted:
+            return None, [], VOUCHER_SKIP_POOL_EMPTY
+    if not vouchers:
+        return None, [], VOUCHER_SKIP_NO_VOUCHERS
+    return queue_voucher_email(event, exhibitor, vouchers, requestor=requestor), vouchers, None

@@ -1222,6 +1222,14 @@ class ExhibitorVoucher(models.Model):
         return f"{self.voucher.code} ({self.exhibitor.name})"
 
 
+class OrganizationVoucherState(models.TextChoices):
+    NOT_SENT = "not_sent", _("Not sent")
+    OUTBOX = "outbox", _("In outbox")
+    SENT = "sent", _("Sent — not claimed")
+    PARTIAL = "partial", _("Partly claimed")
+    CLAIMED = "claimed", _("Claimed")
+
+
 class ExhibitorDevice(models.Model):
     exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="devices")
     device = models.OneToOneField(Device, on_delete=models.CASCADE, related_name="exhibitor_link")

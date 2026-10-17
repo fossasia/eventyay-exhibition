@@ -124,6 +124,7 @@
 
         {% trans "Name" as label_name %}
         {% trans "Booth" as label_booth %}
+        {% trans "Vouchers" as label_vouchers %}
         {% if organization_type == 'sponsor' %}
             <div class="table-responsive">
                 <table class="table table-hover dragsort-table">
@@ -138,7 +139,7 @@
                         {% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
                         <th>{% trans "Group" %}</th>
-                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% trans "Vouchers" %}</th>{% endif %}
+                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% include "exhibitors/_sort_header.html" with field="vouchers" label=label_vouchers %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>
@@ -168,7 +169,7 @@
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
                         {% if not organization_type %}<th>{% trans "Group" %}</th>{% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="booth" label=label_booth %}</th>
-                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% trans "Vouchers" %}</th>{% endif %}
+                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% include "exhibitors/_sort_header.html" with field="vouchers" label=label_vouchers %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>
