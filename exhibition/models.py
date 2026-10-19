@@ -1322,6 +1322,80 @@ class ExhibitionEmailQueue(LoggedModel):
     send.alters_data = True
 
 
+class ExhibitionEmailDraft(models.Model):
+    """A composed email saved for later, kept as the organizer left it and never queued or sent.
+
+    Queued rows hold text already rendered for one recipient, so a draft instead keeps
+    the raw subject and body with their placeholders, plus the recipient choices.
+    """
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_email_drafts",
+    )
+    exhibition_request = models.ForeignKey(
+        ExhibitionRequest,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="email_drafts",
+    )
+    state = models.CharField(max_length=40, blank=True, default="")
+    organization_type = models.CharField(max_length=40, blank=True, default="")
+    # Clearing the group would widen the draft's audience, so a group stays while drafts filter by it.
+    sponsor_group = models.ForeignKey(
+        SponsorGroup,
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        related_name="email_drafts",
+    )
+    organizations = models.JSONField(default=list, blank=True)
+    subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
+    body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    FORM_FIELDS = ("state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at")
+
+    class Meta:
+        verbose_name = _("Email draft")
+        verbose_name_plural = _("Email drafts")
+        ordering = ("-updated", "-pk")
+
+    def __str__(self):
+        return str(self.subject or "") or str(_("(no subject)"))
+
+    def form_initial(self):
+        """Compose form values that restore this draft for editing."""
+        return {name: getattr(self, name) for name in self.FORM_FIELDS}
+
+    def fill_from_form(self, cleaned_data):
+        """Copy the compose form's values onto the draft; fields the form leaves out keep their defaults."""
+        for name in self.FORM_FIELDS:
+            if name in cleaned_data:
+                setattr(self, name, cleaned_data[name])
+        self.organizations = list(self.organizations or [])
+
+    def recipient_count(self):
+        """How many addresses this draft would reach if queued now, resolved the way the compose form does."""
+        from .mail import compose_recipient_emails, resolve_compose_recipients
+
+        if self.exhibition_request_id:
+            exhibition_requests, profiles = [self.exhibition_request], ()
+        else:
+            exhibition_requests, profiles = resolve_compose_recipients(
+                self.event,
+                organizations=self.organizations or (),
+                state=self.state,
+                organization_type=self.organization_type,
+                sponsor_group=self.sponsor_group,
+            )
+        return len(compose_recipient_emails(exhibition_requests, profiles))
+
+
 class ExhibitionCustomEmailTemplate(models.Model):
     event = models.ForeignKey(
         Event,

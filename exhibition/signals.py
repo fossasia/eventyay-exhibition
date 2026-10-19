@@ -558,10 +558,17 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
         return a_text.format_map(a_map)
 
 
+def is_admin_page(request):
+    match = getattr(request, "resolver_match", None)
+    if match is None:
+        return False
+    return "eventyay_admin" in match.namespaces or (match.url_name or "").startswith("admin.")
+
+
 @receiver(nav_global, dispatch_uid="exhibition_nav_global")
 def exhibition_nav_global(sender, request=None, **kwargs):
     """My Exhibitions in the personal dashboard, next to My Tickets and My Sessions."""
-    if request is None or not user_has_exhibitions(request.user):
+    if request is None or is_admin_page(request) or not user_has_exhibitions(request.user):
         return []
     url_name = getattr(request.resolver_match, "url_name", "") or ""
     return [

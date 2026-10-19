@@ -598,6 +598,51 @@ def compose_recipients(event, states=None, organization_type=None, sponsor_group
     return queryset.select_related("user", "sponsor_group").order_by("-updated")
 
 
+REQUEST_CHOICE_PREFIX = "request-"
+PROFILE_CHOICE_PREFIX = "profile-"
+
+
+def organizer_created_profiles(event):
+    """Organization profiles an organizer added by hand, without an application behind them."""
+    from .models import ExhibitorInfo
+
+    return ExhibitorInfo.objects.filter(event=event, source_requests__isnull=True, email__isnull=False).exclude(
+        email=""
+    )
+
+
+def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
+    """Applications and profiles a composed email goes to: the chosen organizations, else everyone matching the filters.
+
+    ``organizations`` holds the compose form's choice values, ``request-<pk>`` and ``profile-<pk>``.
+    """
+    from .models import ExhibitorInfo
+
+    if organizations:
+
+        def chosen(prefix):
+            return [value[len(prefix) :] for value in organizations if value.startswith(prefix)]
+
+        exhibition_requests = compose_recipients(event).filter(pk__in=chosen(REQUEST_CHOICE_PREFIX))
+        profiles = organizer_created_profiles(event).filter(pk__in=chosen(PROFILE_CHOICE_PREFIX))
+        return exhibition_requests, profiles
+    exhibition_requests = compose_recipients(
+        event,
+        states=[state] if state else None,
+        organization_type=organization_type,
+        sponsor_group=sponsor_group,
+    )
+    return exhibition_requests, ExhibitorInfo.objects.none()
+
+
+def compose_recipient_emails(exhibition_requests, exhibitors=()):
+    """Distinct addresses a composed email reaches, deduplicated the way :func:`queue_compose_emails` does."""
+    emails = {request_recipient(exhibition_request).lower() for exhibition_request in exhibition_requests}
+    emails.update((exhibitor.recipient_email or "").strip().lower() for exhibitor in exhibitors)
+    emails.discard("")
+    return emails
+
+
 def queue_compose_emails(
     event, exhibition_requests, subject, body, *, exhibitors=(), scheduled_at=None, send_now=False, requestor=None
 ):

@@ -1,0 +1,86 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/message-center.css' %}">
+{% endblock %}
+
+{% block title %}{{ request.event.name }} - {% trans "Email drafts" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Email drafts" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <p class="text-muted">
+        {% trans "Emails you saved while composing. Drafts are never sent: open one to finish it, then send it or place it in the outbox." %}
+    </p>
+    <p>
+        <a class="btn btn-default" href="{% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <i class="fa fa-pencil"></i> {% trans "Compose email" %}
+        </a>
+    </p>
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+            <tr>
+                <th>{% trans "Recipients" %}</th>
+                <th>{% trans "Subject" %}</th>
+                <th>{% trans "Last saved" %}</th>
+                <th>{% trans "Scheduled" %}</th>
+                <th>{% trans "Actions" %}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for draft in drafts %}
+                {% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug as compose_url %}
+                <tr>
+                    <td>
+                        {% blocktrans trimmed count counter=draft.recipient_total %}
+                            {{ counter }} recipient
+                        {% plural %}
+                            {{ counter }} recipients
+                        {% endblocktrans %}
+                    </td>
+                    <td>
+                        <a href="{{ compose_url }}?draft={{ draft.pk }}">
+                            {% if draft.subject %}{{ draft.subject }}{% else %}<span class="text-muted">{% trans "(no subject)" %}</span>{% endif %}
+                        </a>
+                    </td>
+                    <td class="email-created">{{ draft.updated }}</td>
+                    <td class="email-scheduled">
+                        {% if draft.scheduled_at %}
+                            <span class="label label-info">{{ draft.scheduled_at }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="email-actions">
+                        <div class="btn-toolbar" role="toolbar">
+                            <div class="btn-group" role="group">
+                                <a class="btn btn-sm btn-info" title="{% trans 'Edit' %}" data-toggle="tooltip"
+                                   href="{{ compose_url }}?draft={{ draft.pk }}">
+                                    <i class="fa fa-edit"></i>
+                                </a>
+                            </div>
+                            <div class="btn-group" role="group">
+                                <a class="btn btn-sm btn-danger" title="{% trans 'Discard' %}" data-toggle="tooltip"
+                                   href="{% url 'plugins:exhibition:email.draft.delete' organizer=request.event.organizer.slug event=request.event.slug pk=draft.pk %}">
+                                    <i class="fa fa-trash"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="5">{% trans "You have no saved drafts." %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "pretixcontrol/pagination.html" %}
+{% endblock %}
