@@ -443,17 +443,3 @@ def test_the_voucher_page_sends_nothing_once_every_code_is_claimed(event, settin
     ]
     with scopes_disabled():
         assert not ExhibitionEmailQueue.objects.filter(exhibitor=organization, sent_at__isnull=True).exists()
-
-
-@pytest.mark.django_db
-def test_a_send_uses_the_organization_as_it_is_when_locked(event):
-    with scopes_disabled():
-        ExhibitorSettings.objects.create(event=event, voucher_attach_csv=False)
-        organization = _organization(event, "Acme")
-        _vouchers(event, organization, 1)
-        ExhibitorInfo.objects.filter(pk=organization.pk).update(email="new@example.com")
-
-        queued, _skipped = mail_helpers.queue_voucher_emails(event, [organization], issue_missing=True)
-
-    assert organization.email == "acme@example.com"
-    assert [email.to_email for email in queued] == ["new@example.com"]

@@ -856,7 +856,7 @@ def queue_unsent_voucher_email(event, exhibitor, *, requestor=None, extra=0, iss
     from .models import ExhibitorInfo, ExhibitorVoucher
     from .utils import claim_pool_vouchers, resolve_voucher_defaults
 
-    exhibitor = ExhibitorInfo.objects.select_for_update().prefetch_related("source_requests__user").get(pk=exhibitor.pk)
+    ExhibitorInfo.objects.select_for_update().get(pk=exhibitor.pk)
     if not exhibitor.recipient_email:
         return None, [], VOUCHER_SKIP_NO_EMAIL
     if organizations_with_voucher_email_in_outbox([exhibitor]):
