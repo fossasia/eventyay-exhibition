@@ -8,6 +8,7 @@ from django.db import models, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
 from eventyay.base.models import Device, Event, Voucher
@@ -80,34 +81,33 @@ def get_next_sponsor_position(event, sponsor_group):
     return (max_position if max_position is not None else -1) + 1
 
 
-def exhibitor_logo_path(instance, filename):
+ORGANIZATION_FOLDER_MAX_LENGTH = 40
+
+
+def organization_folder_name(instance):
+    """A short, path-safe folder name for an organization's files, so long names stay within the file field limit."""
     name = instance.name
     if isinstance(name, LazyI18nString):
         event = getattr(instance, "event", None)
         locale = getattr(event, "locale", None) if event is not None else None
         name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "logos", str(name), filename)
+    folder = slugify(str(name or ""), allow_unicode=True)[:ORGANIZATION_FOLDER_MAX_LENGTH].strip("-_")
+    return folder or "organization"
+
+
+def exhibitor_logo_path(instance, filename):
+    return os.path.join("exhibitors", "logos", organization_folder_name(instance), filename)
 
 
 def exhibitor_banner_path(instance, filename):
-    name = instance.name
-    if isinstance(name, LazyI18nString):
-        event = getattr(instance, "event", None)
-        locale = getattr(event, "locale", None) if event is not None else None
-        name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "banners", str(name), filename)
+    return os.path.join("exhibitors", "banners", organization_folder_name(instance), filename)
 
 
 exhibitor_header_image_path = exhibitor_banner_path
 
 
 def exhibitor_slides_path(instance, filename):
-    name = instance.name
-    if isinstance(name, LazyI18nString):
-        event = getattr(instance, "event", None)
-        locale = getattr(event, "locale", None) if event is not None else None
-        name = name.localize(locale) if locale else str(name)
-    return os.path.join("exhibitors", "slides", str(name), filename)
+    return os.path.join("exhibitors", "slides", organization_folder_name(instance), filename)
 
 
 def request_file_path(instance, filename, file_type):

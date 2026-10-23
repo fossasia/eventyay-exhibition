@@ -11,7 +11,7 @@
     <form action="" method="post">
         {% csrf_token %}
         <p>
-            {% if email.batch %}
+            {% if email.batch or hide_applicant_emails %}
                 {% blocktrans trimmed with subject=email.subject count counter=recipients|length %}
                     Are you sure you want to discard the email “{{ subject }}” to {{ counter }} recipient? This cannot be undone.
                 {% plural %}

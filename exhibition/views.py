@@ -103,6 +103,7 @@ from .utils import (
     build_voucher_csv,
     claim_pool_vouchers,
     event_exhibitor_settings,
+    invitation_account,
     pool_remaining,
     provision_exhibitor_devices,
     public_exhibitor_sessions,
@@ -161,8 +162,17 @@ def send_request_confirmation(event, exhibition_request, requestor):
 
 
 def queue_profile_invitation(event, exhibitor):
-    """Queue the invitation to edit a created profile in the same transaction, for the organizer to send."""
-    return mail_helpers.queue_exhibitor_profile_email(event, exhibitor)
+    """Queue the invitation to edit a created profile in the same transaction, for the organizer to send.
+
+    An exhibitor without an account gets one, and the new-account email with a set-password link.
+    """
+    email = (exhibitor.email or "").strip()
+    if not exhibitor.is_exhibitor or not email:
+        return None
+    account, needs_password = invitation_account(email)
+    return mail_helpers.queue_exhibitor_profile_email(
+        event, exhibitor, invited_user=account if needs_password else None
+    )
 
 
 def send_request_organizer_notification(event, exhibition_request, action):
@@ -3108,6 +3118,19 @@ def request_email_recipient(request, exhibition_request):
     return mail_helpers.request_recipient(exhibition_request)
 
 
+class ApplicantEmailVisibilityMixin:
+    """Hide recipient addresses from reviewers whose teams may not see applicant emails."""
+
+    @cached_property
+    def hide_applicant_emails(self):
+        return should_hide_applicant_emails(self.request.user, self.request.event, request=self.request)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["hide_applicant_emails"] = self.hide_applicant_emails
+        return context
+
+
 def group_email_entries(emails):
     """Collapse rows that share a compose batch into one entry per message."""
     entries = []
@@ -3144,7 +3167,7 @@ def group_email_entries(emails):
     return entries
 
 
-class EmailListMixin(FilteredListMixin):
+class EmailListMixin(ApplicantEmailVisibilityMixin, FilteredListMixin):
     """Shared search, ordering and batch-aware pagination for the outbox and sent lists."""
 
     context_object_name = "emails"
@@ -3155,7 +3178,9 @@ class EmailListMixin(FilteredListMixin):
         raise NotImplementedError
 
     def build_filter_form(self):
-        return EmailFilterForm(data=self.request.GET, date_field=self.date_field)
+        return EmailFilterForm(
+            data=self.request.GET, date_field=self.date_field, hide_emails=self.hide_applicant_emails
+        )
 
     def batch_representatives(self, base, matched):
         """One row per message: the lowest-numbered row of each batch, plus every unbatched row."""
@@ -3289,7 +3314,7 @@ class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
         return reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
 
 
-class EmailEditView(EventPermissionRequiredMixin, UpdateView):
+class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin, UpdateView):
     """Preview and edit a queued (unsent) email before sending, or view a sent email."""
 
     model = ExhibitionEmailQueue
@@ -3304,6 +3329,7 @@ class EmailEditView(EventPermissionRequiredMixin, UpdateView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
+        kwargs["hide_recipient"] = self.hide_applicant_emails
         return kwargs
 
     def batch_queryset(self):
@@ -3400,7 +3426,7 @@ class EmailSendView(EventPermissionRequiredMixin, View):
         return redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
 
 
-class EmailDeleteView(EventPermissionRequiredMixin, DeleteView):
+class EmailDeleteView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin, DeleteView):
     """Discard a queued email (or the whole batch it belongs to)."""
 
     model = ExhibitionEmailQueue
@@ -3462,10 +3488,14 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         base = ExhibitionEmailQueue.objects.filter(event=request.event, sent_at__isnull=True)
         if scope == "all":
             if request.GET.get("select_all_pages") == "true" or request.POST.get("select_all_pages") == "true":
-                filter_form = EmailFilterForm(data=request.GET, date_field="created")
+                filter_form = EmailFilterForm(
+                    data=request.GET,
+                    date_field="created",
+                    hide_emails=should_hide_applicant_emails(request.user, request.event, request=request),
+                )
                 if filter_form.is_valid():
                     return filter_form.filter_qs(base)
-                return base
+                return base.none()
             return base
         selected = request.POST.getlist("selected")
         if not selected:
@@ -3584,7 +3614,8 @@ class EmailTemplatesView(EventPermissionRequiredMixin, TemplateView):
                 (mail_helpers.REQUEST_ORGANIZER, _("Request notification (organizer)")),
                 (mail_helpers.EXHIBITOR_ACCESS, _("Exhibitor lead scanning key")),
                 (mail_helpers.VOUCHERS, _("Vouchers")),
-                (mail_helpers.EXHIBITOR_PROFILE, _("Profile created for the exhibitor")),
+                (mail_helpers.EXHIBITOR_PROFILE, _("Profile created for the exhibitor (existing account)")),
+                (mail_helpers.EXHIBITOR_PROFILE_NEW_ACCOUNT, _("Profile created for the exhibitor (new account)")),
                 (mail_helpers.REQUEST_MESSAGE, _("Request more information")),
             )
         ]

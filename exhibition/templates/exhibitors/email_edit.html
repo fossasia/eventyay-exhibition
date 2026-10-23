@@ -20,7 +20,20 @@
     <div class="form-horizontal">
     {% endif %}
 
-        {% if email.batch %}
+        {% if hide_applicant_emails %}
+            <div class="form-group">
+                <label class="col-md-3 control-label">{% if email.batch %}{% trans "Recipients" %}{% else %}{% trans "Recipient" %}{% endif %}</label>
+                <div class="col-md-9">
+                    <p class="form-control-static text-muted">
+                        {% blocktrans trimmed count counter=recipients|length %}
+                            Hidden ({{ counter }} recipient)
+                        {% plural %}
+                            Hidden ({{ counter }} recipients)
+                        {% endblocktrans %}
+                    </p>
+                </div>
+            </div>
+        {% elif email.batch %}
             <div class="form-group">
                 <label class="col-md-3 control-label">{% trans "Recipients" %} ({{ recipients|length }})</label>
                 <div class="col-md-9">
