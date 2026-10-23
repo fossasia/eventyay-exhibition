@@ -167,11 +167,14 @@
                     <legend>{% trans "How many each one gets" %}</legend>
                     <p>
                         {% blocktrans trimmed %}
-                            Applies to any exhibitor or sponsor that does not belong to a sponsor group.
-                            Sponsor groups set their own number on the Sponsors page, and an individual
-                            exhibitor or sponsor can be given a different number on their own voucher page.
+                            Paid and non-paid exhibitors get the number set for their group, and organizations
+                            without a group get the last number. Sponsors get the number of their sponsor group,
+                            set on the Sponsors page. An individual exhibitor or sponsor can be given a different
+                            number on their own voucher page.
                         {% endblocktrans %}
                     </p>
+                    {% bootstrap_field voucher_defaults_form.paid_voucher_default_count layout="control" %}
+                    {% bootstrap_field voucher_defaults_form.non_paid_voucher_default_count layout="control" %}
                     {% bootstrap_field voucher_defaults_form.voucher_default_count layout="control" %}
                 </fieldset>
 

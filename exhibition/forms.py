@@ -66,6 +66,7 @@ from .models import (
     ExhibitionRequestSocialLink,
     ExhibitionRequestState,
     ExhibitorExtraLink,
+    ExhibitorGroup,
     ExhibitorInfo,
     ExhibitorSettings,
     ExhibitorSocialLink,
@@ -437,6 +438,16 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         required=False,
         label=_("Booth ID"),
     )
+    exhibitor_group = forms.ChoiceField(
+        choices=ExhibitorGroup.choices,
+        required=False,
+        label=_("Exhibitor group"),
+        help_text=_(
+            "Decides how many vouchers the exhibitor gets. While it is also a sponsor, its sponsor group's "
+            "number applies instead."
+        ),
+        widget=forms.RadioSelect,
+    )
     sessions = SessionChoiceField(
         queryset=Submission.objects.none(),
         required=False,
@@ -466,6 +477,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "is_exhibitor",
             "is_sponsor",
             "sponsor_group",
+            "exhibitor_group",
             "booth_id",
             "booth_name",
             "lead_scanning_enabled",
@@ -520,6 +532,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
     SPONSOR_ONLY_FIELDS = ("sponsor_group",)
     EXHIBITOR_ONLY_FIELDS = (
+        "exhibitor_group",
         "booth_id",
         "booth_name",
         "lead_scanning_enabled",
@@ -543,6 +556,11 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         if "sponsor_group" in self.fields:
             self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("pk")
             self.fields["sponsor_group"].empty_label = _("No sponsor group")
+        if "exhibitor_group" in self.fields:
+            if self.instance.pk and not self.instance.exhibitor_group:
+                self.fields["exhibitor_group"].choices = [("", _("No group")), *ExhibitorGroup.choices]
+            else:
+                self.fields["exhibitor_group"]._required = True
         if self.event:
             with scope(event=self.event):
                 self.fields["sessions"].queryset = (
@@ -717,6 +735,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             if not is_sponsor and not is_exhibitor:
                 self.add_error(None, _("An organization must be marked as an exhibitor, a sponsor, or both."))
         self._resolved_is_sponsor = is_sponsor
+        self._resolved_is_exhibitor = is_exhibitor
         cleaned_data["is_exhibitor"] = is_exhibitor
 
         if not is_sponsor:
@@ -780,8 +799,18 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             self._validate_required_file(image_field, submitted_image)
 
         self._resolve_organization_kind(cleaned_data)
+        self._validate_exhibitor_group(cleaned_data)
 
         return cleaned_data
+
+    def _validate_exhibitor_group(self, cleaned_data):
+        """A new exhibitor needs a group, and one that has a group keeps one, whether or not it also sponsors."""
+        if "exhibitor_group" not in self.fields or cleaned_data.get("exhibitor_group"):
+            return
+        if not getattr(self, "_resolved_is_exhibitor", False):
+            return
+        if not self.instance.pk or self.instance.exhibitor_group:
+            self.add_error("exhibitor_group", _("Please choose whether this is a paid or a non-paid exhibitor."))
 
     def _apply_organization_kind(self, instance):
         instance.is_exhibitor = self.cleaned_data.get("is_exhibitor", True)
@@ -841,6 +870,7 @@ class ExhibitorSelfEditForm(ExhibitorInfoForm):
 
     ORGANIZER_ONLY_FIELDS = (
         "sponsor_group",
+        "exhibitor_group",
         "allow_voucher_access",
         "allow_lead_access",
         "lead_scanning_scope_by_device",
@@ -935,7 +965,7 @@ class ExhibitorDeviceDefaultsForm(forms.ModelForm):
         fields = ["device_default_count"]
 
 
-class ExhibitorVoucherDefaultsForm(VoucherDefaultsFormMixin, forms.ModelForm):
+class ExhibitorVoucherDefaultsForm(forms.ModelForm):
     """Which pools organizations draw from, and how many codes each one gets by default."""
 
     voucher_pool_tag = forms.ChoiceField(required=False, label=_("Exhibitor voucher pool"))
@@ -946,9 +976,17 @@ class ExhibitorVoucherDefaultsForm(VoucherDefaultsFormMixin, forms.ModelForm):
         fields = [
             "voucher_pool_tag",
             "sponsor_voucher_pool_tag",
-            *VoucherDefaultsFormMixin.voucher_default_fields,
+            "paid_voucher_default_count",
+            "non_paid_voucher_default_count",
+            "voucher_default_count",
             "voucher_attach_csv",
         ]
+        labels = {"voucher_default_count": _("Vouchers per organization without a group")}
+        help_texts = {
+            "voucher_default_count": _(
+                "For exhibitors not yet placed in a group, and sponsors without a sponsor group."
+            ),
+        }
 
     def __init__(self, *args, **kwargs):
         self.event = kwargs.pop("event", None)

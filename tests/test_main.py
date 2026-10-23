@@ -590,7 +590,10 @@ def test_scoped_forms_set_type_flags(event, image_uploads):
     assert sponsor.is_exhibitor is False
 
     exhibitor_form = ExhibitorInfoForm(
-        data={"name_0": "Acme Exhibitor"}, files=image_uploads(), event=event, organization_type="exhibitor"
+        data={"name_0": "Acme Exhibitor", "exhibitor_group": "paid"},
+        files=image_uploads(),
+        event=event,
+        organization_type="exhibitor",
     )
     assert exhibitor_form.is_valid(), exhibitor_form.errors
     exhibitor = exhibitor_form.save(commit=False)
@@ -607,7 +610,7 @@ LONG_ORGANIZATION_NAME = "Indic Mediawiki Developers User Group(IMDUG) - affilia
 @pytest.mark.parametrize("organization_type", ["exhibitor", "sponsor"])
 def test_long_organization_name_can_be_created_with_images(event, image_uploads, organization_type):
     form = ExhibitorInfoForm(
-        data={"name_0": LONG_ORGANIZATION_NAME},
+        data={"name_0": LONG_ORGANIZATION_NAME, "exhibitor_group": "paid"},
         files=image_uploads(),
         event=event,
         organization_type=organization_type,
@@ -792,12 +795,14 @@ def test_invalid_voucher_settings_render_the_form_instead_of_crashing(event):
     settings = make_exhibitor_settings(event)
 
     with scopes_disabled():
-        response = _settings_post(event, {"action": "save_voucher_settings", "voucher_default_count": "3000000000"})
+        response = _settings_post(
+            event, {"action": "save_voucher_settings", "paid_voucher_default_count": "3000000000"}
+        )
         settings.refresh_from_db()
 
     assert response.status_code == 200
-    assert "voucher_default_count" in response.context_data["voucher_defaults_form"].errors
-    assert settings.voucher_default_count != 3000000000
+    assert "paid_voucher_default_count" in response.context_data["voucher_defaults_form"].errors
+    assert settings.paid_voucher_default_count != 3000000000
 
 
 @pytest.mark.django_db
@@ -901,6 +906,7 @@ def test_exhibitor_and_sponsor_forms_save_rich_text_description(event, image_upl
             data={
                 "name_0": f"Acme {org_type.title()}",
                 "description_0": "<p>Formatted <strong>rich description</strong></p>",
+                "exhibitor_group": "non_paid",
             },
             files=image_uploads(),
             event=event,

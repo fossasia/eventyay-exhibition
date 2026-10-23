@@ -258,8 +258,25 @@ class VoucherDefaultsMixin(models.Model):
         abstract = True
 
 
+class ExhibitorGroup(models.TextChoices):
+    """The two exhibitor groups every event has; they cannot be renamed, removed or added to."""
+
+    PAID = "paid", _("Paid exhibitor")
+    NON_PAID = "non_paid", _("Non-paid exhibitor")
+
+
 class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     event = models.ForeignKey("base.Event", on_delete=models.CASCADE)
+    paid_voucher_default_count = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        verbose_name=_("Vouchers per paid exhibitor"),
+    )
+    non_paid_voucher_default_count = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        verbose_name=_("Vouchers per non-paid exhibitor"),
+    )
     voucher_pool_tag = models.CharField(
         max_length=255,
         blank=True,
@@ -422,6 +439,14 @@ class ExhibitorInfo(LoggedModel):
         related_name="organizations",
     )
     is_exhibitor = models.BooleanField(default=True)
+    exhibitor_group = models.CharField(
+        max_length=16,
+        choices=ExhibitorGroup.choices,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name=_("Exhibitor group"),
+    )
     active = models.BooleanField(default=True)
     published = models.BooleanField(
         default=False,
@@ -498,6 +523,17 @@ class ExhibitorInfo(LoggedModel):
             locale = getattr(self.event, "locale", None)
             booth_name = booth_name.localize(locale) if locale else str(booth_name)
         return booth_name or ""
+
+    @property
+    def group_label(self):
+        """The group shown for the organization: its sponsor group while it sponsors, else its exhibitor group."""
+        if self.is_sponsor:
+            if self.sponsor_group_id:
+                return _("Sponsor · {group}").format(group=self.sponsor_group.localized_name)
+            return _("Sponsor")
+        if self.exhibitor_group:
+            return self.get_exhibitor_group_display()
+        return _("No group")
 
     @property
     def visible_logo_url(self):
