@@ -597,11 +597,18 @@ def send_request_organizer_emails(event, request, action):
     subject_tpl, body_tpl = get_email_template(event, REQUEST_ORGANIZER)
 
     context = build_request_context(event, request)
+    contact_name = (request.user.get_full_name() or request.user.email) if request.user_id else ""
+    contact_email = (request.email or "").strip() or (request.user.email if request.user_id else "")
+    request_date = (
+        timezone.localtime(request.updated, ZoneInfo(event.timezone)).strftime("%Y-%m-%d %H:%M %Z")
+        if request.updated
+        else ""
+    )
     context.update(
         {
-            "contact_name": request.user.get_full_name() or request.user.email,
-            "contact_email": request.email or request.user.email,
-            "request_date": timezone.localtime(request.updated, ZoneInfo(event.timezone)).strftime("%Y-%m-%d %H:%M %Z"),
+            "contact_name": contact_name,
+            "contact_email": contact_email,
+            "request_date": request_date,
             "request_admin_url": request_admin_url(request),
             "pending_request_count": ExhibitionRequest.objects.filter(
                 event=event,

@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
@@ -1607,3 +1607,102 @@ def test_single_recipient_compose_logs_a_scheduled_email_as_scheduled(mail_event
     assert logged.parsed_data["scheduled"] is True
     assert logged.parsed_data["sent"] is False
     assert _message_texts(request) == ["The email has been scheduled."]
+
+
+def test_send_request_organizer_emails_handles_userless_request():
+    """Verify that organizer notification emails do not crash when a request has no linked user."""
+    member = MagicMock()
+    member.email = "reviewer@example.com"
+    member.locale = "en"
+    team = MagicMock()
+    team.members.all.return_value = [member]
+
+    teams_qs = MagicMock()
+    teams_qs.prefetch_related.return_value = [team]
+
+    event = MagicMock()
+    event.teams.filter.return_value = teams_qs
+    event.timezone = "UTC"
+    event.settings.locale = "en"
+
+    req = MagicMock(spec=ExhibitionRequest)
+    req.user = None
+    req.user_id = None
+    req.email = "guest@example.com"
+    req.name = "Guest Org"
+    req.updated = timezone.now()
+    req.is_sponsor = False
+    req.code = "GUEST123"
+
+    with (
+        patch(
+            "exhibition.mail.build_request_context",
+            return_value={
+                "event_name": "Test Event",
+                "request_name": "Guest Org",
+                "request_url": "http://example.com",
+            },
+        ),
+        patch("exhibition.mail.request_admin_url", return_value="http://example.com/admin"),
+        patch("exhibition.models.ExhibitionRequest.objects.filter") as mock_filter,
+        patch("exhibition.mail.mail") as mock_mail,
+    ):
+        mock_filter.return_value.count.return_value = 1
+        mail_helpers.send_request_organizer_emails(event, req, "submitted")
+
+        mock_mail.assert_called_once()
+        assert mock_mail.call_args.kwargs["email"] == "reviewer@example.com"
+
+
+def test_compose_form_handles_userless_request_with_email():
+    """Verify compose form builds choices successfully when a request has no linked user."""
+    event = MagicMock()
+    event.settings.get.return_value = ["en"]
+    event.timezone = "UTC"
+
+    req = MagicMock()
+    req.pk = 42
+    req.name = "Userless Corp"
+    req.email = "anon@example.com"
+    req.user = None
+    req.user_id = None
+    req.get_state_display.return_value = "Submitted"
+
+    with (
+        patch("exhibition.forms.mail_helpers.placeholder_names", return_value=["event_name"]),
+        patch("exhibition.forms.mail_helpers.compose_recipients", return_value=[req]),
+        patch("exhibition.forms.mail_helpers.organizer_created_profiles", return_value=[]),
+        patch("exhibition.forms.SponsorGroup.objects.filter") as mock_sg,
+    ):
+        mock_sg.return_value.order_by.return_value = SponsorGroup.objects.none()
+        form = ExhibitionComposeForm(event=event)
+        choices = dict(form.fields["organizations"].choices)
+        assert "request-42" in choices
+        assert form.fields["organizations"].widget.option_details["request-42"] == "anon@example.com · Submitted"
+
+
+def test_compose_form_handles_userless_request_without_email():
+    """Verify compose form formats detail gracefully when a userless request has no email."""
+    event = MagicMock()
+    event.settings.get.return_value = ["en"]
+    event.timezone = "UTC"
+
+    req = MagicMock()
+    req.pk = 43
+    req.name = "No Email Corp"
+    req.email = None
+    req.user = None
+    req.user_id = None
+    req.get_state_display.return_value = "Submitted"
+
+    with (
+        patch("exhibition.forms.mail_helpers.placeholder_names", return_value=["event_name"]),
+        patch("exhibition.forms.mail_helpers.compose_recipients", return_value=[req]),
+        patch("exhibition.forms.mail_helpers.organizer_created_profiles", return_value=[]),
+        patch("exhibition.forms.SponsorGroup.objects.filter") as mock_sg,
+    ):
+        mock_sg.return_value.order_by.return_value = SponsorGroup.objects.none()
+        form = ExhibitionComposeForm(event=event)
+        choices = dict(form.fields["organizations"].choices)
+        assert "request-43" in choices
+        assert form.fields["organizations"].widget.option_details["request-43"] == "Submitted"
