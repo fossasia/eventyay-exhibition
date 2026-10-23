@@ -1,0 +1,96 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Quotas" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'pretixcontrol/css/tickets-mobile.css' %}">
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Quotas" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <p>
+        {% blocktrans trimmed %}
+            Quotas limit how many of their products can be sold. A product on several quotas can be sold while all
+            of them have room, and a product on no quota can be sold without a limit. Pending and paid orders take
+            up capacity; cancelled and expired orders release it.
+        {% endblocktrans %}
+    </p>
+    <p>
+        {% blocktrans trimmed %}
+            Mark a quota as booth capacity to count the physical booths. Only products that include a booth can be
+            on it, so digital sponsorship packages never take a booth away.
+        {% endblocktrans %}
+    </p>
+    {% if not quotas %}
+        <div class="empty-collection">
+            <p>{% trans "You haven't created any quotas yet." %}</p>
+            <a href="{% url 'plugins:exhibition:products.quotas.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+               class="btn btn-primary btn-lg"><i class="fa fa-plus"></i> {% trans "Create a new quota" %}</a>
+        </div>
+    {% else %}
+        <p class="list-toolbar">
+            <a href="{% url 'plugins:exhibition:products.quotas.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+               class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Create a new quota" %}</a>
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover table-flip tickets-table">
+                <thead>
+                <tr>
+                    <th>{% trans "Quota name" %}</th>
+                    <th>{% trans "Products" %}</th>
+                    <th>{% trans "Total capacity" %}</th>
+                    <th>{% trans "Sold" %}</th>
+                    <th>{% trans "Capacity left" %}</th>
+                    <th class="action-col-2"></th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for quota in quotas %}
+                    <tr>
+                        <td class="list-name-cell">
+                            <strong>
+                                <a href="{% url 'plugins:exhibition:products.quotas.edit' organizer=request.event.organizer.slug event=request.event.slug pk=quota.pk %}">{{ quota.name }}</a>
+                            </strong>
+                            {% if quota.booth_capacity %}
+                                <span class="label label-info">{% trans "Booth capacity" %}</span>
+                            {% endif %}
+                        </td>
+                        <td class="list-stack" data-label="{% trans 'Products' %}">
+                            <ul>
+                                {% for product in quota.products.all %}
+                                    <li><a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}">{{ product }}</a></li>
+                                {% empty %}
+                                    <li class="text-muted">{% trans "No products" %}</li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                        <td data-label="{% trans 'Total capacity' %}">{% if quota.size is None %}{% trans "Unlimited" %}{% else %}{{ quota.size }}{% endif %}</td>
+                        <td data-label="{% trans 'Sold' %}">{{ quota.used }}</td>
+                        <td class="list-meta" data-label="{% trans 'Capacity left' %}">
+                            {% if quota.size is None %}
+                                <span class="label label-success">{% trans "Unlimited" %}</span>
+                            {% elif quota.remaining %}
+                                <span class="label label-success">{% blocktrans trimmed with num=quota.remaining %}{{ num }} available{% endblocktrans %}</span>
+                            {% else %}
+                                <span class="label label-danger">{% trans "Sold out" %}</span>
+                            {% endif %}
+                        </td>
+                        <td class="list-actions text-right flip" data-label="{% trans 'Actions' %}">
+                            <a href="{% url 'plugins:exhibition:products.quotas.edit' organizer=request.event.organizer.slug event=request.event.slug pk=quota.pk %}"
+                               class="btn btn-default btn-sm" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+                            <a href="{% url 'plugins:exhibition:products.quotas.delete' organizer=request.event.organizer.slug event=request.event.slug pk=quota.pk %}"
+                               class="btn btn-delete btn-danger btn-sm" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+{% endblock %}

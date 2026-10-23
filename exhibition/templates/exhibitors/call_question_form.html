@@ -128,10 +128,13 @@
                 {% bootstrap_field form.dependency_values layout="inline" form_group_class="inner" %}
             </div>
         </div>
+        {% if form.products %}
+            {% bootstrap_field form.products layout="control" %}
+        {% endif %}
         {% bootstrap_field form.active layout="control" %}
         <div class="form-group submit-group">
             <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
-            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-default btn-lg" href="{% if cancel_url %}{{ cancel_url }}{% else %}{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}{% endif %}">
                 {% trans "Cancel" %}
             </a>
         </div>

@@ -1,0 +1,27 @@
+{% load i18n %}
+{% load money %}
+{% load presale_locale %}
+<table class="table">
+    <thead>
+        <tr>
+            <th scope="col">{% trans "Product" %}</th>
+            <th scope="col">{% trans "Exhibition booth" %}</th>
+            <th scope="col" class="text-right">{% trans "Price" %}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for product in products %}
+            <tr>
+                <td>{{ product.name|event_localize }}</td>
+                <td>{% if product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                <td class="text-right">{{ product.price|money:event.currency }}</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <th scope="row" colspan="2">{% trans "Total" %}</th>
+            <th class="text-right">{{ total|money:event.currency }}</th>
+        </tr>
+    </tfoot>
+</table>
