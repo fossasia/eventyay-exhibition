@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 import pytest
-from django.test import RequestFactory
+from bs4 import BeautifulSoup
+from django.test import Client, RequestFactory
+from django.urls import reverse
 from django_scopes import scopes_disabled
 from eventyay.base.models.auth import User
 
@@ -122,3 +124,30 @@ def test_manager_gets_notes_form_for_accepted_request(event):
         assert view.can_manage() is True
         assert view.can_review() is False
         assert view.get_form_class() is ExhibitionRequestReviewNotesForm
+
+
+@pytest.mark.django_db
+def test_review_only_user_has_no_state_dropdown(event, settings):
+    settings.SITE_URL = "https://testserver"
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        reviewer = _member(event, "reviewer@example.com", is_exhibition_reviewer=True)
+        proposal = _request(event, "applicant@example.com")
+    client = Client()
+    client.force_login(reviewer)
+    response = client.get(
+        reverse(
+            "plugins:exhibition:request.list",
+            kwargs={
+                "organizer": event.organizer.slug,
+                "event": event.slug,
+            },
+        )
+    )
+    assert response.status_code == 200
+    row = BeautifulSoup(response.content, "html.parser").select_one(f'[data-request-row="{proposal.code}"]')
+    assert row.select_one("[data-request-state]").text == proposal.get_state_display()
+    assert not row.select("[data-request-action]")
+    assert not row.select("select[data-request-state-select]")
+    assert row.select_one("[data-request-actions-cell] a") is not None

@@ -1,6 +1,9 @@
 import pytest
+from bs4 import BeautifulSoup
+from django.test import Client
+from django.urls import reverse
 from django_scopes import scopes_disabled
-from eventyay.base.models.auth import User
+from eventyay.base.models import Team, User
 
 from exhibition.models import (
     ExhibitionEmailQueue,
@@ -173,3 +176,48 @@ def test_reinstate_withdrawn_returns_to_submitted(event):
         exhibition_request.refresh_from_db()
         assert exhibition_request.state == ExhibitionRequestState.SUBMITTED
         assert not ExhibitionEmailQueue.objects.filter(event=event, exhibition_request=exhibition_request).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state", list(ExhibitionRequestState))
+def test_state_actions_stay_in_state_dropdown(event, settings, state):
+    settings.SITE_URL = "https://testserver"
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        manager = User.objects.create_user("manager@example.com", "pw")
+        team = Team.objects.create(
+            organizer=event.organizer, name="Managers", all_events=True, can_change_exhibition_proposals=True
+        )
+        team.members.add(manager)
+        proposal = _request(event, "applicant@example.com", state=state)
+        actions = proposal.available_review_actions()
+    client = Client()
+    client.force_login(manager)
+    response = client.get(
+        reverse(
+            "plugins:exhibition:request.list",
+            kwargs={
+                "organizer": event.organizer.slug,
+                "event": event.slug,
+            },
+        )
+    )
+    assert response.status_code == 200
+    row = BeautifulSoup(response.content, "html.parser").select_one(f'[data-request-row="{proposal.code}"]')
+    assert row is not None
+    state_cell = row.select_one(".request-state-cell")
+    assert state_cell["data-request-state-value"] == state
+    assert [
+        item["data-request-action"]
+        for item in state_cell.select("select.required-status-dropdown option[data-request-action]")
+    ] == actions
+    assert not row.select_one("[data-request-actions-cell]").select("[data-request-action]")
+    assert row.select_one("[data-request-actions-cell] a") is not None
+    if actions:
+        dropdown = state_cell.select_one(".required-status-wrapper select.required-status-dropdown")
+        assert dropdown["aria-label"]
+        assert dropdown.select_one("option[selected]")["value"] == ""
+        assert dropdown.select_one("option[selected]").text == proposal.get_state_display()
+        assert dropdown["data-current"] == state
+        assert not state_cell.select(".dropdown-menu, [data-toggle=dropdown]")

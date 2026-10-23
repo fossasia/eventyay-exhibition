@@ -56,12 +56,12 @@
         }
 
         var actionConfig = {
-            approve: { icon: 'fa-check', cls: 'request-action-approve', variant: 'btn-success', label: i18n.labelApprove },
-            confirm: { icon: 'fa-check-circle', cls: 'request-action-confirm', variant: 'btn-success', label: i18n.labelConfirm },
-            unconfirm: { icon: 'fa-circle-o', cls: 'request-action-unconfirm', variant: '', label: i18n.labelUnconfirm },
-            reject: { icon: 'fa-times', cls: 'request-action-reject', variant: 'btn-danger', label: i18n.labelReject },
-            withdraw: { icon: 'fa-undo', cls: 'request-action-withdraw', variant: '', label: i18n.labelWithdraw },
-            reopen: { icon: 'fa-inbox', cls: 'request-action-reopen', variant: '', label: i18n.labelReopen },
+            approve: { cls: 'request-action-approve', label: i18n.labelApprove },
+            confirm: { cls: 'request-action-confirm', label: i18n.labelConfirm },
+            unconfirm: { cls: 'request-action-unconfirm', label: i18n.labelUnconfirm },
+            reject: { cls: 'request-action-reject', label: i18n.labelReject },
+            withdraw: { cls: 'request-action-withdraw', label: i18n.labelWithdraw },
+            reopen: { cls: 'request-action-reopen', label: i18n.labelReopen },
         }
 
         function checkboxes() {
@@ -155,44 +155,26 @@
             feedback.appendChild(alert)
         }
 
-        function buildActionButton(action, code) {
-            var config = actionConfig[action]
-            if (!config) {
-                return null
-            }
-            var button = document.createElement('button')
-            button.type = 'button'
-            button.className = 'btn btn-sm request-action-btn ' + config.cls + (config.variant ? ' ' + config.variant : '')
-            button.setAttribute('data-request-action', action)
-            button.setAttribute('data-request-code', code)
-            button.setAttribute('data-toggle', 'tooltip')
-            if (config.label) {
-                button.title = config.label
-            }
-            var icon = document.createElement('i')
-            icon.className = 'fa ' + config.icon
-            button.appendChild(icon)
-            return button
-        }
-
         function rebuildActions(row, result) {
-            var actionsCell = row.querySelector('[data-request-actions-cell]')
-            if (!actionsCell) {
+            var select = row.querySelector('[data-request-state-select]')
+            if (!select) {
                 return
             }
-            actionsCell.querySelectorAll('[data-request-action]').forEach(function (button) {
-                button.remove()
-            })
-            var viewLink = actionsCell.querySelector('a')
+            select.innerHTML = ''
+            var state = new Option(result.state_display, '', true, true)
+            state.setAttribute('data-request-state', '')
+            select.appendChild(state)
+            select.dataset.current = result.state
             ;(result.actions || []).forEach(function (action) {
-                var button = buildActionButton(action, result.code)
-                if (button) {
-                    actionsCell.insertBefore(button, viewLink)
+                var config = actionConfig[action]
+                if (config) {
+                    var option = new Option(config.label || '', action)
+                    option.className = config.cls
+                    option.setAttribute('data-request-action', action)
+                    select.appendChild(option)
                 }
             })
-            if (window.jQuery) {
-                $(actionsCell).find('[data-toggle="tooltip"]').tooltip()
-            }
+            select.disabled = select.options.length === 1
         }
 
         function rebuildCheckbox(row, result) {
@@ -214,6 +196,10 @@
             if (stateCell) {
                 stateCell.textContent = result.state_display
             }
+            var stateContainer = row.querySelector('.request-state-cell')
+            if (stateContainer) {
+                stateContainer.dataset.requestStateValue = result.state
+            }
             rebuildActions(row, result)
             rebuildCheckbox(row, result)
         }
@@ -225,8 +211,8 @@
                     : selectedCodes(button.dataset.requestBulk).length === 0
                 button.disabled = busy || pending
             })
-            container.querySelectorAll('[data-request-action]').forEach(function (button) {
-                button.disabled = busy
+            container.querySelectorAll('[data-request-state-select]').forEach(function (select) {
+                select.disabled = busy || select.options.length === 1
             })
         }
 
@@ -344,16 +330,23 @@
             return Promise.resolve(window.confirm(message))
         }
 
-        container.addEventListener('click', function (event) {
-            var button = event.target.closest('[data-request-action]')
-            if (!button) {
+        container.addEventListener('change', function (event) {
+            var select = event.target.closest('[data-request-state-select]')
+            if (!select) {
                 return
             }
-            var action = button.dataset.requestAction
-            var code = button.dataset.requestCode
+            var action = select.value
+            select.value = ''
+            if (select.disabled || !actionConfig[action]) {
+                return
+            }
+            var code = select.dataset.requestCode
+            select.disabled = true
             requestConfirmation(action, confirmFor(action, false)).then(function (confirmed) {
                 if (confirmed) {
                     submitAction(action, [code])
+                } else {
+                    select.disabled = false
                 }
             })
         })
