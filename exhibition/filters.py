@@ -3,7 +3,7 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from eventyay.control.forms.filter import FilterForm
 
-from .models import ExhibitionRequestState, SponsorGroup
+from .models import ExhibitionRequestState, OrganizationVoucherState, SponsorGroup
 
 FLAG_CHOICES = (
     ("", _("Any")),
@@ -127,6 +127,7 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
         "booth": "booth_id",
         "active": "active",
         "published": "published",
+        "vouchers": "voucher_rank",
     }
 
     query = forms.CharField(
@@ -173,6 +174,11 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
         choices=FLAG_CHOICES,
         required=False,
     )
+    voucher_state = forms.ChoiceField(
+        label=_("Vouchers"),
+        choices=(("", _("Any")),) + tuple(OrganizationVoucherState.choices),
+        required=False,
+    )
 
     def __init__(self, *args, event=None, organization_type=None, **kwargs):
         self.event = event
@@ -206,6 +212,8 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
         queryset = apply_flag(queryset, "lead_scanning_enabled", fdata.get("lead_scanning"))
         queryset = apply_flag(queryset, "allow_lead_access", fdata.get("lead_access"))
         queryset = apply_flag(queryset, "allow_voucher_access", fdata.get("voucher_access"))
+        if fdata.get("voucher_state"):
+            queryset = queryset.filter(voucher_state=fdata["voucher_state"])
         return self.apply_ordering(queryset)
 
 
@@ -254,19 +262,29 @@ class EmailFilterForm(ExhibitionFilterForm):
         required=False,
     )
 
-    def __init__(self, *args, date_field="created", **kwargs):
-        self.orders = {
-            "to_email": "to_email",
-            "subject": "subject",
-            date_field: date_field,
-        }
+    def __init__(self, *args, date_field="created", hide_emails=False, **kwargs):
+        self.hide_emails = hide_emails
+        self.orders = {"subject": "subject", date_field: date_field}
+        if not hide_emails:
+            self.orders["to_email"] = "to_email"
         super().__init__(*args, **kwargs)
+        if hide_emails:
+            self.fields["query"].label = _("Search by subject…")
+            self.fields["query"].widget.attrs.update(
+                {
+                    "placeholder": _("Search by subject…"),
+                    "aria-label": _("Search emails by subject"),
+                }
+            )
 
     def filter_qs(self, queryset):
         fdata = self.cleaned_data
 
         query = (fdata.get("query") or "").strip()
         if query:
-            queryset = queryset.filter(Q(to_email__icontains=query) | Q(subject__icontains=query))
+            lookup = Q(subject__icontains=query)
+            if not self.hide_emails:
+                lookup |= Q(to_email__icontains=query)
+            queryset = queryset.filter(lookup)
 
         return queryset

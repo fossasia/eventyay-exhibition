@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.http import Http404
 from django.test import RequestFactory
@@ -12,6 +13,7 @@ from django.utils.translation import get_language
 from django_scopes import scopes_disabled
 from eventyay.base.models import LogEntry, Team
 from eventyay.base.models.auth import User
+from eventyay.base.templatetags.rich_text import compile_email_body
 from i18nfield.strings import LazyI18nString
 
 from exhibition import mail as mail_helpers
@@ -142,7 +144,7 @@ def test_default_template_initial_blanks_locales_without_translation():
         subject, body = mail_helpers.default_template_initial(mail_helpers.REQUEST_NEW, ["en", "th"])
 
     assert subject.data["en"] == source_subject
-    assert body.data["en"] == source_body
+    assert body.data["en"] == mail_helpers.with_hard_line_breaks(source_body)
     assert "th" not in subject.data
     assert "th" not in body.data
 
@@ -157,8 +159,29 @@ def test_default_template_initial_uses_available_translation():
 
     source_subject, source_body = mail_helpers.DEFAULT_TEMPLATE_SOURCES[mail_helpers.REQUEST_NEW]
     assert subject.data["th"] == f"TH:{source_subject}"
-    assert body.data["th"] == f"TH:{source_body}"
+    assert body.data["th"] == f"TH:{mail_helpers.with_hard_line_breaks(source_body)}"
     assert subject.data["en"] == source_subject
+
+
+def test_hard_line_breaks_keep_paragraph_breaks():
+    assert mail_helpers.with_hard_line_breaks("Hi,\n\nBest regards,\nThe team") == "Hi,\n\nBest regards,  \nThe team"
+
+
+@pytest.mark.django_db
+def test_default_body_keeps_sign_off_on_two_lines(mail_event):
+    for role in mail_helpers.DEFAULT_TEMPLATE_SOURCES:
+        _subject, body = mail_helpers.get_email_template(mail_event, role)
+        html = compile_email_body(str(body))
+        assert "regards,<br" in html or "regards," not in html
+
+
+@pytest.mark.django_db
+def test_default_template_initial_keeps_line_breaks():
+    with patch("exhibition.mail.gettext", side_effect=lambda msgid: msgid):
+        _subject, body = mail_helpers.default_template_initial(mail_helpers.REQUEST_NEW, ["en"])
+
+    assert "here:  \n{request_url}" in body.data["en"]
+    assert "Best regards,  \nThe {event_name} team" in body.data["en"]
 
 
 @pytest.mark.django_db
@@ -974,6 +997,7 @@ def test_bulk_action_target_rows_select_all_pages_no_batch_expansion(mail_event)
 
     request = RequestFactory().post("/bulk?query=match%40example.com", {"select_all_pages": "true"})
     request.event = mail_event
+    request.user = AnonymousUser()
 
     view = EmailBulkActionView()
     with scopes_disabled():
@@ -995,7 +1019,7 @@ def test_bulk_action_send_select_all_pages_stable_op(mail_event):
 
     request = RequestFactory().post("/bulk?query=match%40example.com", {"op": "send", "select_all_pages": "true"})
     request.event = mail_event
-    request.user = None
+    request.user = AnonymousUser()
     request.session = {}
     request._messages = FallbackStorage(request)
 
@@ -1022,7 +1046,7 @@ def test_bulk_action_discard_select_all_pages_stable_op(mail_event):
     request = RequestFactory().post("/bulk?query=match%40example.com", {"op": "discard", "select_all_pages": "true"})
     request.event = mail_event
     request.organizer = mail_event.organizer
-    request.user = None
+    request.user = AnonymousUser()
     request.session = {}
     request.LANGUAGE_CODE = "en"
     request._messages = FallbackStorage(request)
@@ -1041,7 +1065,7 @@ def test_bulk_action_discard_select_all_pages_stable_op(mail_event):
     )
     confirm_request.event = mail_event
     confirm_request.organizer = mail_event.organizer
-    confirm_request.user = None
+    confirm_request.user = AnonymousUser()
     confirm_request.session = {}
     confirm_request.LANGUAGE_CODE = "en"
     confirm_request._messages = FallbackStorage(confirm_request)
@@ -1060,7 +1084,7 @@ def test_bulk_action_discard_select_all_pages_stable_op(mail_event):
 def _outbox_context(event, **params):
     request = RequestFactory().get("/outbox", params)
     request.event = event
-    request.user = None
+    request.user = AnonymousUser()
     request.session = {}
     request.resolver_match = SimpleNamespace(url_name="email.outbox")
     view = EmailOutboxListView()

@@ -62,10 +62,17 @@
                 <a href="{{ add_url }}" class="btn btn-default"><i class="fa fa-plus"></i>
                     {% if organization_type == 'sponsor' %}{% trans "Add a Sponsor" %}{% elif organization_type == 'exhibitor' %}{% trans "Add an Exhibitor" %}{% else %}{% trans "Add an Exhibitor or Sponsor" %}{% endif %}
                 </a>
-                <a href="?download=yes" class="btn btn-default" title="{% trans "Download access keys as CSV" %}" data-organization-download-link>
-                    <i class="fa fa-download"></i>
-                    {% if organization_type == 'sponsor' %}{% trans "Download sponsor keys" %}{% elif organization_type == 'exhibitor' %}{% trans "Download exhibitor keys" %}{% else %}{% trans "Download access keys" %}{% endif %}
-                </a>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="{% trans "Download all data of the selected entries, or of every entry that matches the search and filters" %}">
+                        <i class="fa fa-download"></i>
+                        {% if organization_type == 'sponsor' %}{% trans "Download sponsors" %}{% elif organization_type == 'exhibitor' %}{% trans "Download exhibitors" %}{% else %}{% trans "Download organizations" %}{% endif %}
+                        <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a href="?download=yes&amp;_format=xlsx" data-organization-download-link><i class="fa fa-file-excel-o"></i> {% trans "Excel (.xlsx)" %}</a></li>
+                        <li><a href="?download=yes&amp;_format=default" data-organization-download-link><i class="fa fa-file-text-o"></i> {% trans "CSV" %}</a></li>
+                    </ul>
+                </div>
                 {% if send_vouchers_url %}
                     <button type="submit" form="organization-send-vouchers" class="btn btn-default" title="{% trans "Queue a voucher email for each selected entry" %}" data-organization-send-vouchers disabled>
                         <i class="fa fa-envelope"></i> {% trans "Send vouchers to selected" %}
@@ -124,6 +131,7 @@
 
         {% trans "Name" as label_name %}
         {% trans "Booth" as label_booth %}
+        {% trans "Vouchers" as label_vouchers %}
         {% if organization_type == 'sponsor' %}
             <div class="table-responsive">
                 <table class="table table-hover dragsort-table">
@@ -138,7 +146,7 @@
                         {% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
                         <th>{% trans "Group" %}</th>
-                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% trans "Vouchers" %}</th>{% endif %}
+                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% include "exhibitors/_sort_header.html" with field="vouchers" label=label_vouchers %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>
@@ -168,7 +176,7 @@
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
                         {% if not organization_type %}<th>{% trans "Group" %}</th>{% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="booth" label=label_booth %}</th>
-                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% trans "Vouchers" %}</th>{% endif %}
+                        {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% include "exhibitors/_sort_header.html" with field="vouchers" label=label_vouchers %}</th>{% endif %}
                         <th class="action-col-2"></th>
                     </tr>
                     </thead>

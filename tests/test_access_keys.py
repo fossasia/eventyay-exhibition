@@ -17,7 +17,7 @@ class _User:
 
 
 def _download(event, organization_type=None, allowed=True):
-    request = RequestFactory().get("/", {"download": "yes"})
+    request = RequestFactory().get("/", {"download": "yes", "_format": "default"})
     request.event = event
     request.user = _User(allowed=allowed)
     view = ExhibitorListView(organization_type=organization_type)
@@ -45,7 +45,7 @@ def test_download_returns_csv_with_keys(event):
     assert response.status_code == 200
     assert response["Content-Type"] == "text/csv; charset=utf-8"
     assert response["Cache-Control"] == "no-store"
-    assert "exhibitor-keys.csv" in response["Content-Disposition"]
+    assert f'filename="{event.slug}-exhibitors-' in response["Content-Disposition"]
     assert "Acme" in body
     assert "B-9" in body
     assert exhibitor.key in body
@@ -73,8 +73,8 @@ def test_download_filename_matches_organization_type(event):
         sponsor = _download(event, organization_type="sponsor")
         combined = _download(event)
 
-    assert "sponsor-keys.csv" in sponsor["Content-Disposition"]
-    assert "organization-keys.csv" in combined["Content-Disposition"]
+    assert f'filename="{event.slug}-sponsors-' in sponsor["Content-Disposition"]
+    assert f'filename="{event.slug}-organizations-' in combined["Content-Disposition"]
 
 
 def _flags(lead=False, voucher=False):

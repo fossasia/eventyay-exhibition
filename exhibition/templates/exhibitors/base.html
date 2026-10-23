@@ -114,6 +114,11 @@
           </a>
         </li>
         <li>
+          <a href="{% url 'plugins:exhibition:email.drafts' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'email.drafts' or url_name == 'email.draft.delete' %}class="active"{% endif %}>
+            <span class="sidebar-text">{% trans "Drafts" %}</span>
+          </a>
+        </li>
+        <li>
           <a href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'email.outbox' or url_name == 'email.edit' or url_name == 'email.delete' %}class="active"{% endif %}>
             <span class="sidebar-text">{% trans "Outbox" %}</span>
             {% if pending_emails %}<span class="badge">{{ pending_emails }}</span>{% endif %}

@@ -4,12 +4,16 @@ from unittest.mock import patch
 
 import pytest
 from allauth.account.models import EmailAddress
+from django.contrib.sessions.backends.db import SessionStore
 from django.http import Http404
 from django.test import RequestFactory
+from django.urls import resolve, reverse
 from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from eventyay.base.models import Order, OrderPosition, Product, Voucher
 from eventyay.base.models.auth import User
+from eventyay.control.navigation import get_admin_navigation
+from eventyay.eventyay_common.navigation import get_global_navigation
 
 from exhibition import mail as mail_helpers
 from exhibition.dashboard import (
@@ -244,6 +248,51 @@ def test_login_email_is_the_contact_email_for_organizer_added_exhibitors(event):
 def test_dashboard_link_is_hidden_without_any_exhibition(event):
     with scopes_disabled():
         assert not user_has_exhibitions(_user("nobody@example.com"))
+
+
+def _nav_request(url_name, user):
+    path = reverse(url_name)
+    request = RequestFactory().get(path)
+    request.user = user
+    request.session = SessionStore()
+    request.resolver_match = resolve(path)
+    return request
+
+
+def _labels(items):
+    return [str(item["label"]) for item in items]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["common:dashboard", "plugins:exhibition:my_exhibitions"])
+def test_my_exhibitions_is_in_the_personal_dashboard_sidebar(event, url_name):
+    with scopes_disabled():
+        _exhibitor, user = _accepted(event)
+        labels = _labels(get_global_navigation(_nav_request(url_name, user)))
+
+    assert "My orders" in labels
+    assert "My exhibitions" in labels
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "url_name",
+    [
+        "eventyay_admin:admin.dashboard",
+        "eventyay_admin:admin.global.settings",
+        "eventyay_admin:video_admin:settings",
+        "plugins:socialauth:admin.global.social.auth.settings",
+    ],
+)
+def test_my_exhibitions_stays_out_of_the_admin_sidebar(event, url_name):
+    with scopes_disabled():
+        _exhibitor, user = _accepted(event)
+        user.is_staff = True
+        user.save(update_fields=["is_staff"])
+        labels = _labels(get_admin_navigation(_nav_request(url_name, user)))
+
+    assert "Message center" in labels
+    assert "My exhibitions" not in labels
 
 
 @pytest.mark.django_db
@@ -500,5 +549,5 @@ def test_creating_a_profile_queues_the_invitation_without_sending_it(event):
             queue_profile_invitation(event, exhibitor)
 
         send.assert_not_called()
-        queued = ExhibitionEmailQueue.objects.get(event=event, role=mail_helpers.EXHIBITOR_PROFILE)
+        queued = ExhibitionEmailQueue.objects.get(event=event, exhibitor=exhibitor)
         assert queued.sent_at is None

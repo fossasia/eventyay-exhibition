@@ -2,11 +2,25 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db import IntegrityError, transaction
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django_scopes import scope
-from eventyay.base.models import TalkSlot
+from eventyay.base.models import Order, OrderPosition, TalkSlot
 from eventyay.common.urls import get_url_origin, normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.talk_rules.agenda import is_agenda_visible
@@ -605,6 +619,44 @@ def attendee_field_values(position, settings):
     return [getter(position) for _label, getter in attendee_field_specs(settings)]
 
 
+def with_voucher_state(queryset, event) -> QuerySet:
+    """Annotate voucher counts, the last send and an ``OrganizationVoucherState`` for the organizer lists."""
+    from .mail import VOUCHERS
+    from .models import ExhibitionEmailQueue, ExhibitorVoucher, OrganizationVoucherState
+
+    emails = ExhibitionEmailQueue.objects.filter(exhibitor=OuterRef("pk"), role=VOUCHERS)
+    with scope(organizer=event.organizer):
+        used = OrderPosition.objects.filter(voucher=OuterRef("voucher_id")).exclude(order__status=Order.STATUS_CANCELED)
+    links = ExhibitorVoucher.objects.filter(exhibitor=OuterRef("pk")).order_by().values("exhibitor")
+    total = links.annotate(count=Count("pk")).values("count")
+    claimed = links.filter(Exists(used)).annotate(count=Count("pk")).values("count")
+
+    queryset = queryset.annotate(
+        voucher_pending=Exists(emails.filter(sent_at__isnull=True)),
+        voucher_sent_at=Subquery(emails.filter(sent_at__isnull=False).order_by("-sent_at").values("sent_at")[:1]),
+        voucher_total=Coalesce(Subquery(total, output_field=IntegerField()), 0),
+        voucher_claimed=Coalesce(Subquery(claimed, output_field=IntegerField()), 0),
+    )
+    states = (
+        (Q(voucher_pending=True), OrganizationVoucherState.OUTBOX, 1),
+        (Q(voucher_total__gt=0, voucher_claimed=F("voucher_total")), OrganizationVoucherState.CLAIMED, 4),
+        (Q(voucher_claimed__gt=0), OrganizationVoucherState.PARTIAL, 3),
+        (Q(voucher_sent_at__isnull=False), OrganizationVoucherState.SENT, 2),
+    )
+    return queryset.annotate(
+        voucher_state=Case(
+            *(When(condition, then=Value(state.value)) for condition, state, _rank in states),
+            default=Value(OrganizationVoucherState.NOT_SENT.value),
+            output_field=CharField(),
+        ),
+        voucher_rank=Case(
+            *(When(condition, then=Value(rank)) for condition, _state, rank in states),
+            default=Value(0),
+            output_field=IntegerField(),
+        ),
+    )
+
+
 def exhibitor_unredeemed_vouchers(exhibitor):
     """This exhibitor's vouchers that nobody has redeemed yet, newest first."""
     from eventyay.base.models import Voucher
@@ -651,6 +703,64 @@ def build_voucher_redemption_csv(event, positions, settings) -> str:
             ]
         )
     return output.getvalue()
+
+
+INVITATION_LINK_DAYS = 60
+
+
+def invitation_pending(user) -> bool:
+    """Whether an invited account never set its password; an expired link is renewed so it can still be used."""
+    from django.utils.crypto import get_random_string
+
+    if not user.pw_reset_token or user.last_login or user.auth_backend != "native":
+        return False
+    if not user.pw_reset_time or user.pw_reset_time < timezone.now():
+        user.pw_reset_token = get_random_string(32)
+        user.pw_reset_time = timezone.now() + timedelta(days=INVITATION_LINK_DAYS)
+        user.save(update_fields=["pw_reset_token", "pw_reset_time"])
+    return True
+
+
+def invitation_account(email):
+    """``(user, needs_password)`` for an invited exhibitor, creating the account when the address has none."""
+    from eventyay.base.models.auth import User
+    from eventyay.person.services import create_user
+
+    user = User.objects.filter(email__iexact=email).first()
+    if user is None:
+        try:
+            with transaction.atomic():
+                return create_user(email=email, pw_reset_days=INVITATION_LINK_DAYS), True
+        except IntegrityError:
+            user = User.objects.get(email__iexact=email)
+    return user, invitation_pending(user)
+
+
+def invited_user_for_token(token, *, lock=False):
+    """The account a set-password link belongs to; ``None`` when unknown, used or expired."""
+    from eventyay.base.models.auth import User
+
+    if not token:
+        return None
+    queryset = User.objects.select_for_update() if lock else User.objects.all()
+    return queryset.filter(pw_reset_token=token, pw_reset_time__gte=timezone.now(), auth_backend="native").first()
+
+
+def accept_invitation(user, password):
+    """Set the password, spend the link and verify the address the link was sent to."""
+    from allauth.account.models import EmailAddress
+
+    user.set_password(password)
+    user.pw_reset_token = None
+    user.pw_reset_time = None
+    user.save(update_fields=["password", "pw_reset_token", "pw_reset_time"])
+    address = EmailAddress.objects.filter(user=user, email__iexact=user.email).first()
+    if address is None:
+        has_primary = EmailAddress.objects.filter(user=user, primary=True).exists()
+        EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=not has_primary)
+    elif not address.verified:
+        address.verified = True
+        address.save(update_fields=["verified"])
 
 
 def verified_emails(user) -> set[str]:

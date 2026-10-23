@@ -576,7 +576,7 @@ def test_bulk_preview_counts_existing_vouchers(voucher_event):
         exhibitor = _mailed_exhibitor(voucher_event)
         _issue(exhibitor, count=3)
         view, _request = _bulk_view(voucher_event)
-        sendable, no_email, no_vouchers, pool_short = view.preview([exhibitor])
+        sendable, no_email, no_vouchers, pool_short, _all_claimed, _in_outbox = view.preview([exhibitor])
 
     assert sendable == [exhibitor]
     assert (no_email, no_vouchers, pool_short) == ([], [], [])
@@ -591,7 +591,7 @@ def test_bulk_preview_keeps_the_voucherless_sendable(voucher_event):
         _pool(voucher_event, 4)
         exhibitor = _mailed_exhibitor(voucher_event)
         view, _request = _bulk_view(voucher_event)
-        sendable, _no_email, no_vouchers, _pool_short = view.preview([exhibitor])
+        sendable, _no_email, no_vouchers, _pool_short, _all_claimed, _in_outbox = view.preview([exhibitor])
 
     assert sendable == [exhibitor]
     assert no_vouchers == []
@@ -618,7 +618,9 @@ def test_bulk_preview_sorts_the_unsendable_into_buckets(voucher_event):
         no_address = _exhibitor(voucher_event, name="No Address", email="")
         zero_default = _mailed_exhibitor(voucher_event, name="Zero Default")
         view, _request = _bulk_view(voucher_event)
-        sendable, no_email, no_vouchers, _pool_short = view.preview([no_address, zero_default])
+        sendable, no_email, no_vouchers, _pool_short, _all_claimed, _in_outbox = view.preview(
+            [no_address, zero_default]
+        )
 
     assert sendable == []
     assert no_email == [no_address]
@@ -783,7 +785,7 @@ def test_bulk_preview_skips_whoever_the_pool_cannot_cover(voucher_event):
         second = _mailed_exhibitor(voucher_event, name="Second", email="second@example.com")
         view, _request = _bulk_view(voucher_event)
 
-        sendable, _no_email, _no_vouchers, pool_short = view.preview([first, second])
+        sendable, _no_email, _no_vouchers, pool_short, _all_claimed, _in_outbox = view.preview([first, second])
 
     assert sendable == [first]
     assert pool_short == [second]
@@ -799,7 +801,7 @@ def test_bulk_preview_draws_the_pool_down_across_the_run(voucher_event):
         ]
         view, _request = _bulk_view(voucher_event)
 
-        sendable, _no_email, _no_vouchers, pool_short = view.preview(people)
+        sendable, _no_email, _no_vouchers, pool_short, _all_claimed, _in_outbox = view.preview(people)
 
     assert len(sendable) == 2
     assert pool_short == [people[2]]
@@ -812,7 +814,7 @@ def test_bulk_preview_skips_everyone_when_no_pool_is_chosen(voucher_event):
         exhibitor = _mailed_exhibitor(voucher_event)
         view, _request = _bulk_view(voucher_event)
 
-        sendable, _no_email, _no_vouchers, pool_short = view.preview([exhibitor])
+        sendable, _no_email, _no_vouchers, pool_short, _all_claimed, _in_outbox = view.preview([exhibitor])
 
     assert sendable == []
     assert pool_short == [exhibitor]

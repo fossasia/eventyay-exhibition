@@ -87,8 +87,8 @@
             <legend>{% trans "Take more from the pool" %}</legend>
             <p class="help-block">
                 {% blocktrans trimmed %}
-                    Codes come from the voucher pool chosen under Settings. The email always carries this
-                    organization's complete list of codes, so you can assign some now and send them together
+                    Codes come from the voucher pool chosen under Settings. The email carries every code of this
+                    organization that nobody has used yet, so you can assign some now and send them together
                     with more later. It is placed in the outbox for you to review before it goes out.
                 {% endblocktrans %}
             </p>
@@ -108,7 +108,7 @@
             {% if voucher_pending %}
                 <p class="text-warning">
                     <i class="fa fa-clock-o"></i>
-                    {% trans "A voucher email for this organization is waiting in the outbox." %}
+                    {% trans "A voucher email for this organization is waiting in the outbox. Send or delete it there before preparing another one." %}
                     <a href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
                         {% trans "Go to outbox" %}
                     </a>
@@ -128,7 +128,7 @@
         </fieldset>
         <div class="form-group submit-group">
             <div class="col-md-9 col-md-offset-3">
-                <button type="submit" name="action" value="send" class="btn btn-primary btn-save" {% if not exhibitor.recipient_email %}disabled{% endif %}>
+                <button type="submit" name="action" value="send" class="btn btn-primary btn-save" {% if not exhibitor.recipient_email or voucher_pending %}disabled{% endif %}>
                     <i class="fa fa-paper-plane"></i> {% trans "Assign and prepare email" %}
                 </button>
                 <button type="submit" name="action" value="generate" class="btn btn-default btn-save">

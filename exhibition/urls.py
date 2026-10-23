@@ -12,7 +12,12 @@ from .api import (
     TagListView,
     VoucherRedemptionRetrieveView,
 )
-from .dashboard import MyExhibitionEditView, MyExhibitionsView, MyExhibitionVouchersView
+from .dashboard import (
+    MyExhibitionEditView,
+    MyExhibitionInvitationView,
+    MyExhibitionsView,
+    MyExhibitionVouchersView,
+)
 from .views import (
     CustomEmailTemplateCreateView,
     CustomEmailTemplateDeleteView,
@@ -20,6 +25,8 @@ from .views import (
     EmailBulkActionView,
     EmailComposeView,
     EmailDeleteView,
+    EmailDraftDeleteView,
+    EmailDraftListView,
     EmailEditView,
     EmailOutboxListView,
     EmailSendView,
@@ -63,6 +70,11 @@ from .views import (
 )
 
 urlpatterns = [
+    path(
+        "exhibitor-invitation/<str:token>/",
+        MyExhibitionInvitationView.as_view(),
+        name="my_exhibitions.invitation",
+    ),
     path("common/exhibitions/", MyExhibitionsView.as_view(), name="my_exhibitions"),
     path("common/exhibitions/<int:pk>/edit/", MyExhibitionEditView.as_view(), name="my_exhibitions.edit"),
     path(
@@ -323,6 +335,16 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/compose",
         EmailComposeView.as_view(),
         name="email.compose",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/drafts",
+        EmailDraftListView.as_view(),
+        name="email.drafts",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/drafts/<int:pk>/delete",
+        EmailDraftDeleteView.as_view(),
+        name="email.draft.delete",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/outbox",

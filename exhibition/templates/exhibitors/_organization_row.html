@@ -43,17 +43,7 @@
             {% endif %}
         </td>
         <td class="organization-vouchers-col">
-            {% if e.voucher_pending %}
-                <span class="label label-warning" title="{% trans "Waiting in the outbox" %}" data-toggle="tooltip">
-                    {% trans "In outbox" %}
-                </span>
-            {% elif e.voucher_sent_at %}
-                <span class="label label-success" title="{% blocktrans trimmed with sent=e.voucher_sent_at|date:"SHORT_DATETIME_FORMAT" %}Last sent {{ sent }}{% endblocktrans %}" data-toggle="tooltip">
-                    {% trans "Sent" %}
-                </span>
-            {% else %}
-                <span class="text-muted">{% trans "Not sent" %}</span>
-            {% endif %}
+            {% include "exhibitors/_voucher_state.html" with organization=e %}
         </td>
     {% endif %}
     <td class="text-right flip">

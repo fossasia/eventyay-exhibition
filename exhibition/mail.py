@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
+from django.db import transaction
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
@@ -28,6 +29,7 @@ REQUEST_REJECTED = "request_rejected"
 EXHIBITOR_ACCESS = "exhibitor_access"
 VOUCHERS = "vouchers"
 EXHIBITOR_PROFILE = "exhibitor_profile"
+EXHIBITOR_PROFILE_NEW_ACCOUNT = "exhibitor_profile_new_account"
 REQUEST_MESSAGE = "request_message"
 
 LIFECYCLE_ROLES = (
@@ -38,6 +40,7 @@ LIFECYCLE_ROLES = (
     EXHIBITOR_ACCESS,
     VOUCHERS,
     EXHIBITOR_PROFILE,
+    EXHIBITOR_PROFILE_NEW_ACCOUNT,
 )
 TEMPLATE_ROLES = (*LIFECYCLE_ROLES, REQUEST_MESSAGE)
 
@@ -51,6 +54,10 @@ PLACEHOLDER_DOCS = (
     ("{exhibitor_name}", _lazy("The exhibitor / sponsor name (access email only)")),
     ("{booth_id}", _lazy("The exhibitor's booth ID (access email only)")),
     ("{login_email}", _lazy("The email address that opens the exhibitor's My Exhibitions page")),
+    (
+        "{invitation_link}",
+        _lazy("Link to set a password for the account created for the exhibitor (new-account profile email only)"),
+    ),
     ("{exhibitor_access_code}", _lazy("The exhibitor's secret access code (access email only)")),
     (
         "{device_tokens}",
@@ -157,8 +164,21 @@ DEFAULT_TEMPLATE_SOURCES = {
             "Dear {exhibitor_name},\n\n"
             "A profile for {exhibitor_name} has been created for {event_name}.\n\n"
             "You can edit your profile in My Exhibitions: {my_exhibitions_url}\n\n"
-            "To open it, log in or create an account with {login_email}. "
-            "If you create a new account, confirm the address from the email we send you first.\n\n"
+            "Log in with your account for {login_email} to open it. If you have not confirmed that "
+            "address on your account yet, confirm it from your account's email settings first.\n\n"
+            "If you have any questions, please don't hesitate to reach out.\n\n"
+            "The {event_name} organisers"
+        ),
+    ),
+    EXHIBITOR_PROFILE_NEW_ACCOUNT: (
+        gettext_noop("You have been added as an exhibitor for {event_name}"),
+        gettext_noop(
+            "Dear {exhibitor_name},\n\n"
+            "A profile for {exhibitor_name} has been created for {event_name}.\n\n"
+            "An account has been created for you with {login_email} \u2013 please follow this link "
+            "to set your account password:\n\n"
+            "{invitation_link}\n\n"
+            "Afterwards, you can edit your profile in My Exhibitions: {my_exhibitions_url}\n\n"
             "If you have any questions, please don't hesitate to reach out.\n\n"
             "The {event_name} organisers"
         ),
@@ -194,8 +214,32 @@ DEFAULT_TEMPLATE_SOURCES = {
     ),
 }
 
+_SINGLE_NEWLINE_RE = re.compile(r"(?<!\n)\n(?!\n)")
+
+
+def with_hard_line_breaks(text):
+    """Turn single newlines into Markdown hard breaks so the editor keeps them on separate lines."""
+    return _SINGLE_NEWLINE_RE.sub("  \n", text)
+
+
+class _HardLineBreakGettextProxy(LazyI18nString.LazyGettextProxy):
+    """Translate lazily like ``from_gettext`` and keep single newlines as line breaks."""
+
+    def __getitem__(self, item):
+        return with_hard_line_breaks(super().__getitem__(item))
+
+    def __str__(self):
+        return with_hard_line_breaks(super().__str__())
+
+
+def _default_body(msgid):
+    body = LazyI18nString({})
+    body.data = _HardLineBreakGettextProxy(msgid)
+    return body
+
+
 DEFAULT_TEMPLATES = {
-    role: (LazyI18nString.from_gettext(subject), LazyI18nString.from_gettext(body))
+    role: (LazyI18nString.from_gettext(subject), _default_body(body))
     for role, (subject, body) in DEFAULT_TEMPLATE_SOURCES.items()
 }
 
@@ -210,7 +254,7 @@ def default_template_initial(role, locales):
             with override(code):
                 translated = gettext(msgid)
             if translated != msgid or code.split("-")[0] == source_language:
-                values[code] = translated
+                values[code] = with_hard_line_breaks(translated)
         initials.append(LazyI18nString(values))
     return tuple(initials)
 
@@ -241,6 +285,7 @@ ROLE_PLACEHOLDER_CONTEXT = {
     EXHIBITOR_ACCESS: EXHIBITOR_PLACEHOLDER_CONTEXT,
     VOUCHERS: EXHIBITOR_PLACEHOLDER_CONTEXT,
     EXHIBITOR_PROFILE: EXHIBITOR_PLACEHOLDER_CONTEXT,
+    EXHIBITOR_PROFILE_NEW_ACCOUNT: [*EXHIBITOR_PLACEHOLDER_CONTEXT, "invited_user"],
     REQUEST_MESSAGE: REQUEST_PLACEHOLDER_CONTEXT,
 }
 
@@ -303,10 +348,10 @@ def build_request_context(event, exhibition_request):
     return context
 
 
-def build_exhibitor_context(event, exhibitor):
+def build_exhibitor_context(event, exhibitor, **extra):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibitor=exhibitor)
+    context = get_email_context(event=event, exhibitor=exhibitor, **extra)
     context.setdefault("event_name", str(event.name))
     return context
 
@@ -462,6 +507,16 @@ def my_exhibitions_url(exhibitor=None):
     return urljoin(django_settings.SITE_URL, reverse("plugins:exhibition:my_exhibitions"))
 
 
+def invitation_url(invited_user):
+    path = reverse("plugins:exhibition:my_exhibitions.invitation", kwargs={"token": invited_user.pw_reset_token})
+    return urljoin(django_settings.SITE_URL, path)
+
+
+def sample_invitation_url(event=None):
+    path = reverse("plugins:exhibition:my_exhibitions.invitation", kwargs={"token": "SAMPLETOKEN123456"})
+    return urljoin(django_settings.SITE_URL, path)
+
+
 def sample_voucher_list(event=None):
     return _voucher_block_html(
         "ACME-3XKQ-7T2P",
@@ -597,6 +652,51 @@ def compose_recipients(event, states=None, organization_type=None, sponsor_group
     return queryset.select_related("user", "sponsor_group").order_by("-updated")
 
 
+REQUEST_CHOICE_PREFIX = "request-"
+PROFILE_CHOICE_PREFIX = "profile-"
+
+
+def organizer_created_profiles(event):
+    """Organization profiles an organizer added by hand, without an application behind them."""
+    from .models import ExhibitorInfo
+
+    return ExhibitorInfo.objects.filter(event=event, source_requests__isnull=True, email__isnull=False).exclude(
+        email=""
+    )
+
+
+def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
+    """Applications and profiles a composed email goes to: the chosen organizations, else everyone matching the filters.
+
+    ``organizations`` holds the compose form's choice values, ``request-<pk>`` and ``profile-<pk>``.
+    """
+    from .models import ExhibitorInfo
+
+    if organizations:
+
+        def chosen(prefix):
+            return [value[len(prefix) :] for value in organizations if value.startswith(prefix)]
+
+        exhibition_requests = compose_recipients(event).filter(pk__in=chosen(REQUEST_CHOICE_PREFIX))
+        profiles = organizer_created_profiles(event).filter(pk__in=chosen(PROFILE_CHOICE_PREFIX))
+        return exhibition_requests, profiles
+    exhibition_requests = compose_recipients(
+        event,
+        states=[state] if state else None,
+        organization_type=organization_type,
+        sponsor_group=sponsor_group,
+    )
+    return exhibition_requests, ExhibitorInfo.objects.none()
+
+
+def compose_recipient_emails(exhibition_requests, exhibitors=()):
+    """Distinct addresses a composed email reaches, deduplicated the way :func:`queue_compose_emails` does."""
+    emails = {request_recipient(exhibition_request).lower() for exhibition_request in exhibition_requests}
+    emails.update((exhibitor.recipient_email or "").strip().lower() for exhibitor in exhibitors)
+    emails.discard("")
+    return emails
+
+
 def queue_compose_emails(
     event, exhibition_requests, subject, body, *, exhibitors=(), scheduled_at=None, send_now=False, requestor=None
 ):
@@ -674,8 +774,11 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
     )
 
 
-def queue_exhibitor_profile_email(event, exhibitor, *, send_now=False, requestor=None):
-    """Queue the invitation to edit a profile created for an exhibitor; ``None`` for sponsor-only profiles."""
+def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_now=False, requestor=None):
+    """Queue the invitation to edit a profile created for an exhibitor; ``None`` for sponsor-only profiles.
+
+    With ``invited_user`` the new-account template is used, carrying that account's set-password link.
+    """
     from .models import ExhibitionEmailQueue
 
     if not exhibitor.is_exhibitor:
@@ -684,14 +787,16 @@ def queue_exhibitor_profile_email(event, exhibitor, *, send_now=False, requestor
     if not to_email:
         return None
 
-    subject_tpl, body_tpl = get_email_template(event, EXHIBITOR_PROFILE)
+    role = EXHIBITOR_PROFILE_NEW_ACCOUNT if invited_user is not None else EXHIBITOR_PROFILE
+    subject_tpl, body_tpl = get_email_template(event, role)
     locale = recipient_locale(event)
-    context = build_exhibitor_context(event, exhibitor)
+    extra = {"invited_user": invited_user} if invited_user is not None else {}
+    context = build_exhibitor_context(event, exhibitor, **extra)
 
     queued = ExhibitionEmailQueue.objects.create(
         event=event,
         exhibitor=exhibitor,
-        role=EXHIBITOR_PROFILE,
+        role=role,
         to_email=to_email,
         subject=_render(subject_tpl, context, locale),
         body=_render(body_tpl, context, locale),
@@ -708,6 +813,23 @@ def exhibitor_vouchers(exhibitor):
 
     links = ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher", "voucher__product")
     return [link.voucher for link in links]
+
+
+def organizations_with_voucher_email_in_outbox(exhibitors):
+    from .models import ExhibitionEmailQueue
+
+    return set(
+        ExhibitionEmailQueue.objects.filter(
+            exhibitor__in=[exhibitor.pk for exhibitor in exhibitors], role=VOUCHERS, sent_at__isnull=True
+        ).values_list("exhibitor_id", flat=True)
+    )
+
+
+def unclaimed_vouchers(exhibitor, vouchers):
+    from .utils import exhibitor_unredeemed_vouchers
+
+    unused = set(exhibitor_unredeemed_vouchers(exhibitor).values_list("pk", flat=True))
+    return [voucher for voucher in vouchers if voucher.pk in unused]
 
 
 def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor=None):
@@ -747,6 +869,8 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
 VOUCHER_SKIP_NO_EMAIL = "no_email"
 VOUCHER_SKIP_NO_VOUCHERS = "no_vouchers"
 VOUCHER_SKIP_POOL_EMPTY = "pool_empty"
+VOUCHER_SKIP_ALL_CLAIMED = "all_claimed"
+VOUCHER_SKIP_IN_OUTBOX = "in_outbox"
 
 
 def claim_default_vouchers(exhibitor, *, event_settings=None):
@@ -763,27 +887,55 @@ def queue_voucher_emails(event, exhibitors, *, requestor=None, issue_missing=Fal
     With ``issue_missing``, an exhibitor holding no vouchers gets a batch created from their
     defaults first, so a bulk send does not skip everyone who was never issued vouchers by hand.
     """
-    from .utils import event_exhibitor_settings, resolve_voucher_defaults
+    from .utils import event_exhibitor_settings
 
     queued = []
-    skipped = {VOUCHER_SKIP_NO_EMAIL: [], VOUCHER_SKIP_NO_VOUCHERS: [], VOUCHER_SKIP_POOL_EMPTY: []}
+    skipped = {
+        VOUCHER_SKIP_NO_EMAIL: [],
+        VOUCHER_SKIP_NO_VOUCHERS: [],
+        VOUCHER_SKIP_POOL_EMPTY: [],
+        VOUCHER_SKIP_ALL_CLAIMED: [],
+        VOUCHER_SKIP_IN_OUTBOX: [],
+    }
     event_settings = event_exhibitor_settings(event) if issue_missing else None
     for exhibitor in exhibitors:
-        if not exhibitor.recipient_email:
-            skipped[VOUCHER_SKIP_NO_EMAIL].append(exhibitor)
-            continue
-        vouchers = exhibitor_vouchers(exhibitor)
-        if not vouchers and issue_missing:
-            wanted = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
-            if claim_default_vouchers(exhibitor, event_settings=event_settings):
-                vouchers = exhibitor_vouchers(exhibitor)
-            elif wanted:
-                skipped[VOUCHER_SKIP_POOL_EMPTY].append(exhibitor)
-                continue
-        if not vouchers:
-            skipped[VOUCHER_SKIP_NO_VOUCHERS].append(exhibitor)
-            continue
-        email = queue_voucher_email(event, exhibitor, vouchers, requestor=requestor)
-        if email is not None:
+        with transaction.atomic():
+            email, _vouchers, reason = queue_unsent_voucher_email(
+                event, exhibitor, requestor=requestor, issue_missing=issue_missing, event_settings=event_settings
+            )
+        if reason:
+            skipped[reason].append(exhibitor)
+        elif email is not None:
             queued.append(email)
     return queued, skipped
+
+
+def queue_unsent_voucher_email(event, exhibitor, *, requestor=None, extra=0, issue_missing=False, event_settings=None):
+    """Lock the organization and queue its unused codes; returns ``(email, vouchers, skip reason)``."""
+    from .models import ExhibitorInfo, ExhibitorVoucher
+    from .utils import claim_pool_vouchers, resolve_voucher_defaults
+
+    ExhibitorInfo.objects.select_for_update().get(pk=exhibitor.pk)
+    if not exhibitor.recipient_email:
+        return None, [], VOUCHER_SKIP_NO_EMAIL
+    if organizations_with_voucher_email_in_outbox([exhibitor]):
+        return None, [], VOUCHER_SKIP_IN_OUTBOX
+    if extra:
+        pool_tag = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["pool_tag"]
+        if not claim_pool_vouchers(exhibitor, extra, pool_tag=pool_tag):
+            return None, [], VOUCHER_SKIP_POOL_EMPTY
+    list(ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_for_update().order_by("pk").values_list("pk"))
+    vouchers = exhibitor_vouchers(exhibitor)
+    if vouchers:
+        vouchers = unclaimed_vouchers(exhibitor, vouchers)
+        if not vouchers:
+            return None, [], VOUCHER_SKIP_ALL_CLAIMED
+    elif issue_missing:
+        wanted = resolve_voucher_defaults(exhibitor, event_settings=event_settings)["count"]
+        if claim_default_vouchers(exhibitor, event_settings=event_settings):
+            vouchers = exhibitor_vouchers(exhibitor)
+        elif wanted:
+            return None, [], VOUCHER_SKIP_POOL_EMPTY
+    if not vouchers:
+        return None, [], VOUCHER_SKIP_NO_VOUCHERS
+    return queue_voucher_email(event, exhibitor, vouchers, requestor=requestor), vouchers, None

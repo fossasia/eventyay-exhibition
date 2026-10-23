@@ -24,6 +24,7 @@ from eventyay.presale.signals import (
 
 from .dashboard import user_has_exhibitions
 from .mail import (
+    invitation_url,
     my_exhibitions_url,
     render_device_tokens,
     render_voucher_list,
@@ -31,6 +32,7 @@ from .mail import (
     request_confirmation_url,
     request_public_url,
     sample_device_tokens,
+    sample_invitation_url,
     sample_voucher_list,
 )
 from .models import (
@@ -331,6 +333,12 @@ def exhibition_mail_placeholders(sender, **kwargs):
             _("Acme Corp"),
         ),
         SimpleFunctionalMailTextPlaceholder(
+            "invitation_link",
+            ["invited_user"],
+            invitation_url,
+            sample_invitation_url,
+        ),
+        SimpleFunctionalMailTextPlaceholder(
             "login_email",
             ["exhibitor"],
             exhibitor_login_email,
@@ -558,15 +566,22 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
         return a_text.format_map(a_map)
 
 
+def is_admin_page(request):
+    match = getattr(request, "resolver_match", None)
+    if match is None:
+        return False
+    return "eventyay_admin" in match.namespaces or (match.url_name or "").startswith("admin.")
+
+
 @receiver(nav_global, dispatch_uid="exhibition_nav_global")
 def exhibition_nav_global(sender, request=None, **kwargs):
-    """My Exhibitions in the personal dashboard, next to My Tickets and My Sessions."""
-    if request is None or not user_has_exhibitions(request.user):
+    """My exhibitions in the personal dashboard, next to My orders and My sessions."""
+    if request is None or is_admin_page(request) or not user_has_exhibitions(request.user):
         return []
     url_name = getattr(request.resolver_match, "url_name", "") or ""
     return [
         {
-            "label": _("My Exhibitions"),
+            "label": _("My exhibitions"),
             "url": reverse("plugins:exhibition:my_exhibitions"),
             "active": url_name.startswith("my_exhibitions"),
             "icon": "building-o",
@@ -576,7 +591,7 @@ def exhibition_nav_global(sender, request=None, **kwargs):
 
 @receiver(user_dashboard_links, dispatch_uid="exhibition_user_dashboard_link")
 def exhibition_user_dashboard_link(sender, **kwargs):
-    """My Exhibitions in the account dropdown of the dashboard header."""
+    """My exhibitions in the account dropdown of the dashboard header."""
     if not user_has_exhibitions(sender.user):
         return ""
     return format_html(
