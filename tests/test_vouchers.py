@@ -32,7 +32,7 @@ from exhibition.utils import (
     store_voucher_csv,
     voucher_redeem_url,
 )
-from exhibition.views import ExhibitorVoucherBulkSendView, ExhibitorVoucherManageView
+from exhibition.views import ExhibitorDeleteView, ExhibitorVoucherBulkSendView, ExhibitorVoucherManageView
 
 
 def _exhibitor(event, **kwargs):
@@ -1023,3 +1023,130 @@ def test_bulk_send_keeps_selected_rows_outside_the_current_filter(voucher_event)
         request.GET["lead_scanning"] = "1"
 
         assert set(view.target_queryset()) == {scanning, idle}
+
+
+def _sent_voucher_email(exhibitor, vouchers):
+    with patch("eventyay.base.services.mail.mail"):
+        return mail_helpers.queue_voucher_email(exhibitor.event, exhibitor, vouchers, send_now=True)
+
+
+def _held_by_deleted_organization():
+    return set(ExhibitorVoucher.objects.filter(exhibitor__isnull=True).values_list("voucher_id", flat=True))
+
+
+@pytest.mark.django_db
+def test_deleting_an_organization_returns_unsent_codes_deletes_emailed_ones_and_keeps_used_ones(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        emailed = _issue(exhibitor, count=2)
+        _sent_voucher_email(exhibitor, emailed)
+        _pool(voucher_event, 2)
+        unsent, used = claim_pool_vouchers(exhibitor, 2, pool_tag=POOL)
+        Voucher.objects.filter(pk=used.voucher_id).update(redeemed=1)
+
+        exhibitor.delete()
+
+        assert pool_remaining(voucher_event, POOL) == 1
+        assert not Voucher.objects.filter(pk__in=[voucher.pk for voucher in emailed]).exists()
+        assert _held_by_deleted_organization() == {used.voucher_id}
+        assert Voucher.objects.filter(pk=unsent.voucher_id).exists()
+
+
+@pytest.mark.django_db
+def test_codes_kept_from_a_deleted_organization_are_never_handed_out_again(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        deleted = _mailed_exhibitor(voucher_event, name="Deleted")
+        used = _issue(deleted, count=2)
+        Voucher.objects.filter(pk__in=[voucher.pk for voucher in used]).update(redeemed=1)
+        deleted.delete()
+        successor = _mailed_exhibitor(voucher_event, name="Successor", email="next@example.com")
+
+        assert claim_pool_vouchers(successor, 1, pool_tag=POOL) == []
+        assert not ExhibitorVoucher.objects.filter(exhibitor=successor).exists()
+
+
+@pytest.mark.django_db
+def test_deleting_an_organization_discards_its_unsent_voucher_emails(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        vouchers = _issue(exhibitor, count=2)
+        queued = mail_helpers.queue_voucher_email(voucher_event, exhibitor, vouchers)
+
+        exhibitor.delete()
+
+        assert not ExhibitionEmailQueue.objects.filter(pk=queued.pk).exists()
+        assert pool_remaining(voucher_event, POOL) == 2
+
+
+@pytest.mark.django_db
+def test_a_voucher_email_discarded_with_its_organization_is_not_sent_later(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        queued = mail_helpers.queue_voucher_email(voucher_event, exhibitor, _issue(exhibitor, count=2))
+
+        exhibitor.delete()
+        with patch("eventyay.base.services.mail.mail") as mocked_mail:
+            queued.send()
+
+        mocked_mail.assert_not_called()
+        assert not ExhibitionEmailQueue.objects.filter(pk=queued.pk).exists()
+        assert pool_remaining(voucher_event, POOL) == 2
+
+
+@pytest.mark.django_db
+def test_delete_page_says_what_happens_to_the_vouchers(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        _sent_voucher_email(exhibitor, _issue(exhibitor, count=2))
+        _pool(voucher_event, 1)
+        pending = claim_pool_vouchers(exhibitor, 1, pool_tag=POOL)
+        mail_helpers.queue_voucher_email(voucher_event, exhibitor, [link.voucher for link in pending])
+        request = RequestFactory().get("/")
+        request.event = voucher_event
+        view = ExhibitorDeleteView()
+        view.request = request
+        view.object = exhibitor
+        view.kwargs = {"pk": exhibitor.pk}
+
+        context = view.get_context_data()
+
+    assert context["vouchers_returned"] == 1
+    assert context["vouchers_deleted"] == 2
+    assert context["vouchers_kept"] == 0
+    assert context["voucher_emails_discarded"] == 1
+
+
+@pytest.mark.django_db
+def test_an_emailed_code_in_a_cart_is_kept_instead_of_deleted(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        emailed = _issue(exhibitor, count=1)
+        _sent_voucher_email(exhibitor, emailed)
+
+        with patch.object(Voucher, "is_in_cart", return_value=True):
+            exhibitor.delete()
+
+        assert Voucher.objects.filter(pk=emailed[0].pk).exists()
+        assert _held_by_deleted_organization() == {emailed[0].pk}
+        assert pool_remaining(voucher_event, POOL) == 0
+
+
+@pytest.mark.django_db
+def test_an_unemailed_code_in_a_cart_stays_out_of_the_pool(voucher_event):
+    with scopes_disabled():
+        ExhibitorSettings.objects.create(event=voucher_event, voucher_pool_tag=POOL)
+        exhibitor = _mailed_exhibitor(voucher_event)
+        unsent = _issue(exhibitor, count=1)
+
+        with patch.object(Voucher, "is_in_cart", return_value=True):
+            exhibitor.delete()
+
+        assert Voucher.objects.filter(pk=unsent[0].pk).exists()
+        assert _held_by_deleted_organization() == {unsent[0].pk}
+        assert pool_remaining(voucher_event, POOL) == 0

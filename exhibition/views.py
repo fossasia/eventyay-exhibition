@@ -104,6 +104,7 @@ from .utils import (
     claim_pool_vouchers,
     event_exhibitor_settings,
     invitation_account,
+    pending_voucher_emails,
     pool_remaining,
     provision_exhibitor_devices,
     public_exhibitor_sessions,
@@ -111,7 +112,9 @@ from .utils import (
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
     should_hide_applicant_emails,
+    split_vouchers_for_deletion,
     sync_exhibitor_from_request,
+    voucher_was_emailed,
     with_voucher_state,
 )
 
@@ -2361,6 +2364,11 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
             "both": _("Delete Exhibitor & Sponsor"),
         }.get(organization_type, _("Delete Exhibitor or Sponsor"))
         context["cancel_url"] = organization_list_url(self.request.event, organization_type)
+        returnable, deletable, kept = split_vouchers_for_deletion(self.object)
+        context["vouchers_returned"] = len(returnable)
+        context["vouchers_deleted"] = len(deletable)
+        context["vouchers_kept"] = len(kept)
+        context["voucher_emails_discarded"] = pending_voucher_emails(self.object).count()
         return context
 
     def get_success_url(self) -> str:
@@ -2441,7 +2449,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         if link.voucher.redeemed:
             messages.error(request, _("This voucher has already been redeemed and cannot be returned."))
             return redirect(self.get_success_url())
-        if self.was_already_emailed(link):
+        if voucher_was_emailed(link):
             messages.error(
                 request,
                 _(
@@ -2453,18 +2461,6 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         link.delete()
         messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
-
-    def was_already_emailed(self, link):
-        """Whether a voucher email went out after this code was assigned, and so lists it.
-
-        Returning such a code would hand it to somebody else while the first recipient still
-        holds it in their inbox.
-        """
-        return ExhibitionEmailQueue.objects.filter(
-            exhibitor=self.object,
-            role=mail_helpers.VOUCHERS,
-            created__gte=link.created,
-        ).exists()
 
     @transaction.atomic
     def create_vouchers(self, request):

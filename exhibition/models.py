@@ -1211,7 +1211,11 @@ class ExhibitorTag(models.Model):
 
 
 class ExhibitorVoucher(models.Model):
-    exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE, related_name="vouchers")
+    """A pool code handed to an organization; kept without one after deletion if it was emailed or used."""
+
+    exhibitor = models.ForeignKey(
+        ExhibitorInfo, on_delete=models.SET_NULL, null=True, blank=True, related_name="vouchers"
+    )
     voucher = models.OneToOneField(Voucher, on_delete=models.CASCADE, related_name="exhibitor_link")
     created = models.DateTimeField(auto_now_add=True)
 
@@ -1219,7 +1223,8 @@ class ExhibitorVoucher(models.Model):
         ordering = ("-created",)
 
     def __str__(self):
-        return f"{self.voucher.code} ({self.exhibitor.name})"
+        holder = self.exhibitor.name if self.exhibitor_id else "deleted organization"
+        return f"{self.voucher.code} ({holder})"
 
 
 class OrganizationVoucherState(models.TextChoices):
@@ -1293,31 +1298,34 @@ class ExhibitionEmailQueue(LoggedModel):
         return f"{self.to_email} · {state} · {self.subject}"
 
     def send(self, requestor=None):
-        """Deliver the email via the core mail() service and mark it sent."""
+        """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
         from eventyay.base.services.mail import mail
 
         if self.sent_at:
             return
 
-        mail(
-            email=self.to_email,
-            subject=self.subject,
-            template=LazyI18nString(self.body),
-            context={},
-            event=self.event,
-            locale=self.locale or None,
-            auto_email=False,
-            event_reply_to=self.reply_to or None,
-            attach_cached_files=[self.attachment_id] if self.attachment_id else None,
-        )
-        self.sent_at = timezone.now()
-        self.scheduled_at = None
-        self.save(update_fields=["sent_at", "scheduled_at", "updated"])
-        self.log_action(
-            LOG_EMAIL_SENT,
-            user=requestor,
-            data={"to": self.to_email, "subject": self.subject},
-        )
+        with transaction.atomic():
+            if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
+                return
+            mail(
+                email=self.to_email,
+                subject=self.subject,
+                template=LazyI18nString(self.body),
+                context={},
+                event=self.event,
+                locale=self.locale or None,
+                auto_email=False,
+                event_reply_to=self.reply_to or None,
+                attach_cached_files=[self.attachment_id] if self.attachment_id else None,
+            )
+            self.sent_at = timezone.now()
+            self.scheduled_at = None
+            self.save(update_fields=["sent_at", "scheduled_at", "updated"])
+            self.log_action(
+                LOG_EMAIL_SENT,
+                user=requestor,
+                data={"to": self.to_email, "subject": self.subject},
+            )
 
     send.alters_data = True
 

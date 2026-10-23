@@ -13,6 +13,50 @@
   {% endblocktrans %}
 </p>
 
+{% if vouchers_returned or vouchers_deleted or vouchers_kept or voucher_emails_discarded %}
+  <div class="alert alert-info" role="note">
+    <p><strong>{% trans "What happens to its vouchers" %}</strong></p>
+    <ul>
+      {% if vouchers_returned %}
+        <li>
+          {% blocktrans trimmed count counter=vouchers_returned %}
+            {{ counter }} code that was never emailed or used goes back to the voucher pool.
+          {% plural %}
+            {{ counter }} codes that were never emailed or used go back to the voucher pool.
+          {% endblocktrans %}
+        </li>
+      {% endif %}
+      {% if vouchers_deleted %}
+        <li>
+          {% blocktrans trimmed count counter=vouchers_deleted %}
+            {{ counter }} code that was emailed but never redeemed is deleted, so it can no longer be used.
+          {% plural %}
+            {{ counter }} codes that were emailed but never redeemed are deleted, so they can no longer be used.
+          {% endblocktrans %}
+        </li>
+      {% endif %}
+      {% if vouchers_kept %}
+        <li>
+          {% blocktrans trimmed count counter=vouchers_kept %}
+            {{ counter }} code that was used, or is still in an order or cart, stays out of the pool, so it is never given to anyone else. It remains under Tickets → Vouchers.
+          {% plural %}
+            {{ counter }} codes that were used, or are still in an order or cart, stay out of the pool, so they are never given to anyone else. They remain under Tickets → Vouchers.
+          {% endblocktrans %}
+        </li>
+      {% endif %}
+      {% if voucher_emails_discarded %}
+        <li>
+          {% blocktrans trimmed count counter=voucher_emails_discarded %}
+            {{ counter }} voucher email waiting in the outbox will be discarded and not sent.
+          {% plural %}
+            {{ counter }} voucher emails waiting in the outbox will be discarded and not sent.
+          {% endblocktrans %}
+        </li>
+      {% endif %}
+    </ul>
+  </div>
+{% endif %}
+
 <form action="" method="post">
   {% csrf_token %}
   <div class="form-actions">
