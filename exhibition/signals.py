@@ -24,6 +24,7 @@ from eventyay.presale.signals import (
 
 from .dashboard import user_has_exhibitions
 from .mail import (
+    MAIL_CONTEXT_KEY,
     invitation_url,
     my_exhibitions_url,
     render_device_tokens,
@@ -236,41 +237,49 @@ def presale_supported_by_styles(sender, request=None, **kwargs):
     )
 
 
+class ExhibitionMailPlaceholder(SimpleFunctionalMailTextPlaceholder):
+    """A placeholder offered only where the ``exhibition`` context key is passed, so it stays out of other editors."""
+
+    def __init__(self, identifier, args, func, sample, **kwargs):
+        super().__init__(identifier, [MAIL_CONTEXT_KEY, *args], func, sample, **kwargs)
+
+    def render(self, context):
+        return self._func(**{key: context[key] for key in self._args if key != MAIL_CONTEXT_KEY})
+
+
+def applicant_name(exhibition_request):
+    return (exhibition_request.user.get_display_name() if exhibition_request.user_id else "") or ""
+
+
 @receiver(register_mail_placeholders, dispatch_uid="exhibition_mail_placeholders")
 def exhibition_mail_placeholders(sender, **kwargs):
     """Placeholders available in exhibition emails."""
     return [
-        SimpleFunctionalMailTextPlaceholder(
-            "event_name",
-            ["event"],
-            lambda event: str(event.name),
-            lambda event: str(event.name),
-        ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_name",
             ["exhibition_request"],
             lambda exhibition_request: localize_event_text(exhibition_request.name) or str(exhibition_request.name),
             _("Acme Corp"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_code",
             ["exhibition_request"],
             lambda exhibition_request: exhibition_request.code,
             "ABCD1234EFGH",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_type",
             ["exhibition_request"],
             lambda exhibition_request: _("Sponsor") if exhibition_request.is_sponsor else _("Exhibitor"),
             _("Exhibitor"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_action",
             ["exhibition_request"],
             lambda exhibition_request: _("submitted"),
             _("submitted"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "contact_name",
             ["exhibition_request"],
             lambda exhibition_request: (
@@ -280,7 +289,7 @@ def exhibition_mail_placeholders(sender, **kwargs):
             ),
             _("Jane Doe"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "contact_email",
             ["exhibition_request"],
             lambda exhibition_request: (
@@ -288,93 +297,98 @@ def exhibition_mail_placeholders(sender, **kwargs):
             ),
             "jane@example.com",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_date",
             ["exhibition_request"],
             lambda exhibition_request: str(exhibition_request.updated),
             "2026-10-10 10:00",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_admin_url",
             ["exhibition_request"],
             request_admin_url,
             "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "pending_request_count",
             ["event"],
             lambda event: "1",
             "1",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "request_url",
             ["exhibition_request"],
             request_public_url,
             "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "confirmation_url",
             ["exhibition_request"],
             request_confirmation_url,
             "https://example.com/orga/event/exhibition/call/requests/ABCD1234EFGH/confirm/",
         ),
-        SimpleFunctionalMailTextPlaceholder(
-            "name",
+        ExhibitionMailPlaceholder(
+            "applicant_name",
             ["exhibition_request"],
-            lambda exhibition_request: (
-                (exhibition_request.user.get_display_name() if exhibition_request.user_id else "") or ""
-            ),
+            applicant_name,
             _("Jane Doe"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
+            "name",
+            ["exhibition_request"],
+            applicant_name,
+            _("Jane Doe"),
+            is_visible=False,
+        ),
+        ExhibitionMailPlaceholder(
             "exhibitor_name",
             ["exhibitor"],
             lambda exhibitor: localize_event_text(exhibitor.name) or str(exhibitor.name),
             _("Acme Corp"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "invitation_link",
             ["invited_user"],
             invitation_url,
             sample_invitation_url,
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "login_email",
             ["exhibitor"],
             exhibitor_login_email,
             "exhibitor@example.com",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "booth_id",
             ["exhibitor"],
             lambda exhibitor: exhibitor.booth_id or "",
             "A-12",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "access_key",
             ["exhibitor"],
             lambda exhibitor: exhibitor.key or "",
             "a1b2c3d4",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "exhibitor_access_code",
             ["exhibitor"],
             lambda exhibitor: exhibitor.key or "",
             "a1b2c3d4",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "device_tokens",
             ["exhibitor"],
             render_device_tokens,
             sample_device_tokens,
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "voucher_list",
             ["exhibitor"],
             render_voucher_list,
             sample_voucher_list,
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "my_exhibitions_url",
             ["exhibitor"],
             my_exhibitions_url,

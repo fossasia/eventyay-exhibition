@@ -274,8 +274,9 @@ class _SafeDict(dict):
 
 _PREVIEW_URL_RE = re.compile(r"^(https?://|www\.)[^\s]+$")
 
-REQUEST_PLACEHOLDER_CONTEXT = ["event", "exhibition_request"]
-EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", "exhibitor"]
+MAIL_CONTEXT_KEY = "exhibition"
+REQUEST_PLACEHOLDER_CONTEXT = ["event", MAIL_CONTEXT_KEY, "exhibition_request"]
+EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", MAIL_CONTEXT_KEY, "exhibitor"]
 
 ROLE_PLACEHOLDER_CONTEXT = {
     REQUEST_NEW: REQUEST_PLACEHOLDER_CONTEXT,
@@ -294,7 +295,8 @@ def placeholder_names(event, context):
     """Placeholder names that actually resolve for the given email context."""
     from eventyay.base.email import get_available_placeholders
 
-    return sorted(get_available_placeholders(event, list(context)).keys())
+    available = get_available_placeholders(event, list(context))
+    return sorted(name for name, placeholder in available.items() if placeholder.is_visible)
 
 
 def role_placeholder_names(event, role):
@@ -343,17 +345,13 @@ def _render(text, context, locale):
 def build_request_context(event, exhibition_request):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibition_request=exhibition_request)
-    context.setdefault("event_name", str(event.name))
-    return context
+    return get_email_context(event=event, exhibition_request=exhibition_request, **{MAIL_CONTEXT_KEY: True})
 
 
 def build_exhibitor_context(event, exhibitor, **extra):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibitor=exhibitor, **extra)
-    context.setdefault("event_name", str(event.name))
-    return context
+    return get_email_context(event=event, exhibitor=exhibitor, **{MAIL_CONTEXT_KEY: True}, **extra)
 
 
 def request_public_url(exhibition_request):
