@@ -101,6 +101,20 @@ def test_other_image_formats_are_rejected(event):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("image_format", ["PNG", "WEBP"])
+def test_animated_images_are_rejected(event, image_format):
+    buffer = BytesIO()
+    frames = [Image.new("RGB", (40, 40), color=color) for color in ("white", "black")]
+    frames[0].save(buffer, format=image_format, save_all=True, append_images=frames[1:])
+    animated = SimpleUploadedFile(f"logo.{image_format.lower()}", buffer.getvalue())
+    form = exhibitor_form({"logo": animated, "banner": make_image("banner.png", "PNG")}, event=event)
+
+    assert not form.is_valid()
+    assert form.errors["logo"] == ["Animated images are not supported. Please upload a still image."]
+    assert "banner" not in form.errors
+
+
+@pytest.mark.django_db
 def test_image_core_cannot_process_is_a_field_error(event):
     files = {"logo": make_image("logo.png", "PNG"), "banner": make_image("banner.png", "PNG")}
     with patch("exhibition.forms.optimize_uploaded_image", side_effect=OSError("broken")):
@@ -123,7 +137,8 @@ def test_stored_images_are_kept_when_nothing_new_is_uploaded(event):
 
 
 @pytest.mark.django_db
-def test_request_form_stores_logo_banner_and_image_answers_as_webp(event):
+@pytest.mark.parametrize(("answer_name", "answer_format"), [("floor-plan.png", "PNG"), ("floor-plan.webp", "WEBP")])
+def test_request_form_stores_logo_banner_and_image_answers_as_webp(event, answer_name, answer_format):
     with scopes_disabled():
         ExhibitorSettings.objects.create(
             event=event,
@@ -147,7 +162,7 @@ def test_request_form_stores_logo_banner_and_image_answers_as_webp(event):
             files={
                 "logo": make_image("logo.png", "PNG"),
                 "banner": make_image("banner.jpg", "JPEG"),
-                f"question_{question.pk}": make_image("floor-plan.png", "PNG"),
+                f"question_{question.pk}": make_image(answer_name, answer_format),
             },
         )
         assert form.is_valid(), form.errors

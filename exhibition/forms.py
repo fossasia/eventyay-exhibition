@@ -51,6 +51,7 @@ from eventyay.helpers.image_optimize import optimize_question_image, optimize_up
 from i18nfield.forms import I18nFormField, I18nTextInput
 from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
+from PIL import Image
 
 from . import mail as mail_helpers
 from .models import (
@@ -124,9 +125,16 @@ class ExhibitionImageUploadMixin:
         if not isinstance(upload, UploadedFile):
             # Nothing new was uploaded: keep the stored file, or the clear flag, as it is.
             return upload
-        # ImageField has already opened the file, so content_type is the decoded format, not the browser's claim.
-        if upload.content_type not in EXHIBITION_IMAGE_CONTENT_TYPES:
+        if upload.size > django_settings.MAX_SIZE_CONFIG[SizeKey.UPLOAD_SIZE_IMAGE]:
+            # clean() rejects it through flag_oversized_upload; don't decode it first.
+            return upload
+        # ImageField has already decoded the file and attached it, so this is the real format, not the file name.
+        image = upload.image
+        if Image.MIME.get(image.format) not in EXHIBITION_IMAGE_CONTENT_TYPES:
             raise ValidationError(_("Upload a PNG, JPG or WebP image."))
+        if getattr(image, "is_animated", False):
+            # Core passes animated images through untouched, so they would skip the WebP conversion and width cap.
+            raise ValidationError(_("Animated images are not supported. Please upload a still image."))
         try:
             result = optimize_uploaded_image(upload, EXHIBITION_IMAGE_SETTING_KEYS[field_name])
         except (OSError, ValueError) as exc:
@@ -1075,6 +1083,7 @@ ANSWER_FILE_EXTENSIONS = (
     ".tiff",
     ".heic",
     ".heif",
+    ".webp",
     ".svg",
     ".pdf",
     ".txt",
