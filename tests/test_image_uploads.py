@@ -115,21 +115,24 @@ def test_animated_images_are_rejected(event, image_format):
     assert "banner" not in form.errors
 
 
-@pytest.mark.django_db
-def test_camera_mpo_photo_is_stored_as_its_first_frame(event):
-    photo = Image.new("RGB", (300, 200), color="red")
+def make_mpo(name="photo.jpg"):
+    """A 300 x 200 red photo with a small blue second frame, tagged as taken with the camera held upright."""
     exif = Image.Exif()
-    exif[0x0112] = 6  # Orientation: the camera was held upright, so the photo shows rotated by 90 degrees.
+    exif[0x0112] = 6  # Orientation: the photo shows rotated by 90 degrees.
     buffer = BytesIO()
-    photo.save(
+    Image.new("RGB", (300, 200), color="red").save(
         buffer,
         format="MPO",
         save_all=True,
         append_images=[Image.new("RGB", (80, 60), color="blue")],
         exif=exif,
     )
-    mpo = SimpleUploadedFile("photo.jpg", buffer.getvalue(), content_type="image/jpeg")
-    form = exhibitor_form({"logo": mpo, "banner": make_image("banner.png", "PNG")}, event=event)
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/jpeg")
+
+
+@pytest.mark.django_db
+def test_camera_mpo_photo_is_stored_as_its_first_frame(event):
+    form = exhibitor_form({"logo": make_mpo(), "banner": make_image("banner.png", "PNG")}, event=event)
     assert form.is_valid(), form.errors
     organization = form.save(commit=False)
     organization.event = event
@@ -141,6 +144,18 @@ def test_camera_mpo_photo_is_stored_as_its_first_frame(event):
         assert (image.format, image.size) == ("WEBP", (200, 300))
         red, green, blue = image.convert("RGB").getpixel((100, 150))
         assert red > 200 and green < 60 and blue < 60
+
+
+@pytest.mark.django_db
+def test_mpo_frame_past_the_pixel_limit_is_not_decoded(event, monkeypatch):
+    # 300 x 200 is between the limit and twice the limit, where Pillow only warns and ImageField lets it through.
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 40_000)
+    with patch("exhibition.forms.ImageOps") as image_ops:
+        form = exhibitor_form({"logo": make_mpo(), "banner": make_image("banner.png", "PNG")}, event=event)
+        assert not form.is_valid()
+
+    assert form.errors["logo"] == ["This image could not be processed. Please upload a different file."]
+    image_ops.exif_transpose.assert_not_called()
 
 
 @pytest.mark.django_db

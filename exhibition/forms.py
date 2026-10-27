@@ -111,6 +111,9 @@ def mpo_primary_image(upload):
     upload.seek(0)
     with Image.open(upload) as mpo:
         mpo.seek(0)
+        # Core turns Pillow's decompression-bomb warning into an error, but this frame is decoded before core runs.
+        if Image.MAX_IMAGE_PIXELS is not None and mpo.width * mpo.height > Image.MAX_IMAGE_PIXELS:
+            raise ValueError("MPO frame exceeds the maximum pixel count")
         # The PNG carries no EXIF, so apply the camera's orientation now.
         photo = ImageOps.exif_transpose(mpo)
     buffer = BytesIO()
