@@ -1,6 +1,7 @@
 import json
 import logging
 from html import unescape
+from io import BytesIO
 from pathlib import Path
 
 import dateutil.parser
@@ -51,7 +52,7 @@ from eventyay.helpers.image_optimize import optimize_question_image, optimize_up
 from i18nfield.forms import I18nFormField, I18nTextInput
 from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
-from PIL import Image
+from PIL import Image, ImageOps
 
 from . import mail as mail_helpers
 from .models import (
@@ -105,6 +106,18 @@ EXHIBITION_IMAGE_CONTENT_TYPES = ("image/png", "image/jpeg", "image/webp")
 EXHIBITION_IMAGE_SETTING_KEYS = {"logo": "organizer_logo_image", "banner": "organizer_header_image"}
 
 
+def mpo_primary_image(upload):
+    """Return the first picture of an MPO upload as a still PNG upload, so core encodes it like any photo."""
+    upload.seek(0)
+    with Image.open(upload) as mpo:
+        mpo.seek(0)
+        # The PNG carries no EXIF, so apply the camera's orientation now.
+        photo = ImageOps.exif_transpose(mpo)
+    buffer = BytesIO()
+    photo.save(buffer, format="PNG", compress_level=1)
+    return SimpleUploadedFile(f"{Path(upload.name).stem}.png", buffer.getvalue(), content_type="image/png")
+
+
 class ExhibitionImageUploadMixin:
     """Store new logo and banner uploads as WebP, through the same pipeline core uses for event images."""
 
@@ -130,12 +143,17 @@ class ExhibitionImageUploadMixin:
             return upload
         # ImageField has already decoded the file and attached it, so this is the real format, not the file name.
         image = upload.image
-        if Image.MIME.get(image.format) not in EXHIBITION_IMAGE_CONTENT_TYPES:
+        # Phone cameras save photos with a depth map or preview as MPO: a JPEG with extra frames. Pillow reports
+        # it as animated, so it is let through here and reduced to its first frame, the photo itself.
+        is_mpo = image.format == "MPO"
+        if not is_mpo and Image.MIME.get(image.format) not in EXHIBITION_IMAGE_CONTENT_TYPES:
             raise ValidationError(_("Upload a PNG, JPG or WebP image."))
-        if getattr(image, "is_animated", False):
+        if not is_mpo and getattr(image, "is_animated", False):
             # Core passes animated images through untouched, so they would skip the WebP conversion and width cap.
             raise ValidationError(_("Animated images are not supported. Please upload a still image."))
         try:
+            if is_mpo:
+                upload = mpo_primary_image(upload)
             result = optimize_uploaded_image(upload, EXHIBITION_IMAGE_SETTING_KEYS[field_name])
         except (OSError, ValueError) as exc:
             logger.exception("Failed to convert %s upload %s to WebP", field_name, upload.name)

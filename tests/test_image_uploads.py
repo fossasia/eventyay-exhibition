@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -112,6 +113,34 @@ def test_animated_images_are_rejected(event, image_format):
     assert not form.is_valid()
     assert form.errors["logo"] == ["Animated images are not supported. Please upload a still image."]
     assert "banner" not in form.errors
+
+
+@pytest.mark.django_db
+def test_camera_mpo_photo_is_stored_as_its_first_frame(event):
+    photo = Image.new("RGB", (300, 200), color="red")
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation: the camera was held upright, so the photo shows rotated by 90 degrees.
+    buffer = BytesIO()
+    photo.save(
+        buffer,
+        format="MPO",
+        save_all=True,
+        append_images=[Image.new("RGB", (80, 60), color="blue")],
+        exif=exif,
+    )
+    mpo = SimpleUploadedFile("photo.jpg", buffer.getvalue(), content_type="image/jpeg")
+    form = exhibitor_form({"logo": mpo, "banner": make_image("banner.png", "PNG")}, event=event)
+    assert form.is_valid(), form.errors
+    organization = form.save(commit=False)
+    organization.event = event
+    organization.save()
+
+    logo_path = Path(organization.logo.name)
+    assert logo_path.stem.startswith("photo") and logo_path.suffix == ".webp"
+    with organization.logo.open("rb") as stored, Image.open(stored) as image:
+        assert (image.format, image.size) == ("WEBP", (200, 300))
+        red, green, blue = image.convert("RGB").getpixel((100, 150))
+        assert red > 200 and green < 60 and blue < 60
 
 
 @pytest.mark.django_db
