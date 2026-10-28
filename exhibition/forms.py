@@ -2334,13 +2334,16 @@ class ExhibitionComposeForm(forms.Form):
         """Offer every application plus the profiles organizers created without one."""
         entries = []
         for exhibition_request in mail_helpers.compose_recipients(self.event):
-            email = (exhibition_request.email or "").strip() or exhibition_request.user.email
+            email = (exhibition_request.email or "").strip() or (
+                exhibition_request.user.email if exhibition_request.user_id else ""
+            )
             state = exhibition_request.get_state_display()
+            detail = f"{email} · {state}" if email else state
             entries.append(
                 (
                     f"{REQUEST_CHOICE_PREFIX}{exhibition_request.pk}",
                     localize_event_text(exhibition_request.name) or str(exhibition_request.name),
-                    f"{email} · {state}" if show_emails else state,
+                    detail if show_emails else state,
                 )
             )
         for profile in self.organizer_created_profiles():
