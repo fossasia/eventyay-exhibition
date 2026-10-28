@@ -262,19 +262,29 @@ class EmailFilterForm(ExhibitionFilterForm):
         required=False,
     )
 
-    def __init__(self, *args, date_field="created", **kwargs):
-        self.orders = {
-            "to_email": "to_email",
-            "subject": "subject",
-            date_field: date_field,
-        }
+    def __init__(self, *args, date_field="created", hide_emails=False, **kwargs):
+        self.hide_emails = hide_emails
+        self.orders = {"subject": "subject", date_field: date_field}
+        if not hide_emails:
+            self.orders["to_email"] = "to_email"
         super().__init__(*args, **kwargs)
+        if hide_emails:
+            self.fields["query"].label = _("Search by subject…")
+            self.fields["query"].widget.attrs.update(
+                {
+                    "placeholder": _("Search by subject…"),
+                    "aria-label": _("Search emails by subject"),
+                }
+            )
 
     def filter_qs(self, queryset):
         fdata = self.cleaned_data
 
         query = (fdata.get("query") or "").strip()
         if query:
-            queryset = queryset.filter(Q(to_email__icontains=query) | Q(subject__icontains=query))
+            lookup = Q(subject__icontains=query)
+            if not self.hide_emails:
+                lookup |= Q(to_email__icontains=query)
+            queryset = queryset.filter(lookup)
 
         return queryset

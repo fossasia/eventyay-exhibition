@@ -33,6 +33,7 @@ from exhibition.models import (
     ExhibitorSettings,
     SponsorGroup,
     get_next_sponsor_group_level,
+    organization_folder_name,
 )
 from exhibition.views import (
     ExhibitionDefaultFieldEditView,
@@ -101,7 +102,7 @@ def test_create_exhibitor_info(event):
     assert exhibitor.url == "http://testexhibitor.com"
     assert exhibitor.email == "test@example.com"
     assert re.fullmatch(
-        r"exhibitors/logos/Test Exhibitor/test_logo(?:_[A-Za-z0-9]{7})?\.jpg",
+        r"exhibitors/logos/test-exhibitor/test_logo(?:_[A-Za-z0-9]{7})?\.jpg",
         exhibitor.logo.name,
     )
     assert exhibitor.lead_scanning_enabled is True
@@ -597,6 +598,42 @@ def test_scoped_forms_set_type_flags(event, image_uploads):
     exhibitor.save()
     assert exhibitor.is_sponsor is False
     assert exhibitor.is_exhibitor is True
+
+
+LONG_ORGANIZATION_NAME = "Indic Mediawiki Developers User Group(IMDUG) - affiliated with Wikimedia Foundation."
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("organization_type", ["exhibitor", "sponsor"])
+def test_long_organization_name_can_be_created_with_images(event, image_uploads, organization_type):
+    form = ExhibitorInfoForm(
+        data={"name_0": LONG_ORGANIZATION_NAME},
+        files=image_uploads(),
+        event=event,
+        organization_type=organization_type,
+    )
+    assert form.is_valid(), form.errors
+    organization = form.save(commit=False)
+    organization.event = event
+    organization.save()
+
+    for image in (organization.logo, organization.banner):
+        assert len(image.name) <= ExhibitorInfo._meta.get_field("logo").max_length
+        assert "/indic-mediawiki-developers-user-groupimd/" in image.name
+
+
+@pytest.mark.parametrize(
+    ("name", "folder"),
+    [
+        ("Acme Corp", "acme-corp"),
+        ("../../etc", "etc"),
+        ("Café Zürich", "café-zürich"),
+        ("???", "organization"),
+    ],
+)
+def test_organization_folder_name_is_short_and_path_safe(name, folder):
+    assert organization_folder_name(ExhibitorInfo(name=name)) == folder
+    assert len(organization_folder_name(ExhibitorInfo(name=LONG_ORGANIZATION_NAME))) <= 40
 
 
 @pytest.mark.django_db
