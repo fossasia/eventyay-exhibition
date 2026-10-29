@@ -65,7 +65,7 @@ jobs:
           cd ../eventyay/app
           uv sync --all-extras --all-groups
           # Install exhibition plugin in the eventyay environment
-          uv pip install -e ../../eventyay-exhibition
+          uv pip install -e "../../eventyay-exhibition[test]"
 
       - name: Compile translations
         run: |
@@ -82,4 +82,4 @@ jobs:
           EVY_POSTGRES_DB: eventyay-db
         run: |
           . ../eventyay/app/.venv/bin/activate
-          pytest tests --reruns 3 --no-reuse-db
+          pytest tests --reruns 3
