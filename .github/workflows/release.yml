@@ -5,9 +5,15 @@ on:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
     steps:
       - uses: actions/checkout@v7
 
@@ -24,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync
-          uv pip install build twine check-manifest
+          uv pip install build check-manifest
 
       - name: Check manifest
         run: uv run check-manifest
@@ -40,10 +46,5 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Upload to PyPI
-        env:
-          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-        run: |
-          uv run twine check dist/*
-          uv run twine upload dist/*
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
