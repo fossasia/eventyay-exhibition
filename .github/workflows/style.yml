@@ -12,10 +12,15 @@ on:
       - "exhibition/locale/**"
       - "exhibition/static/**"
 
+concurrency:
+  group: style-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   ruff:
     name: ruff
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
