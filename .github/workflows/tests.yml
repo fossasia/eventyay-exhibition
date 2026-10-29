@@ -19,6 +19,7 @@ jobs:
       postgres:
         image: postgres:15
         env:
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: eventyay-db
         options: >-
@@ -81,4 +82,4 @@ jobs:
           EVY_POSTGRES_DB: eventyay-db
         run: |
           . ../eventyay/app/.venv/bin/activate
-          pytest tests --reruns 3
+          pytest tests --reruns 3 --no-reuse-db
