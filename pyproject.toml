@@ -86,7 +86,7 @@ EVY_POSTGRES_HOST = "localhost"
 EVY_POSTGRES_PORT = "5432"
 EVY_POSTGRES_USER = "postgres"
 EVY_POSTGRES_PASSWORD = "postgres"
-EVY_POSTGRES_DB = "eventyay-db"
+EVY_POSTGRES_DB = "eventyay"
 
 [tool.coverage.run]
 source = ["exhibition"]
