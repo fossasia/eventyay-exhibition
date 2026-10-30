@@ -6,6 +6,7 @@ import logging
 import re
 import uuid
 from collections import defaultdict
+from contextlib import nullcontext
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
@@ -189,7 +190,7 @@ DEFAULT_TEMPLATE_SOURCES = {
             "Dear {exhibitor_name},\n\n"
             "Thank you for participating in {event_name}. Please share the voucher codes below with "
             "your audience — anyone who uses one gets credited to you as a lead.\n\n"
-            "{voucher_list}\n\n"
+            "{voucher_details}\n\n"
             "They can redeem a code on the event ticket shop at checkout.\n\n"
             "You can see which codes have been redeemed, and download your vouchers, at any time in "
             "My Exhibitions: {my_exhibitions_url}\n\n"
@@ -274,8 +275,9 @@ class _SafeDict(dict):
 
 _PREVIEW_URL_RE = re.compile(r"^(https?://|www\.)[^\s]+$")
 
-REQUEST_PLACEHOLDER_CONTEXT = ["event", "exhibition_request"]
-EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", "exhibitor"]
+MAIL_CONTEXT_KEY = "exhibition"
+REQUEST_PLACEHOLDER_CONTEXT = ["event", MAIL_CONTEXT_KEY, "exhibition_request"]
+EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", MAIL_CONTEXT_KEY, "exhibitor"]
 
 ROLE_PLACEHOLDER_CONTEXT = {
     REQUEST_NEW: REQUEST_PLACEHOLDER_CONTEXT,
@@ -294,7 +296,8 @@ def placeholder_names(event, context):
     """Placeholder names that actually resolve for the given email context."""
     from eventyay.base.email import get_available_placeholders
 
-    return sorted(get_available_placeholders(event, list(context)).keys())
+    available = get_available_placeholders(event, list(context))
+    return sorted(name for name, placeholder in available.items() if placeholder.is_visible)
 
 
 def role_placeholder_names(event, role):
@@ -334,7 +337,8 @@ def _render(text, context, locale):
     """Localise ``text`` and substitute ``{placeholder}`` values."""
     localized = str(LazyI18nString(text).localize(locale)) if locale else str(text)
     try:
-        return localized.format_map(defaultdict(str, context))
+        with override(locale) if locale else nullcontext():
+            return localized.format_map(defaultdict(str, context))
     except (ValueError, IndexError):
         logger.warning("Could not render exhibition email template: %r", localized)
         return localized
@@ -343,17 +347,13 @@ def _render(text, context, locale):
 def build_request_context(event, exhibition_request):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibition_request=exhibition_request)
-    context.setdefault("event_name", str(event.name))
-    return context
+    return get_email_context(event=event, exhibition_request=exhibition_request, **{MAIL_CONTEXT_KEY: True})
 
 
 def build_exhibitor_context(event, exhibitor, **extra):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibitor=exhibitor, **extra)
-    context.setdefault("event_name", str(event.name))
-    return context
+    return get_email_context(event=event, exhibitor=exhibitor, **{MAIL_CONTEXT_KEY: True}, **extra)
 
 
 def request_public_url(exhibition_request):
@@ -498,9 +498,9 @@ def render_voucher_list(exhibitor):
 def _sample_redeem_url(event, code):
     if event is None:
         return f"{django_settings.SITE_URL.rstrip('/')}/redeem?voucher={code}"
-    from eventyay.multidomain.urlreverse import build_absolute_uri
+    from eventyay.base.email import voucher_redeem_url
 
-    return f"{build_absolute_uri(event, 'presale:event.redeem')}?voucher={code}"
+    return voucher_redeem_url(event, code)
 
 
 def my_exhibitions_url(exhibitor=None):
@@ -847,7 +847,7 @@ def queue_voucher_email(event, exhibitor, vouchers, *, send_now=False, requestor
 
     settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
     attachment = store_voucher_csv(event, vouchers) if settings.voucher_attach_csv else None
-    context["voucher_list"] = format_voucher_list(
+    context["voucher_details"] = format_voucher_list(
         vouchers, event=event, limit=VOUCHER_LIST_INLINE_LIMIT if attachment else None
     )
 
