@@ -7,12 +7,15 @@ from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.html import escape, format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
+from django_scopes import scopes_disabled
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.signals import (
     logentry_display,
     logentry_object_link,
+    periodic_task,
     register_mail_placeholders,
 )
+from eventyay.base.templatetags.money import money_filter
 from eventyay.common.signals import user_dashboard_links, user_menu_items
 from eventyay.common.utils.language import localize_event_text
 from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global
@@ -26,6 +29,8 @@ from .dashboard import user_has_exhibitions
 from .mail import (
     invitation_url,
     my_exhibitions_url,
+    order_product_list,
+    order_public_url,
     render_device_tokens,
     render_voucher_list,
     request_admin_url,
@@ -42,25 +47,51 @@ from .models import (
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
     LOG_GROUP_DELETED,
+    LOG_ORDER_CANCELLED,
+    LOG_ORDER_EXPIRED,
+    LOG_ORDER_FORM_CHANGED,
+    LOG_ORDER_PAID,
+    LOG_ORDER_PAYMENT_CHANGED,
+    LOG_ORDER_PLACED,
+    LOG_ORDER_QUESTION_ADDED,
+    LOG_ORDER_QUESTION_CHANGED,
+    LOG_ORDER_QUESTION_DELETED,
     LOG_ORGANIZATION_ADDED,
     LOG_ORGANIZATION_CHANGED,
     LOG_ORGANIZATION_CREATED,
     LOG_ORGANIZATION_DELETED,
+    LOG_ORGANIZATION_ORDER_CANCELLED,
+    LOG_ORGANIZATION_ORDERED,
     LOG_ORGANIZATION_PUBLISHED,
     LOG_ORGANIZATION_REACTIVATED,
     LOG_ORGANIZATION_SYNCED,
     LOG_ORGANIZATION_UNPUBLISHED,
     LOG_PREFIX,
+    LOG_PRODUCT_ADDED,
+    LOG_PRODUCT_CATEGORY_ADDED,
+    LOG_PRODUCT_CATEGORY_CHANGED,
+    LOG_PRODUCT_CATEGORY_DELETED,
+    LOG_PRODUCT_CHANGED,
+    LOG_PRODUCT_DELETED,
     LOG_QUESTION_ADDED,
     LOG_QUESTION_CHANGED,
     LOG_QUESTION_DELETED,
+    LOG_QUOTA_ADDED,
+    LOG_QUOTA_CHANGED,
+    LOG_QUOTA_DELETED,
     LOG_REQUEST_CHANGED,
     LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
     ExhibitionEmailQueue,
+    ExhibitionOrder,
+    ExhibitionOrderQuestion,
+    ExhibitionOrderQuestionOption,
+    ExhibitionProduct,
+    ExhibitionProductCategory,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
+    ExhibitionQuota,
     ExhibitionRequest,
     ExhibitionRequestState,
     ExhibitorDevice,
@@ -71,6 +102,7 @@ from .models import (
     clear_dependencies_on,
     prune_dependency_option,
 )
+from .orders import expire_overdue_orders, payment_instructions
 from .utils import (
     add_external_image_csp_sources,
     exhibitor_login_email,
@@ -205,7 +237,9 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
                     },
                 ),
                 "active"
-                if "/exhibition/" in request.path_info and "/exhibition/call/" not in request.path_info
+                if "/exhibition/" in request.path_info
+                and "/exhibition/call/" not in request.path_info
+                and "/exhibition/packages/" not in request.path_info
                 else "",
                 _("Exhibition"),
             )
@@ -215,8 +249,11 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
         event=sender,
         call_enabled=True,
     ).first()
-    if settings and not settings.call_private and (settings.call_is_open or not settings.call_hide_after_deadline):
-        call_label = localize_event_text(settings.call_headline) or _("Call for Exhibitors")
+    call_is_public = bool(
+        settings and not settings.call_private and (settings.call_is_open or not settings.call_hide_after_deadline)
+    )
+    if call_is_public or ExhibitionProduct.objects.filter(event=sender).available().exists():
+        call_label = (localize_event_text(settings.call_headline) if settings else "") or _("Call for Exhibitors")
         links.append(
             format_html(
                 '<a href="{}" class="header-tab {}"><i class="fa fa-handshake-o"></i> {}</a>',
@@ -227,7 +264,9 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
                         "event": sender.slug,
                     },
                 ),
-                "active" if "/exhibition/call/" in request.path_info else "",
+                "active"
+                if "/exhibition/call/" in request.path_info or "/exhibition/packages/" in request.path_info
+                else "",
                 call_label,
             )
         )
@@ -387,6 +426,48 @@ def exhibition_mail_placeholders(sender, **kwargs):
             my_exhibitions_url,
             my_exhibitions_url(),
         ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_code",
+            ["exhibition_order"],
+            lambda exhibition_order: exhibition_order.code,
+            "ABC12",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_url",
+            ["exhibition_order"],
+            order_public_url,
+            "https://example.com/orga/event/exhibition/packages/order/ABC12/secret/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_products",
+            ["exhibition_order"],
+            order_product_list,
+            _("- Gold sponsorship"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_total",
+            ["exhibition_order"],
+            lambda exhibition_order: money_filter(exhibition_order.total, exhibition_order.currency),
+            "€5,000.00",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_contact_name",
+            ["exhibition_order"],
+            lambda exhibition_order: exhibition_order.name,
+            _("Jane Doe"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_organization",
+            ["exhibition_order"],
+            lambda exhibition_order: exhibition_order.organization_name,
+            _("Acme Corp"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_payment_info",
+            ["exhibition_order"],
+            payment_instructions,
+            _("Please transfer the amount to the bank account below."),
+        ),
     ]
 
 
@@ -399,6 +480,16 @@ def exhibition_option_dependency_cleanup(sender, instance, **kwargs):
 @receiver(pre_delete, sender=ExhibitionQuestion, dispatch_uid="exhibition_question_dependency_cleanup")
 def exhibition_question_dependency_cleanup(sender, instance, **kwargs):
     """Leave no dependency pointing at a field that is going away."""
+    clear_dependencies_on(instance)
+
+
+@receiver(post_delete, sender=ExhibitionOrderQuestionOption, dispatch_uid="exhibition_order_option_dependency_cleanup")
+def exhibition_order_option_dependency_cleanup(sender, instance, **kwargs):
+    prune_dependency_option(instance)
+
+
+@receiver(pre_delete, sender=ExhibitionOrderQuestion, dispatch_uid="exhibition_order_question_dependency_cleanup")
+def exhibition_order_question_dependency_cleanup(sender, instance, **kwargs):
     clear_dependencies_on(instance)
 
 
@@ -458,6 +549,8 @@ LOG_ENTRY_LABELS = {
     LOG_ORGANIZATION_SYNCED: _("Organization profile updated from the submitter's changes."),
     LOG_ORGANIZATION_PUBLISHED: _("Organization profile published to the public event website."),
     LOG_ORGANIZATION_UNPUBLISHED: _("Organization profile removed from the public event website."),
+    LOG_ORGANIZATION_ORDERED: _("Organization profile linked to a paid exhibition order."),
+    LOG_ORGANIZATION_ORDER_CANCELLED: _("Organization profile hidden because its exhibition order was cancelled."),
     LOG_ORGANIZATION_ADDED: _("Organization profile created."),
     LOG_ORGANIZATION_CHANGED: _("Organization profile changed."),
     LOG_ORGANIZATION_DELETED: _("Organization profile deleted."),
@@ -471,6 +564,24 @@ LOG_ENTRY_LABELS = {
     LOG_QUESTION_CHANGED: _("Exhibitor form question changed."),
     LOG_QUESTION_DELETED: _("Exhibitor form question deleted."),
     LOG_EMAIL_SENT: _("Email sent."),
+    LOG_PRODUCT_ADDED: _("Exhibition product created."),
+    LOG_PRODUCT_CHANGED: _("Exhibition product changed."),
+    LOG_PRODUCT_DELETED: _("Exhibition product deleted."),
+    LOG_PRODUCT_CATEGORY_ADDED: _("Exhibition product category created."),
+    LOG_PRODUCT_CATEGORY_CHANGED: _("Exhibition product category changed."),
+    LOG_PRODUCT_CATEGORY_DELETED: _("Exhibition product category deleted."),
+    LOG_ORDER_PLACED: _("Exhibition order placed."),
+    LOG_ORDER_PAID: _("Exhibition order marked as paid."),
+    LOG_ORDER_CANCELLED: _("Exhibition order cancelled."),
+    LOG_ORDER_EXPIRED: _("Exhibition order expired."),
+    LOG_ORDER_PAYMENT_CHANGED: _("Exhibition order payment method changed."),
+    LOG_QUOTA_ADDED: _("Exhibition quota created."),
+    LOG_QUOTA_CHANGED: _("Exhibition quota changed."),
+    LOG_QUOTA_DELETED: _("Exhibition quota deleted."),
+    LOG_ORDER_FORM_CHANGED: _("Exhibition order form changed."),
+    LOG_ORDER_QUESTION_ADDED: _("Exhibition order form field created."),
+    LOG_ORDER_QUESTION_CHANGED: _("Exhibition order form field changed."),
+    LOG_ORDER_QUESTION_DELETED: _("Exhibition order form field deleted."),
 }
 
 
@@ -528,6 +639,15 @@ def exhibition_logentry_display(sender, logentry, **kwargs):
             subject=data.get("subject", "")
         )
 
+    if logentry.action_type == LOG_ORGANIZATION_ORDERED and logentry.parsed_data.get("created"):
+        return _("Organization profile created from paid exhibition order {code}.").format(
+            code=logentry.parsed_data.get("exhibition_order", "")
+        )
+    if logentry.action_type == LOG_ORGANIZATION_ORDER_CANCELLED:
+        return _("Organization profile hidden because exhibition order {code} was cancelled.").format(
+            code=logentry.parsed_data.get("exhibition_order", "")
+        )
+
     changed = changed_field_labels(logentry)
     if changed:
         return f"{label} {changed}"
@@ -570,12 +690,63 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
             ),
             "val": escape(target.localized_question),
         }
+    elif isinstance(target, ExhibitionProduct):
+        a_text = _("Exhibition product {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(str(target)),
+        }
+    elif isinstance(target, ExhibitionProductCategory):
+        a_text = _("Exhibition product category {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.categories.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(target.backend_name),
+        }
+    elif isinstance(target, ExhibitionOrderQuestion):
+        a_text = _("Exhibition order form field {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.order_form.fields.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(target.localized_question),
+        }
+    elif isinstance(target, ExhibitionQuota):
+        a_text = _("Exhibition quota {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.quotas.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(target.name),
+        }
     elif isinstance(target, SponsorGroup):
         return _("Sponsor group {val}").format(val=escape(target.localized_name))
+    elif isinstance(target, ExhibitionOrder):
+        a_text = _("Exhibition order {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:orders.detail",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "code": target.code},
+            ),
+            "val": escape(target.code),
+        }
 
     if a_text and a_map:
         a_map["val"] = '<a href="{href}">{val}</a>'.format_map(a_map)
         return a_text.format_map(a_map)
+
+
+@receiver(periodic_task, dispatch_uid="exhibition_expire_overdue_orders")
+@scopes_disabled()
+def expire_overdue_exhibition_orders(sender, **kwargs):
+    expire_overdue_orders()
 
 
 def is_admin_page(request):

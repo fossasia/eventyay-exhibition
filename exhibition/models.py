@@ -5,12 +5,14 @@ import string
 from django.conf import settings
 from django.core.validators import MaxValueValidator
 from django.db import models, transaction
-from django.db.models import Max, Q
+from django.db.models import Count, F, Max, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django_countries import Countries
+from eventyay.base.banlist import banned
 from eventyay.base.models import Device, Event, Voucher
 from eventyay.base.models.base import LoggedModel
 from eventyay.base.models.fields import MultiStringField
@@ -28,6 +30,11 @@ def generate_key():
 
 def generate_call_secret():
     return secrets.token_urlsafe(24)
+
+
+def generate_order_secret():
+    alphabet = string.ascii_lowercase + string.digits
+    return get_random_string(length=32, allowed_chars=alphabet)
 
 
 def generate_request_code():
@@ -122,6 +129,10 @@ proposal_header_image_path = request_banner_path
 def exhibition_answer_path(instance, filename):
     code = instance.exhibition_request.code or "new"
     return os.path.join("exhibition-requests", str(code), "answers", str(instance.question_id), filename)
+
+
+def exhibition_order_answer_path(instance, filename):
+    return os.path.join("exhibition-orders", str(instance.order.code), "answers", str(instance.question_id), filename)
 
 
 def request_slides_path(instance, filename):
@@ -232,6 +243,45 @@ def get_default_request_field_definition(key):
     return next(field for field in REQUEST_DEFAULT_FIELDS if field["key"] == key)
 
 
+ORDER_FIELD_LOCK_NOTICE = _("Every order needs this to tell who placed it and where to send the confirmation.")
+
+ORDER_DEFAULT_FIELDS = (
+    {
+        "key": "organization_name",
+        "label": _("Organization name"),
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
+        "lock_notice": ORDER_FIELD_LOCK_NOTICE,
+    },
+    {
+        "key": "name",
+        "label": _("Contact person"),
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
+        "lock_notice": ORDER_FIELD_LOCK_NOTICE,
+    },
+    {
+        "key": "email",
+        "label": _("Email"),
+        "active": True,
+        "required": True,
+        "active_locked": True,
+        "required_locked": True,
+        "lock_notice": ORDER_FIELD_LOCK_NOTICE,
+    },
+    {"key": "phone", "label": _("Phone number"), "active": True},
+    {"key": "website", "label": _("Website"), "active": True},
+    {"key": "billing_address", "label": _("Billing address"), "active": False},
+    {"key": "vat_id", "label": _("VAT ID"), "active": False},
+)
+
+ORDER_DEFAULT_FIELD_KEYS = tuple(field["key"] for field in ORDER_DEFAULT_FIELDS)
+
+
 def default_allowed_fields():
     return ["attendee_name", "attendee_email"]
 
@@ -300,6 +350,7 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     call_private = models.BooleanField(default=False)
     call_secret = models.CharField(max_length=64, default=generate_call_secret)
     request_field_settings = models.JSONField(default=default_request_field_settings)
+    order_field_settings = models.JSONField(default=dict, blank=True)
 
     def is_field_allowed(self, identifier):
         return identifier in (self.allowed_fields or [])
@@ -314,6 +365,30 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
         self.call_secret = generate_call_secret()
         self.save(update_fields=["call_secret"])
         self.log_action(LOG_CALL_SECRET_REGENERATED, user=requestor)
+
+    @property
+    def normalized_order_field_settings(self):
+        """The built-in order form fields in their configured order, with the locks of each applied."""
+        stored = self.order_field_settings or {}
+        fields = []
+        for index, field in enumerate(ORDER_DEFAULT_FIELDS):
+            saved = stored.get(field["key"], {})
+            active = field.get("active_locked") or bool(saved.get("active", field.get("active", True)))
+            required = field.get("required_locked") or bool(saved.get("required", field.get("required", False)))
+            required = active and required
+            fields.append(
+                {
+                    "key": field["key"],
+                    "label": field["label"],
+                    "active": active,
+                    "required": required,
+                    "position": saved.get("position", index),
+                    "active_locked": field.get("active_locked", False),
+                    "required_locked": field.get("required_locked", False),
+                    "lock_notice": field.get("lock_notice", ""),
+                }
+            )
+        return sorted(fields, key=lambda item: item["position"])
 
     @property
     def normalized_request_field_settings(self):
@@ -439,6 +514,14 @@ class ExhibitorInfo(LoggedModel):
         blank=True,
         related_name="exhibitors",
         verbose_name=_("Related sessions"),
+    )
+    source_order = models.ForeignKey(
+        "ExhibitionOrder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Created by order"),
     )
 
     class Meta:
@@ -617,6 +700,8 @@ LOG_ORGANIZATION_DELETED = f"{LOG_PREFIX}.organization.deleted"
 LOG_ORGANIZATION_SYNCED = f"{LOG_PREFIX}.organization.synced"
 LOG_ORGANIZATION_PUBLISHED = f"{LOG_PREFIX}.organization.published"
 LOG_ORGANIZATION_UNPUBLISHED = f"{LOG_PREFIX}.organization.unpublished"
+LOG_ORGANIZATION_ORDERED = f"{LOG_PREFIX}.organization.ordered"
+LOG_ORGANIZATION_ORDER_CANCELLED = f"{LOG_PREFIX}.organization.order_cancelled"
 LOG_SETTINGS_CHANGED = f"{LOG_PREFIX}.settings.changed"
 LOG_CALL_SETTINGS_CHANGED = f"{LOG_PREFIX}.call.settings.changed"
 LOG_CALL_SECRET_REGENERATED = f"{LOG_PREFIX}.call.secret.regenerated"
@@ -627,6 +712,24 @@ LOG_QUESTION_ADDED = f"{LOG_PREFIX}.question.added"
 LOG_QUESTION_CHANGED = f"{LOG_PREFIX}.question.changed"
 LOG_QUESTION_DELETED = f"{LOG_PREFIX}.question.deleted"
 LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
+LOG_PRODUCT_ADDED = f"{LOG_PREFIX}.product.added"
+LOG_PRODUCT_CHANGED = f"{LOG_PREFIX}.product.changed"
+LOG_PRODUCT_DELETED = f"{LOG_PREFIX}.product.deleted"
+LOG_PRODUCT_CATEGORY_ADDED = f"{LOG_PREFIX}.product_category.added"
+LOG_PRODUCT_CATEGORY_CHANGED = f"{LOG_PREFIX}.product_category.changed"
+LOG_PRODUCT_CATEGORY_DELETED = f"{LOG_PREFIX}.product_category.deleted"
+LOG_ORDER_PLACED = f"{LOG_PREFIX}.order.placed"
+LOG_ORDER_PAID = f"{LOG_PREFIX}.order.paid"
+LOG_ORDER_CANCELLED = f"{LOG_PREFIX}.order.cancelled"
+LOG_ORDER_EXPIRED = f"{LOG_PREFIX}.order.expired"
+LOG_ORDER_PAYMENT_CHANGED = f"{LOG_PREFIX}.order.payment_changed"
+LOG_QUOTA_ADDED = f"{LOG_PREFIX}.quota.added"
+LOG_QUOTA_CHANGED = f"{LOG_PREFIX}.quota.changed"
+LOG_QUOTA_DELETED = f"{LOG_PREFIX}.quota.deleted"
+LOG_ORDER_FORM_CHANGED = f"{LOG_PREFIX}.order_form.changed"
+LOG_ORDER_QUESTION_ADDED = f"{LOG_PREFIX}.order_question.added"
+LOG_ORDER_QUESTION_CHANGED = f"{LOG_PREFIX}.order_question.changed"
+LOG_ORDER_QUESTION_DELETED = f"{LOG_PREFIX}.order_question.deleted"
 
 SUBMITTER_PROFILE_FIELD_LABELS = {
     "description": _("Organization Description"),
@@ -1041,12 +1144,9 @@ QUESTION_OPTION_VARIANTS = frozenset(
 DEPENDENCY_PARENT_VARIANTS = frozenset({ExhibitionQuestionVariant.BOOLEAN}) | QUESTION_OPTION_VARIANTS
 
 
-class ExhibitionQuestion(LoggedModel):
-    event = models.ForeignKey(
-        Event,
-        on_delete=models.CASCADE,
-        related_name="exhibition_questions",
-    )
+class BaseExhibitionQuestion(LoggedModel):
+    """The custom field definition shared by the exhibitor form and the order forms."""
+
     variant = models.CharField(
         max_length=32,
         choices=ExhibitionQuestionVariant.choices,
@@ -1074,6 +1174,7 @@ class ExhibitionQuestion(LoggedModel):
     dependency_values = MultiStringField(default=list, verbose_name=_("Dependency values"))
 
     class Meta:
+        abstract = True
         ordering = ("position", "id")
 
     @property
@@ -1090,6 +1191,17 @@ class ExhibitionQuestion(LoggedModel):
 
     def __str__(self):
         return self.localized_question or str(self.question)
+
+
+class ExhibitionQuestion(BaseExhibitionQuestion):
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_questions",
+    )
+
+    class Meta(BaseExhibitionQuestion.Meta):
+        pass
 
 
 class ExhibitionQuestionOption(models.Model):
@@ -1115,7 +1227,8 @@ def prune_dependency_option(option):
     becoming permanently invisible.
     """
     value = str(option.pk)
-    for dependent in ExhibitionQuestion.objects.filter(dependency_question_id=option.question_id):
+    question_model = option._meta.get_field("question").related_model
+    for dependent in question_model.objects.filter(dependency_question_id=option.question_id):
         remaining = [item for item in dependent.dependency_values if item != value]
         if remaining == list(dependent.dependency_values):
             continue
@@ -1130,23 +1243,8 @@ def clear_dependencies_on(question):
     question.dependent_questions.update(dependency_question=None, dependency_values=[])
 
 
-class ExhibitionAnswer(models.Model):
-    question = models.ForeignKey(
-        ExhibitionQuestion,
-        on_delete=models.CASCADE,
-        related_name="answers",
-    )
-    exhibition_request = models.ForeignKey(
-        ExhibitionRequest,
-        on_delete=models.CASCADE,
-        related_name="answers",
-    )
-    answer = models.TextField(blank=True)
-    file = models.FileField(upload_to=exhibition_answer_path, null=True, blank=True)
-    options = models.ManyToManyField(ExhibitionQuestionOption, related_name="answers")
-
-    class Meta:
-        unique_together = ("question", "exhibition_request")
+class AnswerDisplayMixin:
+    """How a stored answer reads back, whatever form it was given on."""
 
     @property
     def answer_string(self):
@@ -1169,6 +1267,25 @@ class ExhibitionAnswer(models.Model):
         return self.file.url if self.file else ""
 
 
+class ExhibitionAnswer(AnswerDisplayMixin, models.Model):
+    question = models.ForeignKey(
+        ExhibitionQuestion,
+        on_delete=models.CASCADE,
+        related_name="answers",
+    )
+    exhibition_request = models.ForeignKey(
+        ExhibitionRequest,
+        on_delete=models.CASCADE,
+        related_name="answers",
+    )
+    answer = models.TextField(blank=True)
+    file = models.FileField(upload_to=exhibition_answer_path, null=True, blank=True)
+    options = models.ManyToManyField(ExhibitionQuestionOption, related_name="answers")
+
+    class Meta:
+        unique_together = ("question", "exhibition_request")
+
+
 class Lead(models.Model):
     exhibitor = models.ForeignKey(ExhibitorInfo, on_delete=models.CASCADE)
     exhibitor_name = models.CharField(max_length=190)
@@ -1185,6 +1302,653 @@ class Lead(models.Model):
 
     def __str__(self):
         return f"Lead scanned by {self.exhibitor.name}"
+
+
+class ExhibitionProductPurpose(models.TextChoices):
+    EXHIBITION = "exhibition", _("Exhibition")
+    SPONSORSHIP = "sponsorship", _("Sponsorship")
+
+
+class ExhibitionProductQuerySet(models.QuerySet):
+    def for_event(self, event):
+        return self.filter(event=event)
+
+    def consuming_booth_capacity(self):
+        """The products that take up physical exhibition space."""
+        return self.filter(includes_booth=True)
+
+    def available(self, now_dt=None):
+        """The products on sale right now: the database side of ``ExhibitionProduct.is_available()``."""
+        now_dt = now_dt or timezone.now()
+        return self.filter(
+            Q(available_from__isnull=True) | Q(available_from__lte=now_dt),
+            Q(available_until__isnull=True) | Q(available_until__gte=now_dt),
+            active=True,
+        )
+
+    def in_sales_order(self):
+        """Products grouped by category in the configured order, uncategorised ones last."""
+        return self.order_by(F("category__position").asc(nulls_last=True), "category_id", "position", "id")
+
+
+def get_next_product_category_position(event):
+    max_position = ExhibitionProductCategory.objects.filter(event=event).aggregate(value=Max("position")).get("value")
+    return (max_position if max_position is not None else -1) + 1
+
+
+class ExhibitionProductCategory(LoggedModel):
+    """A group of exhibition products, such as Sponsorship or Add-ons, kept apart from the ticket categories."""
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_product_categories",
+    )
+    name = I18nCharField(max_length=255, verbose_name=_("Category name"))
+    internal_name = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("Internal name"),
+        help_text=_("If you set this, it will be used instead of the public name in the backend."),
+    )
+    description = I18nTextField(
+        verbose_name=_("Category description"),
+        null=True,
+        blank=True,
+    )
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = _("Exhibition product category")
+        verbose_name_plural = _("Exhibition product categories")
+        ordering = ("position", "id")
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
+
+    @property
+    def backend_name(self):
+        return self.internal_name or self.localized_name
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.position:
+            self.position = get_next_product_category_position(self.event)
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.localized_name or str(self.name)
+
+
+def get_next_product_position(event):
+    max_position = ExhibitionProduct.objects.filter(event=event).aggregate(value=Max("position")).get("value")
+    return (max_position if max_position is not None else -1) + 1
+
+
+class ExhibitionProduct(LoggedModel):
+    """An exhibition or sponsorship package the event sells.
+
+    Exhibition products are their own data, kept apart from the Tickets products: they are
+    managed only under Exhibition and never show up in the ticket shop. The fields follow
+    the Tickets product so both behave alike.
+    """
+
+    objects = ExhibitionProductQuerySet.as_manager()
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_products",
+    )
+    category = models.ForeignKey(
+        ExhibitionProductCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+        verbose_name=_("Category"),
+    )
+    name = I18nCharField(max_length=255, verbose_name=_("Product name"))
+    description = I18nTextField(
+        verbose_name=_("Description"),
+        help_text=_("This is shown below the product name in lists."),
+        null=True,
+        blank=True,
+    )
+    price = models.DecimalField(
+        verbose_name=_("Price"),
+        max_digits=13,
+        decimal_places=2,
+        default=0,
+    )
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+    available_from = models.DateTimeField(
+        verbose_name=_("Available from"),
+        null=True,
+        blank=True,
+        help_text=_("This product will not be sold before the given date."),
+    )
+    available_until = models.DateTimeField(
+        verbose_name=_("Available until"),
+        null=True,
+        blank=True,
+        help_text=_("This product will not be sold after the given date."),
+    )
+    position = models.IntegerField(default=0)
+    purpose = models.CharField(
+        max_length=16,
+        choices=ExhibitionProductPurpose.choices,
+        default=ExhibitionProductPurpose.SPONSORSHIP,
+        verbose_name=_("Product purpose"),
+    )
+    includes_booth = models.BooleanField(
+        default=True,
+        verbose_name=_("Includes exhibition booth"),
+        help_text=_(
+            "Sponsorships come with a booth unless you turn this off, for example for a purely "
+            "digital package. Exhibition products always include one."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product")
+        verbose_name_plural = _("Exhibition products")
+        ordering = ("position", "id")
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
+
+    @property
+    def is_exhibition(self):
+        return self.purpose == ExhibitionProductPurpose.EXHIBITION
+
+    @property
+    def is_sponsorship(self):
+        return self.purpose == ExhibitionProductPurpose.SPONSORSHIP
+
+    @property
+    def consumes_booth_capacity(self):
+        """Only products that come with physical exhibition space take up a booth."""
+        return self.includes_booth
+
+    def is_available_by_time(self, now_dt=None):
+        now_dt = now_dt or timezone.now()
+        if self.available_from and self.available_from > now_dt:
+            return False
+        if self.available_until and self.available_until < now_dt:
+            return False
+        return True
+
+    def is_available(self, now_dt=None):
+        """Whether the product is on sale, going by its active flag and its availability window."""
+        return self.active and self.is_available_by_time(now_dt)
+
+    def remaining_capacity(self):
+        """How many more can be sold going by the product's quotas, or None when nothing limits it."""
+        remaining = [quota.remaining for quota in self.quotas.with_usage() if quota.size is not None]
+        return min(remaining) if remaining else None
+
+    def save(self, *args, **kwargs):
+        """Saving settles the booth rule, so no caller can store another answer."""
+        if self._state.adding and not self.position:
+            self.position = get_next_product_position(self.event)
+        if self.is_exhibition and not self.includes_booth:
+            self.includes_booth = True
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {"includes_booth"}
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.localized_name or str(self.name)
+
+
+class ExhibitionOrderStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    PAID = "paid", _("Paid")
+    CANCELLED = "cancelled", _("Cancelled")
+    EXPIRED = "expired", _("Expired")
+
+
+RESERVING_ORDER_STATUSES = (ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.PAID)
+
+ORDER_CODE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ379"
+
+
+class ExhibitionOrderStateError(Exception):
+    """An order was asked for a status it cannot reach from its current one."""
+
+
+class ExhibitionOrderError(Exception):
+    """An exhibition order could not be placed as requested."""
+
+
+class ExhibitionQuotaExceeded(ExhibitionOrderError):
+    """A quota has no capacity left for the products asked for."""
+
+
+def generate_exhibition_order_code(event):
+    while True:
+        code = get_random_string(length=settings.ENTROPY["order_code"], allowed_chars=ORDER_CODE_CHARSET)
+        if not banned(code) and not ExhibitionOrder.objects.filter(event=event, code=code).exists():
+            return code
+
+
+def i18n_texts(value):
+    """Every translation of an i18n value, trimmed and casefolded for comparing names."""
+    data = value.data if isinstance(value, LazyI18nString) else value
+    texts = data.values() if isinstance(data, dict) else [data]
+    return {str(text).strip().casefold() for text in texts if text}
+
+
+def find_order_organization(order):
+    """The organisation of the same name as the order's, since one email can manage several organisations."""
+    name = (order.organization_name or order.name).strip().casefold()
+    if not name:
+        return None
+    for organization in ExhibitorInfo.objects.filter(event=order.event).order_by("pk"):
+        if name in i18n_texts(organization.name):
+            return organization
+    return None
+
+
+class ExhibitionOrder(LoggedModel):
+    """A purchase of exhibition products, kept apart from the ticket orders."""
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_orders",
+    )
+    code = models.CharField(max_length=16, verbose_name=_("Order code"))
+    secret = models.CharField(max_length=32, default=generate_order_secret)
+    status = models.CharField(
+        max_length=16,
+        choices=ExhibitionOrderStatus.choices,
+        default=ExhibitionOrderStatus.PENDING,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+    organization_name = models.CharField(max_length=255, blank=True, verbose_name=_("Organization"))
+    name = models.CharField(max_length=255, verbose_name=_("Contact name"))
+    email = models.EmailField(verbose_name=_("Email"))
+    phone = models.CharField(max_length=64, blank=True, verbose_name=_("Phone number"))
+    website = models.URLField(max_length=200, blank=True, verbose_name=_("Website"))
+    billing_address = models.TextField(blank=True, verbose_name=_("Billing address"))
+    vat_id = models.CharField(max_length=64, blank=True, verbose_name=_("VAT ID"))
+    total = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Total"))
+    currency = models.CharField(max_length=10, verbose_name=_("Currency"))
+    payment_provider = models.CharField(max_length=255, blank=True, verbose_name=_("Payment method"))
+    payment_reference = models.CharField(max_length=255, blank=True, verbose_name=_("Payment reference"))
+    payment_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Payment date"))
+    expires = models.DateTimeField(null=True, blank=True, verbose_name=_("Expiration date"))
+    created = models.DateTimeField(auto_now_add=True, verbose_name=_("Order date"))
+    organization = models.ForeignKey(
+        ExhibitorInfo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="exhibition_orders",
+        verbose_name=_("Organization"),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition order")
+        verbose_name_plural = _("Exhibition orders")
+        ordering = ("-created", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=["event", "code"], name="exhibition_order_code_unique_per_event"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.code = self.code or generate_exhibition_order_code(self.event)
+            self.currency = self.currency or self.event.currency
+        return super().save(*args, **kwargs)
+
+    @property
+    def can_be_marked_paid(self):
+        return self.status in (ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED)
+
+    @property
+    def can_be_cancelled(self):
+        return self.status != ExhibitionOrderStatus.CANCELLED
+
+    def mark_paid(self, *, provider="", reference="", user=None):
+        """Record a received payment and link the organisation; an expired order needs its quota room back."""
+        with transaction.atomic():
+            self._transition(
+                {ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED},
+                ExhibitionOrderStatus.PAID,
+                LOG_ORDER_PAID,
+                user,
+                check=self._reclaim_quota_capacity,
+                payment_provider=provider or self.payment_provider,
+                payment_reference=reference,
+                payment_date=timezone.now(),
+            )
+            self.link_organization(user=user)
+
+    def cancel(self, *, user=None):
+        with transaction.atomic():
+            self._transition(
+                {ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.PAID, ExhibitionOrderStatus.EXPIRED},
+                ExhibitionOrderStatus.CANCELLED,
+                LOG_ORDER_CANCELLED,
+                user,
+            )
+            self.release_organization(user=user)
+
+    def change_payment_provider(self, provider, *, user=None):
+        """Switch a pending order to another payment method, as a buyer retrying the payment does."""
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if current.status != ExhibitionOrderStatus.PENDING:
+                raise ExhibitionOrderStateError(f"Order {self.code} is not awaiting payment.")
+            previous = current.payment_provider
+            self.payment_provider = provider
+            self.save(update_fields=["payment_provider"])
+            self.log_action(LOG_ORDER_PAYMENT_CHANGED, data={"old_provider": previous, "provider": provider}, user=user)
+
+    def link_organization(self, user=None):
+        """Create or reuse the organisation of a paid order and give it the roles its products come with."""
+        positions = list(self.positions.all())
+        is_sponsor = any(position.is_sponsorship for position in positions)
+        has_booth = any(position.includes_booth for position in positions)
+        organization = self.organization or find_order_organization(self)
+        changed = {}
+        if organization is None:
+            organization = ExhibitorInfo.objects.create(
+                event=self.event,
+                name=self.organization_name or self.name,
+                email=self.email,
+                url=self.website or None,
+                is_sponsor=is_sponsor,
+                is_exhibitor=has_booth,
+                source_order=self,
+            )
+            created = True
+        else:
+            created = False
+            if not organization.active and organization.source_order_id:
+                changed["active"] = True
+            if is_sponsor and not organization.is_sponsor:
+                changed["is_sponsor"] = True
+                changed["sponsor_position"] = get_next_sponsor_position(self.event, organization.sponsor_group)
+            if has_booth and not organization.is_exhibitor:
+                changed["is_exhibitor"] = True
+                changed["exhibitor_position"] = get_next_exhibitor_position(self.event)
+            for name, value in changed.items():
+                setattr(organization, name, value)
+            if changed:
+                organization.save(update_fields=list(changed))
+        if self.organization_id != organization.pk:
+            self.organization = organization
+            self.save(update_fields=["organization"])
+        organization.log_action(
+            LOG_ORGANIZATION_ORDERED,
+            data={"exhibition_order": self.code, "created": created, "changed": list(changed)},
+            user=user,
+        )
+        return organization
+
+    def release_organization(self, user=None):
+        """Hide a profile an order created once no paid order or accepted request keeps it; others stay as set."""
+        organization = self.organization
+        if organization is None or not organization.active or not organization.source_order_id:
+            return
+        if organization.exhibition_orders.filter(status=ExhibitionOrderStatus.PAID).exclude(pk=self.pk).exists():
+            return
+        if organization.source_requests.filter(state__in=ACCEPTED_REQUEST_STATES).exists():
+            return
+        was_published = organization.published
+        organization.active = False
+        organization.published = False
+        organization.save(update_fields=["active", "published"])
+        organization.log_action(LOG_ORGANIZATION_ORDER_CANCELLED, data={"exhibition_order": self.code}, user=user)
+        if was_published:
+            organization.log_action(LOG_ORGANIZATION_UNPUBLISHED, user=user)
+
+    def expire(self):
+        self._transition(
+            {ExhibitionOrderStatus.PENDING},
+            ExhibitionOrderStatus.EXPIRED,
+            LOG_ORDER_EXPIRED,
+            None,
+        )
+
+    def _reclaim_quota_capacity(self, current):
+        """An expired order released its quota capacity, so reviving it needs that capacity back."""
+        if current.status == ExhibitionOrderStatus.EXPIRED:
+            reserve_quota_capacity([position.product for position in self.positions.select_related("product")])
+
+    def _transition(self, allowed_from, status, action, user, check=None, **fields):
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if current.status not in allowed_from:
+                raise ExhibitionOrderStateError(f"Order {self.code} cannot change from {current.status} to {status}.")
+            if check:
+                check(current)
+            fields["status"] = status
+            for name, value in fields.items():
+                setattr(self, name, value)
+            self.save(update_fields=list(fields))
+            self.log_action(
+                action,
+                data={key: str(value) for key, value in fields.items() if key != "status"},
+                user=user,
+            )
+
+    def __str__(self):
+        return self.code
+
+
+class ExhibitionOrderPosition(models.Model):
+    """One product bought in an exhibition order, with its name, purpose, booth and price as sold."""
+
+    order = models.ForeignKey(
+        ExhibitionOrder,
+        on_delete=models.CASCADE,
+        related_name="positions",
+    )
+    product = models.ForeignKey(
+        ExhibitionProduct,
+        on_delete=models.RESTRICT,
+        related_name="order_positions",
+        verbose_name=_("Product"),
+    )
+    name = I18nCharField(max_length=255, verbose_name=_("Product name"))
+    purpose = models.CharField(
+        max_length=16,
+        choices=ExhibitionProductPurpose.choices,
+        verbose_name=_("Product purpose"),
+    )
+    includes_booth = models.BooleanField(default=False, verbose_name=_("Includes exhibition booth"))
+    price = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Price"))
+
+    class Meta:
+        ordering = ("order", "id")
+
+    @classmethod
+    def for_product(cls, order, product):
+        return cls(
+            order=order,
+            product=product,
+            name=product.name,
+            purpose=product.purpose,
+            includes_booth=product.includes_booth,
+            price=product.price,
+        )
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.name) or ""
+
+    @property
+    def is_sponsorship(self):
+        return self.purpose == ExhibitionProductPurpose.SPONSORSHIP
+
+    def __str__(self):
+        return self.localized_name or str(self.name)
+
+
+class ExhibitionOrderQuestion(BaseExhibitionQuestion):
+    """A custom order form field, asked to buyers of the products it is assigned to, as in Tickets."""
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_order_questions",
+    )
+    products = models.ManyToManyField(
+        ExhibitionProduct,
+        related_name="order_questions",
+        blank=True,
+        verbose_name=_("Products"),
+        help_text=_("This field will be asked to buyers of the selected products."),
+    )
+
+    class Meta(BaseExhibitionQuestion.Meta):
+        pass
+
+
+class ExhibitionOrderQuestionOption(models.Model):
+    question = models.ForeignKey(
+        ExhibitionOrderQuestion,
+        on_delete=models.CASCADE,
+        related_name="options",
+    )
+    answer = I18nCharField(verbose_name=_("Response"))
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ("position", "id")
+
+    def __str__(self):
+        return localize_event_text(self.answer) or str(self.answer)
+
+
+class ExhibitionOrderAnswer(AnswerDisplayMixin, models.Model):
+    order = models.ForeignKey(
+        ExhibitionOrder,
+        on_delete=models.CASCADE,
+        related_name="answers",
+    )
+    question = models.ForeignKey(
+        ExhibitionOrderQuestion,
+        on_delete=models.RESTRICT,
+        related_name="answers",
+    )
+    answer = models.TextField(blank=True)
+    file = models.FileField(upload_to=exhibition_order_answer_path, null=True, blank=True)
+    options = models.ManyToManyField(ExhibitionOrderQuestionOption, related_name="answers")
+
+    class Meta:
+        unique_together = ("question", "order")
+
+
+def order_questions_for(products):
+    """The active custom fields assigned to any of the products, each once, in form order."""
+    product_ids = [product.pk for product in products]
+    asked = ExhibitionOrderQuestion.products.through.objects.filter(exhibitionproduct_id__in=product_ids)
+    return (
+        ExhibitionOrderQuestion.objects.filter(active=True, pk__in=asked.values("exhibitionorderquestion_id"))
+        .prefetch_related("options")
+        .order_by("position", "pk")
+    )
+
+
+class ExhibitionQuotaQuerySet(models.QuerySet):
+    def with_usage(self):
+        """Annotate ``used``: the products sold against each quota by orders that still hold their place."""
+        sold = (
+            ExhibitionOrderPosition.objects.filter(
+                product__quotas=OuterRef("pk"),
+                order__status__in=RESERVING_ORDER_STATUSES,
+            )
+            .order_by()
+            .values("product__quotas")
+            .annotate(count=Count("pk"))
+            .values("count")
+        )
+        return self.annotate(used=Coalesce(Subquery(sold), 0))
+
+
+class ExhibitionQuota(LoggedModel):
+    """A limit on how many of its products can be sold; a booth capacity quota only holds booth products."""
+
+    objects = ExhibitionQuotaQuerySet.as_manager()
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_quotas",
+    )
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    size = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Total capacity"),
+        help_text=_("Leave empty for an unlimited number of sales."),
+    )
+    booth_capacity = models.BooleanField(
+        default=False,
+        verbose_name=_("Booth capacity"),
+        help_text=_(
+            "This quota counts the physical exhibition booths, so only products that include a booth can be "
+            "added to it."
+        ),
+    )
+    products = models.ManyToManyField(
+        ExhibitionProduct,
+        related_name="quotas",
+        blank=True,
+        verbose_name=_("Products"),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition quota")
+        verbose_name_plural = _("Exhibition quotas")
+        ordering = ("name", "id")
+
+    def count_used(self):
+        return ExhibitionOrderPosition.objects.filter(
+            product__quotas=self,
+            order__status__in=RESERVING_ORDER_STATUSES,
+        ).count()
+
+    @property
+    def remaining(self):
+        """Places left, or None for an unlimited quota; reads the ``with_usage()`` annotation when present."""
+        if self.size is None:
+            return None
+        used = self.used if hasattr(self, "used") else self.count_used()
+        return max(self.size - used, 0)
+
+    def __str__(self):
+        return self.name
+
+
+def reserve_quota_capacity(products):
+    """Lock the products' quotas inside the caller's transaction and raise if one lacks room for them."""
+    product_ids = [product.pk for product in products]
+    quota_ids = set(
+        ExhibitionQuota.products.through.objects.filter(exhibitionproduct_id__in=product_ids).values_list(
+            "exhibitionquota_id", flat=True
+        )
+    )
+    if not quota_ids:
+        return
+    quotas = ExhibitionQuota.objects.select_for_update().filter(pk__in=quota_ids).order_by("pk")
+    for quota in quotas:
+        if quota.size is None:
+            continue
+        quota_product_ids = set(quota.products.values_list("pk", flat=True))
+        needed = sum(1 for product_id in product_ids if product_id in quota_product_ids)
+        if quota.count_used() + needed > quota.size:
+            names = ", ".join(str(product) for product in products if product.pk in quota_product_ids)
+            raise ExhibitionQuotaExceeded(f"{names} is sold out.")
 
 
 class ExhibitorTag(models.Model):
@@ -1255,6 +2019,13 @@ class ExhibitionEmailQueue(LoggedModel):
     )
     exhibitor = models.ForeignKey(
         ExhibitorInfo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="emails",
+    )
+    exhibition_order = models.ForeignKey(
+        ExhibitionOrder,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

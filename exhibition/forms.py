@@ -24,6 +24,7 @@ from eventyay.base.forms.widgets import (
     TimePickerWidget,
 )
 from eventyay.base.models import Submission, SubmissionStates
+from eventyay.base.templatetags.money import money_filter
 from eventyay.base.templatetags.rich_text import compile_email_body
 from eventyay.cfp.forms.auth import RecoverForm
 from eventyay.common.forms.fields import I18nEmailBodyFormField
@@ -45,6 +46,7 @@ from eventyay.consts import SizeKey
 from eventyay.control.forms import ExtFileField, SplitDateTimeField
 from eventyay.helpers.countries import CachedCountries
 from eventyay.helpers.i18n import get_format_without_seconds, is_rtl
+from eventyay.helpers.money import change_decimal_field
 from i18nfield.forms import I18nFormField, I18nTextInput
 from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
@@ -52,15 +54,23 @@ from phonenumber_field.formfields import PhoneNumberField
 from . import mail as mail_helpers
 from .models import (
     DEPENDENCY_PARENT_VARIANTS,
+    ORDER_DEFAULT_FIELD_KEYS,
     QUESTION_OPTION_VARIANTS,
     REQUEST_DEFAULT_FIELD_KEYS,
     REQUEST_FORMSET_FIELD_KEYS,
     ExhibitionAnswer,
     ExhibitionCustomEmailTemplate,
     ExhibitionEmailQueue,
+    ExhibitionOrderAnswer,
+    ExhibitionOrderQuestion,
+    ExhibitionOrderQuestionOption,
+    ExhibitionProduct,
+    ExhibitionProductCategory,
+    ExhibitionProductPurpose,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuestionVariant,
+    ExhibitionQuota,
     ExhibitionRequest,
     ExhibitionRequestExtraLink,
     ExhibitionRequestSocialLink,
@@ -71,7 +81,9 @@ from .models import (
     ExhibitorSocialLink,
     SponsorGroup,
     get_next_sponsor_group_level,
+    order_questions_for,
 )
+from .orders import usable_payment_providers
 from .social_links import (
     SOCIAL_LINK_CHOICES,
     SOCIAL_LINK_SPECS,
@@ -1237,6 +1249,9 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
             required=question.required,
         )
 
+    def new_exhibition_answer(self, owner, question):
+        return ExhibitionAnswer(exhibition_request=owner, question=question)
+
     def save_exhibition_questions(self, exhibition_request):
         for key, value in self.cleaned_data.items():
             if not key.startswith("question_"):
@@ -1266,7 +1281,7 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 continue
 
             if not answer:
-                answer = ExhibitionAnswer(exhibition_request=exhibition_request, question=question)
+                answer = self.new_exhibition_answer(exhibition_request, question)
 
             if isinstance(field, ExtFileField):
                 if value is False:
@@ -2419,6 +2434,271 @@ class ExhibitionCustomEmailTemplateForm(I18nModelForm):
         )
         if self.event:
             self.fields["body"].widget.enabled_locales = self.event.settings.get("locales")
+
+
+class ExhibitionProductCategoryForm(I18nModelForm):
+    """A grouping for exhibition products, laid out like the Tickets category form."""
+
+    class Meta:
+        model = ExhibitionProductCategory
+        localized_fields = "__all__"
+        fields = ["name", "internal_name", "description"]
+
+
+class ExhibitionProductForm(I18nModelForm):
+    """An exhibition or sponsorship package, laid out like the Tickets product form."""
+
+    class Meta:
+        model = ExhibitionProduct
+        localized_fields = "__all__"
+        fields = [
+            "name",
+            "description",
+            "category",
+            "purpose",
+            "includes_booth",
+            "price",
+            "active",
+            "available_from",
+            "available_until",
+        ]
+        field_classes = {
+            "available_from": SplitDateTimeField,
+            "available_until": SplitDateTimeField,
+        }
+        widgets = {
+            "purpose": forms.Select(attrs={"data-exhibition-product-purpose": ""}),
+            "includes_booth": forms.CheckboxInput(attrs={"data-exhibition-product-booth": ""}),
+            "available_from": SplitDateTimePickerWidget(),
+            "available_until": SplitDateTimePickerWidget(attrs={"data-date-after": "#id_available_from_0"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        change_decimal_field(self.fields["price"], self.event.currency)
+        self.fields["category"].queryset = ExhibitionProductCategory.objects.filter(event=self.event)
+        self.fields["category"].empty_label = _("No category")
+
+    def clean_price(self):
+        price = self.cleaned_data.get("price")
+        if price is not None and price < 0:
+            raise ValidationError(_("The price must not be negative."))
+        return price
+
+    def clean(self):
+        cleaned_data = super().clean()
+        available_from = cleaned_data.get("available_from")
+        available_until = cleaned_data.get("available_until")
+        if available_from and available_until and available_until < available_from:
+            self.add_error("available_until", _("The end of the sales period must be after its start."))
+        drops_booth = cleaned_data.get("purpose") == ExhibitionProductPurpose.SPONSORSHIP and not cleaned_data.get(
+            "includes_booth"
+        )
+        if drops_booth and self.instance.pk:
+            booth_quotas = list(self.instance.quotas.filter(booth_capacity=True))
+            if booth_quotas:
+                self.add_error(
+                    "includes_booth",
+                    _("This product is on the booth capacity quota {quotas}. Remove it from there first.").format(
+                        quotas=", ".join(quota.name for quota in booth_quotas)
+                    ),
+                )
+        return cleaned_data
+
+
+class ExhibitionOrderMarkPaidForm(forms.Form):
+    payment_reference = forms.CharField(
+        label=_("Payment reference"),
+        help_text=_("For example the reference of the bank transfer you received."),
+        max_length=255,
+        required=False,
+    )
+    send_email = forms.BooleanField(
+        label=_("Send the order confirmation email to the buyer"),
+        initial=True,
+        required=False,
+    )
+
+
+class ExhibitionOrderProductsForm(forms.Form):
+    """The products an organiser books, whether or not they are on public sale."""
+
+    products = forms.ModelMultipleChoiceField(
+        queryset=ExhibitionProduct.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label=_("Products"),
+    )
+
+    def __init__(self, *args, event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=event).in_sales_order()
+        self.fields["products"].label_from_instance = lambda product: (
+            f"{product} ({money_filter(product.price, event.currency)})"
+        )
+
+
+class ExhibitionOrderBookingForm(forms.Form):
+    """How an organiser-created order stands on payment, and whether its buyer is emailed."""
+
+    PAID = "paid"
+    PENDING = "pending"
+
+    payment_status = forms.ChoiceField(
+        label=_("Payment status"),
+        choices=(
+            (PAID, _("Paid, or nothing to pay")),
+            (PENDING, _("Pending, the buyer still has to pay")),
+        ),
+        initial=PAID,
+        widget=forms.RadioSelect,
+    )
+    payment_provider = forms.ChoiceField(label=_("Payment method"), required=False)
+    payment_reference = forms.CharField(
+        label=_("Payment reference"),
+        help_text=_("For example the reference of the bank transfer you received."),
+        max_length=255,
+        required=False,
+    )
+    send_email = forms.BooleanField(
+        label=_("Send the order email to the buyer"),
+        help_text=_("The confirmation for a paid order, or the order with payment details for a pending one."),
+        initial=True,
+        required=False,
+    )
+
+    def __init__(self, *args, event, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["payment_provider"].choices = [("", "—")] + [
+            (identifier, provider.public_name) for identifier, provider in usable_payment_providers(event).items()
+        ]
+
+    @property
+    def paid(self):
+        return self.cleaned_data["payment_status"] == self.PAID
+
+
+class ExhibitionQuotaForm(I18nModelForm):
+    class Meta:
+        model = ExhibitionQuota
+        fields = ["name", "size", "booth_capacity", "products"]
+        widgets = {
+            "products": forms.CheckboxSelectMultiple,
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=self.event).in_sales_order()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("booth_capacity"):
+            without_booth = [product for product in cleaned_data.get("products") or [] if not product.includes_booth]
+            if without_booth:
+                self.add_error(
+                    "products",
+                    _("A booth capacity quota can only hold products that include a booth. Remove {products}.").format(
+                        products=", ".join(str(product) for product in without_booth)
+                    ),
+                )
+        return cleaned_data
+
+
+class ExhibitionOrderQuestionForm(ExhibitionQuestionForm):
+    """A custom order form field, asked to buyers of the products it is assigned to."""
+
+    class Meta(ExhibitionQuestionForm.Meta):
+        model = ExhibitionOrderQuestion
+        fields = ExhibitionQuestionForm.Meta.fields[:-1] + ["products", "active"]
+        labels = {**ExhibitionQuestionForm.Meta.labels, "products": _("Products")}
+        widgets = {**ExhibitionQuestionForm.Meta.widgets, "products": forms.CheckboxSelectMultiple}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=self.event).in_sales_order()
+
+    @cached_property
+    def dependency_candidates(self):
+        queryset = ExhibitionOrderQuestion.objects.filter(
+            event=self.event,
+            variant__in=DEPENDENCY_PARENT_VARIANTS,
+        ).prefetch_related("options")
+        if self.instance.pk:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        return queryset
+
+    def save(self, commit=True):
+        instance = super(ExhibitionQuestionForm, self).save(commit=False)
+        instance.event = self.event
+        if not instance.pk:
+            settings = ExhibitorSettings.objects.filter(event=self.event).first() or ExhibitorSettings(event=self.event)
+            last_question = ExhibitionOrderQuestion.objects.filter(event=self.event).aggregate(Max("position"))[
+                "position__max"
+            ]
+            last_field = max(field["position"] for field in settings.normalized_order_field_settings)
+            instance.position = max(last_field, -1 if last_question is None else last_question) + 1
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
+class ExhibitionOrderQuestionOptionForm(ExhibitionQuestionOptionForm):
+    class Meta(ExhibitionQuestionOptionForm.Meta):
+        model = ExhibitionOrderQuestionOption
+
+
+ExhibitionOrderQuestionOptionFormSet = inlineformset_factory(
+    ExhibitionOrderQuestion,
+    ExhibitionOrderQuestionOption,
+    form=ExhibitionOrderQuestionOptionForm,
+    formset=BaseExhibitionQuestionOptionFormSet,
+    can_order=True,
+    can_delete=True,
+    extra=0,
+)
+
+
+class ExhibitionOrderForm(ExhibitionQuestionFieldsMixin, forms.Form):
+    """What buyers fill in when they order: the active customer fields and the custom fields of their products."""
+
+    required_css_class = "required"
+
+    def __init__(self, *args, event, products, **kwargs):
+        super().__init__(*args, **kwargs)
+        settings = ExhibitorSettings.objects.filter(event=event).first() or ExhibitorSettings(event=event)
+        positions = []
+        for field in settings.normalized_order_field_settings:
+            if field["active"]:
+                self.fields[field["key"]] = self.customer_field(field)
+                positions.append((field["position"], 0, field["key"]))
+        for question in order_questions_for(list(products)):
+            field = self.get_exhibition_question_field(question=question, answer=None, readonly=False)
+            field.question = question
+            field.answer = None
+            self.apply_question_dependency(field, question)
+            self.fields[f"question_{question.pk}"] = field
+            positions.append((question.position, 1, f"question_{question.pk}"))
+        self.order_fields([name for position, kind, name in sorted(positions)])
+
+    @staticmethod
+    def customer_field(field):
+        options = {"label": field["label"], "required": field["required"]}
+        if field["key"] == "email":
+            return forms.EmailField(**options)
+        if field["key"] == "website":
+            return forms.URLField(max_length=200, **options)
+        if field["key"] == "billing_address":
+            return forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), **options)
+        if field["key"] in ("phone", "vat_id"):
+            return forms.CharField(max_length=64, **options)
+        return forms.CharField(max_length=255, **options)
+
+    def order_details(self):
+        """The customer field answers, ready to pass to ``place_exhibition_order``."""
+        return {key: self.cleaned_data.get(key) or "" for key in ORDER_DEFAULT_FIELD_KEYS if key in self.fields}
+
+    def new_exhibition_answer(self, owner, question):
+        return ExhibitionOrderAnswer(order=owner, question=question)
 
 
 class ExhibitorInvitationPasswordForm(RecoverForm):

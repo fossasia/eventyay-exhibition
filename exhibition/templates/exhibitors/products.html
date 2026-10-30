@@ -1,0 +1,148 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load money %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Exhibition products" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'pretixcontrol/css/tickets-mobile.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/dragsort-table.css' %}">
+    <script defer src="{% static 'orga/js/dragsort.js' %}"></script>
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Exhibition products" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <p>
+        {% blocktrans trimmed %}
+            Exhibition and sponsorship packages are managed here, separately from the ticket products. You can click
+            on a product name to inspect and change its details.
+        {% endblocktrans %}
+    </p>
+    {% if payment_method_missing %}
+        <div class="alert alert-warning">
+            {% blocktrans trimmed %}
+                Some active products have a price, but this event has no payment method that exhibition orders can
+                use. Enable manual payment or bank transfer for the event.
+            {% endblocktrans %}
+            <a href="{{ payment_settings_url }}">{% trans "Open payment settings" %}</a>
+        </div>
+    {% endif %}
+    {% for quota in booth_quotas %}
+        <div class="alert alert-info">
+            {% if quota.size is None %}
+                {% blocktrans trimmed with name=quota.name used=quota.used %}
+                    Booth capacity <strong>{{ name }}</strong>: {{ used }} booths sold, no limit set.
+                {% endblocktrans %}
+            {% else %}
+                {% blocktrans trimmed with name=quota.name remaining=quota.remaining size=quota.size %}
+                    Booth capacity <strong>{{ name }}</strong>: {{ remaining }} of {{ size }} booths left.
+                {% endblocktrans %}
+            {% endif %}
+        </div>
+    {% endfor %}
+    {% if booth_products_without_quota %}
+        <div class="alert alert-warning">
+            {% blocktrans trimmed count count=booth_products_without_quota %}
+                One active product includes a booth but is not on a booth capacity quota, so it can be sold
+                without a limit on booths.
+            {% plural %}
+                {{ count }} active products include a booth but are not on a booth capacity quota, so they can be
+                sold without a limit on booths.
+            {% endblocktrans %}
+            <a href="{% url 'plugins:exhibition:products.quotas' organizer=request.event.organizer.slug event=request.event.slug %}">{% trans "Manage quotas" %}</a>
+        </div>
+    {% endif %}
+    {% if not products %}
+        <div class="empty-collection">
+            <p>{% trans "You haven't created any products yet." %}</p>
+            <a href="{% url 'plugins:exhibition:products.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+               class="btn btn-primary btn-lg"><i class="fa fa-plus"></i> {% trans "Create a new product" %}</a>
+        </div>
+    {% else %}
+        <p class="list-toolbar">
+            <a href="{% url 'plugins:exhibition:products.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+               class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Create a new product" %}</a>
+        </p>
+        {% if not reorder_enabled %}
+            <p class="text-muted reorder-hint">
+                <i class="fa fa-info-circle"></i>
+                {% trans "Drag-and-drop ordering is available only when all products fit on one page." %}
+            </p>
+        {% endif %}
+        <div class="table-responsive">
+            <table class="table table-condensed table-hover table-flip tickets-table dragsort-table">
+                <thead>
+                <tr>
+                    <th>{% trans "Product name" %}</th>
+                    <th></th>
+                    <th>{% trans "Product purpose" %}</th>
+                    <th>{% trans "Exhibition booth" %}</th>
+                    <th>{% trans "Price" %}</th>
+                    <th>{% trans "Category" %}</th>
+                    <th class="action-col-2"></th>
+                </tr>
+                </thead>
+                {% regroup products by category as product_groups %}
+                {% for group in product_groups %}
+                    <tbody {% if reorder_enabled %}dragsort-url="{% url 'plugins:exhibition:products.reorder' organizer=request.event.organizer.slug event=request.event.slug %}?category_id={% if group.grouper %}{{ group.grouper.pk }}{% else %}none{% endif %}"{% endif %}>
+                    {% for product in group.list %}
+                        <tr {% if reorder_enabled %}dragsort-id="{{ product.pk }}"{% endif %}>
+                            <td class="list-name-cell">
+                                <strong>
+                                    {% if not product.active %}<strike>{% endif %}
+                                    <a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}">{{ product }}</a>
+                                    {% if not product.active %}</strike>{% endif %}
+                                </strong>
+                            </td>
+                            <td class="list-indicators" data-label="{% trans 'Availability' %}">
+                                {% if product.available_from or product.available_until %}
+                                    {% if not product.is_available_by_time %}
+                                        <span class="label label-danger" data-toggle="tooltip"
+                                              title="{% trans "Currently unavailable since a limited timeframe for this product has been set" %}">
+                                            <span class="fa fa-clock-o fa-fw"></span>
+                                        </span>
+                                    {% else %}
+                                        <span class="fa fa-clock-o fa-fw text-muted" data-toggle="tooltip"
+                                              title="{% trans "Only available in a limited timeframe" %}"></span>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td data-label="{% trans 'Product purpose' %}">{{ product.get_purpose_display }}</td>
+                            <td data-label="{% trans 'Exhibition booth' %}">
+                                {% if product.includes_booth %}
+                                    <span class="fa fa-check text-success" aria-hidden="true"></span>
+                                    <span class="sr-only">{% trans "Yes" %}</span>
+                                {% else %}
+                                    <span class="fa fa-times text-muted" aria-hidden="true"></span>
+                                    <span class="sr-only">{% trans "No" %}</span>
+                                {% endif %}
+                            </td>
+                            <td data-label="{% trans 'Price' %}">{{ product.price|money:request.event.currency }}</td>
+                            <td class="list-meta" data-label="{% trans 'Category' %}">
+                                {% if product.category %}<span class="category-pill">{{ product.category.backend_name }}</span>{% endif %}
+                            </td>
+                            <td class="list-actions text-right flip" data-label="{% trans 'Actions' %}">
+                                <a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}"
+                                   class="btn btn-default btn-sm" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+                                <a href="{% url 'plugins:exhibition:products.delete' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}"
+                                   class="btn btn-delete btn-danger btn-sm" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+                                {% if reorder_enabled %}
+                                    <button type="button" draggable="true" class="btn btn-primary btn-sm dragsort-button" title="{% trans 'Move' %}" aria-label="{% trans 'Move' %}" data-toggle="tooltip">
+                                        <i class="fa fa-arrows"></i>
+                                    </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                {% endfor %}
+            </table>
+        </div>
+        {% include "pretixcontrol/pagination.html" %}
+    {% endif %}
+{% endblock %}

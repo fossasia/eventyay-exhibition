@@ -1,7 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-    const table = document.querySelector(".dragsort-table");
-    if (!table) return;
-
     const syncRequiredDropdown = (row) => {
         const activeInput = row.querySelector(".field-active-input");
         const wrapper = row.querySelector(".required-status-wrapper");
@@ -13,14 +10,14 @@ document.addEventListener("DOMContentLoaded", () => {
         wrapper.classList.toggle("is-disabled", !isActive);
     };
 
-    table.querySelectorAll("tbody tr").forEach((row) => {
+    document.querySelectorAll(".dragsort-table tbody tr").forEach((row) => {
         const activeInput = row.querySelector(".field-active-input");
         if (activeInput) {
             activeInput.addEventListener("change", () => syncRequiredDropdown(row));
         }
     });
 
-    table.querySelectorAll(".required-status-dropdown").forEach((dropdown) => {
+    document.querySelectorAll(".dragsort-table .required-status-dropdown").forEach((dropdown) => {
         dropdown.addEventListener("change", () => {
             dropdown.dataset.current = dropdown.value;
             const wrapper = dropdown.closest(".required-status-wrapper");

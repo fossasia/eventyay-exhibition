@@ -1,0 +1,9 @@
+{% if order.status == "paid" %}
+    <span class="label label-success">{{ order.get_status_display }}</span>
+{% elif order.status == "pending" %}
+    <span class="label label-warning">{{ order.get_status_display }}</span>
+{% elif order.status == "cancelled" %}
+    <span class="label label-danger">{{ order.get_status_display }}</span>
+{% else %}
+    <span class="label label-default">{{ order.get_status_display }}</span>
+{% endif %}

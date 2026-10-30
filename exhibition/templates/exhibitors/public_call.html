@@ -10,59 +10,80 @@
 {% endblock %}
 
 {% block call_content %}
-    {% trans "Call for Exhibitors" as default_headline %}
-    <h2 id="exhibition-call-heading">
-        {{ settings.call_headline|event_localize|default:default_headline }}
-    </h2>
-    {% if settings.call_text %}
-        {{ settings.call_text|event_localize|rich_text }}
-    {% else %}
-        <p>{% trans "Submit a request to become an exhibitor for this event." %}</p>
-    {% endif %}
-    {% if settings.call_deadline and not private_call_access %}
-        <p>
-            <strong>
-                {% if call_is_open %}
-                    {% blocktrans with deadline=settings.call_deadline|date:"SHORT_DATETIME_FORMAT" timezone=request.timezone trimmed %}
-                        You can submit requests until {{ deadline }} ({{ timezone }}).
-                    {% endblocktrans %}
-                {% else %}
-                    {% blocktrans with deadline=settings.call_deadline|date:"SHORT_DATETIME_FORMAT" timezone=request.timezone trimmed %}
-                        This call closed on {{ deadline }} ({{ timezone }}).
-                    {% endblocktrans %}
-                {% endif %}
-            </strong>
-        </p>
-    {% endif %}
-    {% if not request.user.is_authenticated and call_is_open %}
-        <div class="exhibition-call-auth">
-            <p class="exhibition-call-auth-hint">
-                {% trans "Log in or create an account to submit your application." %}
+    {% if show_call %}
+        {% trans "Call for Exhibitors" as default_headline %}
+        <h2 id="exhibition-call-heading">
+            {{ settings.call_headline|event_localize|default:default_headline }}
+        </h2>
+        {% if settings.call_text %}
+            {{ settings.call_text|event_localize|rich_text }}
+        {% else %}
+            <p>{% trans "Submit a request to become an exhibitor for this event." %}</p>
+        {% endif %}
+        {% if settings.call_deadline and not private_call_access %}
+            <p>
+                <strong>
+                    {% if call_is_open %}
+                        {% blocktrans with deadline=settings.call_deadline|date:"SHORT_DATETIME_FORMAT" timezone=request.timezone trimmed %}
+                            You can submit requests until {{ deadline }} ({{ timezone }}).
+                        {% endblocktrans %}
+                    {% else %}
+                        {% blocktrans with deadline=settings.call_deadline|date:"SHORT_DATETIME_FORMAT" timezone=request.timezone trimmed %}
+                            This call closed on {{ deadline }} ({{ timezone }}).
+                        {% endblocktrans %}
+                    {% endif %}
+                </strong>
             </p>
-            <div class="exhibition-call-auth-actions">
-                <a class="btn btn-primary btn-lg" href="{{ call_login_url }}">
-                    {% trans "Log in" %}
-                </a>
-                <a class="btn btn-primary btn-lg" href="{{ call_register_url }}">
-                    {% trans "Create an account" %}
+        {% endif %}
+        {% if not request.user.is_authenticated and call_is_open %}
+            <div class="exhibition-call-auth">
+                <p class="exhibition-call-auth-hint">
+                    {% trans "Log in or create an account to submit your application." %}
+                </p>
+                <div class="exhibition-call-auth-actions">
+                    <a class="btn btn-primary btn-lg" href="{{ call_login_url }}">
+                        {% trans "Log in" %}
+                    </a>
+                    <a class="btn btn-primary btn-lg" href="{{ call_register_url }}">
+                        {% trans "Create an account" %}
+                    </a>
+                </div>
+            </div>
+        {% else %}
+            <div class="url-links">
+                {% if request.user.is_authenticated %}
+                    <a class="btn btn-info btn-lg btn-block" href="{% url 'plugins:exhibition:request.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
+                        {% trans "View your requests" %}
+                    </a>
+                {% endif %}
+                <a class="btn btn-success btn-lg btn-block {% if not call_is_open %}disabled{% endif %}"
+                   href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    {% if call_is_open %}
+                        {% trans "Submit a request" %}
+                    {% else %}
+                        {% trans "Requests are closed" %}
+                    {% endif %}
                 </a>
             </div>
-        </div>
-    {% else %}
-        <div class="url-links">
-            {% if request.user.is_authenticated %}
-                <a class="btn btn-info btn-lg btn-block" href="{% url 'plugins:exhibition:request.user_list' organizer=request.event.organizer.slug event=request.event.slug %}">
-                    {% trans "View your requests" %}
-                </a>
-            {% endif %}
-            <a class="btn btn-success btn-lg btn-block {% if not call_is_open %}disabled{% endif %}"
-               href="{% url 'plugins:exhibition:request.add' organizer=request.event.organizer.slug event=request.event.slug %}">
-                {% if call_is_open %}
-                    {% trans "Submit a request" %}
-                {% else %}
-                    {% trans "Requests are closed" %}
-                {% endif %}
-            </a>
+        {% endif %}
+    {% endif %}
+    {% if products_by_category %}
+        <div id="exhibition-packages">
+            <h2 class="content-header" id="{% if show_call %}exhibition-packages-heading{% else %}exhibition-call-heading{% endif %}">{% trans "Sponsorship and exhibition packages" %}</h2>
+            <form method="post" action="{% url 'plugins:exhibition:shop' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% csrf_token %}
+                {% include "exhibitors/_shop_product_list.html" %}
+                <section class="front-page">
+                    <div class="row-fluid">
+                        <div class="col-md-4 col-md-offset-8 col-xs-12">
+                            <button class="btn btn-block btn-primary btn-lg" type="submit">
+                                <i class="fa fa-shopping-cart" aria-hidden="true"></i> {% trans "Order now" %}
+                            </button>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </section>
+            </form>
         </div>
     {% endif %}
 {% endblock %}

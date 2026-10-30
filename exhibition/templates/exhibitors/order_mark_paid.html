@@ -1,0 +1,34 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load money %}
+
+{% block title %}{{ request.event.name }} - {% trans "Mark order as paid" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Mark order as paid" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        <p>
+            {% blocktrans trimmed with code=order.code total=order.total|money:order.currency %}
+                Confirm that you received the payment of <strong>{{ total }}</strong> for order
+                <strong>{{ code }}</strong>.
+            {% endblocktrans %}
+        </p>
+        {% if order.status == "expired" %}
+            <div class="alert alert-warning">
+                {% trans "This order has expired. Marking it as paid makes it valid again." %}
+            </div>
+        {% endif %}
+        {% bootstrap_form form layout="control" %}
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-success btn-lg">{% trans "Mark as paid" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}
