@@ -133,8 +133,9 @@
                 <div
                     data-organization-image-source-pair
                     data-file-input-id="{{ form.logo.id_for_label }}"
-                    data-current-preview-url="{{ form.instance.visible_logo_url }}"
-                    data-has-current-file="{{ form.instance.logo|yesno:'true,false' }}"
+                    data-current-preview-url="{% firstof form.retained_upload_urls.logo form.instance.visible_logo_url %}"
+                    data-saved-preview-url="{{ form.instance.visible_logo_url }}"
+                    data-has-current-file="{% if form.retained_upload_urls.logo or form.instance.logo %}true{% else %}false{% endif %}"
                 >
                     {% bootstrap_field form.logo layout="control" %}
                     <div class="form-group" data-image-preview hidden>
@@ -153,8 +154,9 @@
                 <div
                     data-organization-image-source-pair
                     data-file-input-id="{{ form.banner.id_for_label }}"
-                    data-current-preview-url="{{ form.instance.visible_banner_url }}"
-                    data-has-current-file="{{ form.instance.banner|yesno:'true,false' }}"
+                    data-current-preview-url="{% firstof form.retained_upload_urls.banner form.instance.visible_banner_url %}"
+                    data-saved-preview-url="{{ form.instance.visible_banner_url }}"
+                    data-has-current-file="{% if form.retained_upload_urls.banner or form.instance.banner %}true{% else %}false{% endif %}"
                 >
                     {% bootstrap_field form.banner layout="control" %}
                     <div class="form-group" data-image-preview hidden>

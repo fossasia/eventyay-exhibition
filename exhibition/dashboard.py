@@ -16,6 +16,7 @@ from eventyay.base.models import Event
 
 from .forms import ExhibitorInvitationPasswordForm, ExhibitorSelfEditForm
 from .models import LOG_ORGANIZATION_CHANGED, ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo
+from .uploads import RetainedUploadsMixin
 from .utils import (
     VOUCHER_CSV_FILENAME,
     VOUCHER_REDEMPTION_CSV_FILENAME,
@@ -257,7 +258,7 @@ class MyExhibitionVouchersView(LoginRequiredMixin, ListView):
         return context
 
 
-class MyExhibitionEditView(LoginRequiredMixin, ExhibitorLinkFormsetMixin, UpdateView):
+class MyExhibitionEditView(LoginRequiredMixin, RetainedUploadsMixin, ExhibitorLinkFormsetMixin, UpdateView):
     """Lets the account behind an organizer-created profile complete and maintain it."""
 
     model = ExhibitorInfo

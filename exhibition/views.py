@@ -94,6 +94,7 @@ from .models import (
     storable_request_field_settings,
 )
 from .social_links import serialize_social_link
+from .uploads import RetainedUploadsMixin
 from .utils import (
     VOUCHER_CSV_FILENAME,
     add_external_image_csp_sources,
@@ -1015,6 +1016,7 @@ class RequestLinkFormsetMixin:
 
 
 class UserRequestCreateView(
+    RetainedUploadsMixin,
     RequestLinkFormsetMixin,
     PublicCallEnabledMixin,
     PublicEventLoginRequiredMixin,
@@ -1077,6 +1079,7 @@ class UserRequestCreateView(
 
 
 class UserRequestEditView(
+    RetainedUploadsMixin,
     RequestLinkFormsetMixin,
     PublicCallEnabledMixin,
     PublicEventLoginRequiredMixin,
@@ -2215,7 +2218,7 @@ class ExhibitionDefaultFieldResetView(DefaultFieldMixin, TemplateView):
         return redirect(self.get_success_url())
 
 
-class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, CreateView):
+class ExhibitorCreateView(RetainedUploadsMixin, ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, CreateView):
     model = ExhibitorInfo
     form_class = ExhibitorInfoForm
     template_name = "exhibitors/add.html"
@@ -2260,7 +2263,7 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
         return organization_list_url(self.request.event, self.organization_type)
 
 
-class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, UpdateView):
+class ExhibitorEditView(RetainedUploadsMixin, ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin, UpdateView):
     model = ExhibitorInfo
     form_class = ExhibitorInfoForm
     template_name = "exhibitors/add.html"

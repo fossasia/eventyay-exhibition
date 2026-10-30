@@ -33,7 +33,7 @@
             }
         }
 
-        function getImagePreviewSource(pair, fileInput, clearCheckbox) {
+        function getImagePreviewSource(pair, fileInput, clearCheckbox, retainedCheckbox) {
             if (fileInput.files && fileInput.files.length > 0) {
                 revokePreviewObjectUrl(pair)
                 var objectUrl = URL.createObjectURL(fileInput.files[0])
@@ -44,6 +44,10 @@
             revokePreviewObjectUrl(pair)
             if (clearCheckbox && clearCheckbox.checked) {
                 return ''
+            }
+
+            if (retainedCheckbox && !retainedCheckbox.checked) {
+                return pair.dataset.savedPreviewUrl || ''
             }
 
             return pair.dataset.currentPreviewUrl || ''
@@ -63,9 +67,12 @@
             var clearCheckbox = fileInput.form && fileInput.form.elements
                 ? fileInput.form.elements[fileInput.name + '-clear']
                 : null
+            var retainedCheckbox = fileInput.form && fileInput.form.elements
+                ? fileInput.form.elements[fileInput.name + '-retained']
+                : null
 
             function syncImageState() {
-                var previewSource = getImagePreviewSource(pair, fileInput, clearCheckbox)
+                var previewSource = getImagePreviewSource(pair, fileInput, clearCheckbox, retainedCheckbox)
                 if (!previewSource) {
                     setVisibleState(preview, false)
                     setVisibleState(previewLink, false)
@@ -104,6 +111,10 @@
                     }
                     syncImageState()
                 })
+            }
+
+            if (retainedCheckbox) {
+                retainedCheckbox.addEventListener('change', syncImageState)
             }
 
             syncImageState()
