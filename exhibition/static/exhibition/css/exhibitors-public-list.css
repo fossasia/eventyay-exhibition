@@ -24,11 +24,6 @@
     width: 100%;
 }
 
-.exhibition-public-filter-submit,
-.exhibition-public-filter-reset {
-    flex: 0 0 auto;
-}
-
 .exhibition-public-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

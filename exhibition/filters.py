@@ -232,22 +232,10 @@ class PublicExhibitorFilterForm(forms.Form):
         widget=search_widget(_("Search exhibitors…"), _("Search exhibitors")),
         required=False,
     )
-    sponsor_group = forms.ModelChoiceField(
-        label=_("Sponsor group"),
-        queryset=SponsorGroup.objects.none(),
-        required=False,
-        empty_label=_("All groups"),
-        widget=forms.Select(attrs={"class": "form-control"}),
-    )
 
     def __init__(self, *args, event=None, **kwargs):
         self.event = event
         super().__init__(*args, **kwargs)
-        self.fields["sponsor_group"].queryset = sponsor_group_queryset(event)
-
-    @property
-    def has_group_choices(self):
-        return self.fields["sponsor_group"].queryset.exists()
 
     def filter_qs(self, queryset):
         if not self.is_valid():
@@ -257,9 +245,6 @@ class PublicExhibitorFilterForm(forms.Form):
         query = (fdata.get("query") or "").strip()
         if query:
             queryset = queryset.filter(Q(name__icontains=query) | Q(description__icontains=query))
-
-        if fdata.get("sponsor_group"):
-            queryset = queryset.filter(sponsor_group=fdata["sponsor_group"])
 
         return queryset
 
