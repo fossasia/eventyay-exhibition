@@ -296,6 +296,29 @@ def test_my_exhibitions_stays_out_of_the_admin_sidebar(event, url_name):
 
 
 @pytest.mark.django_db
+def test_my_exhibitions_stays_out_of_business_admin_sidebar(event):
+    """My exhibitions must not appear when Business plugin pages are shown in the Admin layout."""
+    with scopes_disabled():
+        _exhibitor, user = _accepted(event)
+        user.is_staff = True
+        user.save(update_fields=["is_staff"])
+
+        request = RequestFactory().get("/admin/global/business/")
+        request.user = user
+        request.session = SessionStore()
+        # Business pages use namespace plugins:eventyay_business, not eventyay_admin,
+        # so the old namespace/url_name checks would miss them.
+        request.resolver_match = type(
+            "FakeMatch",
+            (),
+            {"namespaces": ["plugins", "plugins:eventyay_business"], "url_name": "settings"},
+        )()
+        labels = _labels(get_admin_navigation(request))
+
+    assert "My exhibitions" not in labels
+
+
+@pytest.mark.django_db
 def test_redemptions_list_only_this_exhibitors_vouchers(event):
     with scopes_disabled():
         exhibitor, _user_ = _accepted(event)
