@@ -582,7 +582,11 @@ def is_admin_page(request):
     match = getattr(request, "resolver_match", None)
     if match is None:
         return False
-    return "eventyay_admin" in match.namespaces or (match.url_name or "").startswith("admin.")
+    return (
+        "eventyay_admin" in match.namespaces
+        or (match.url_name or "").startswith("admin.")
+        or (getattr(request, "path_info", "") or "").startswith("/admin/")
+    )
 
 
 @receiver(nav_global, dispatch_uid="exhibition_nav_global")
