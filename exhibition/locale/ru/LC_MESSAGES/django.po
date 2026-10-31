@@ -626,6 +626,11 @@ msgid ""
 "The {event_name} Team"
 msgstr ""
 
+#: mail.py:109
+#, python-brace-format
+msgid "{event_name} - New exhibition request: {request_name}"
+msgstr ""
+
 #: mail.py:110
 #, python-brace-format
 msgid "Your vouchers for {event_name} — {exhibitor_name}"

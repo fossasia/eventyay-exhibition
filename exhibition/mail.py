@@ -106,7 +106,7 @@ DEFAULT_TEMPLATE_SOURCES = {
         ),
     ),
     REQUEST_ORGANIZER: (
-        gettext_noop("New exhibition request: {request_name}"),
+        gettext_noop("{event_name} - New exhibition request: {request_name}"),
         gettext_noop(
             "Hello,\n\n"
             "A new {request_type} request from {request_name} has been {request_action}.\n\n"
