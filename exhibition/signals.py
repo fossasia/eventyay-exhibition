@@ -58,6 +58,7 @@ from .models import (
     LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
+    ExhibitionEmailQueue,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionRequest,
@@ -70,7 +71,13 @@ from .models import (
     clear_dependencies_on,
     prune_dependency_option,
 )
-from .utils import add_external_image_csp_sources, exhibitor_login_email, public_exhibitors_queryset
+from .utils import (
+    add_external_image_csp_sources,
+    exhibitor_login_email,
+    pending_voucher_emails,
+    public_exhibitors_queryset,
+    split_vouchers_for_deletion,
+)
 
 
 def exhibition_access(event, request):
@@ -345,9 +352,9 @@ def exhibition_mail_placeholders(sender, **kwargs):
             "exhibitor@example.com",
         ),
         SimpleFunctionalMailTextPlaceholder(
-            "booth_id",
+            "booth_number",
             ["exhibitor"],
-            lambda exhibitor: exhibitor.booth_id or "",
+            lambda exhibitor: exhibitor.booth_number or str(_("not assigned yet")),
             "A-12",
         ),
         SimpleFunctionalMailTextPlaceholder(
@@ -396,8 +403,13 @@ def exhibition_question_dependency_cleanup(sender, instance, **kwargs):
 
 
 @receiver(pre_delete, sender=ExhibitorInfo, dispatch_uid="exhibition_exhibitor_voucher_cleanup")
-def delete_exhibitor_vouchers(sender, instance, **kwargs):
-    for link in ExhibitorVoucher.objects.filter(exhibitor=instance, voucher__redeemed=0).select_related("voucher"):
+def release_exhibitor_vouchers(sender, instance, **kwargs):
+    """Return codes nobody received, delete emailed unredeemed ones, and keep used ones out of the pool."""
+    pending = list(pending_voucher_emails(instance).select_for_update().values_list("pk", flat=True))
+    ExhibitionEmailQueue.objects.filter(pk__in=pending).delete()
+    returnable, deletable, _kept = split_vouchers_for_deletion(instance)
+    ExhibitorVoucher.objects.filter(pk__in=[link.pk for link in returnable]).delete()
+    for link in deletable:
         link.voucher.delete()
 
 

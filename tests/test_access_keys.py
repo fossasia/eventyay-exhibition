@@ -37,7 +37,7 @@ def test_download_requires_change_settings_permission(event):
 def test_download_returns_csv_with_keys(event):
     with scopes_disabled():
         exhibitor = ExhibitorInfo.objects.create(
-            event=event, name="Acme", email="a@example.com", booth_id="B-9", is_exhibitor=True
+            event=event, name="Acme", email="a@example.com", booth_number="B-9", is_exhibitor=True
         )
         response = _download(event, organization_type="exhibitor")
         body = response.content.decode("utf-8")

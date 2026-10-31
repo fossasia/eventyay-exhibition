@@ -90,7 +90,6 @@ from .models import (
     ExhibitorSettings,
     ExhibitorVoucher,
     SponsorGroup,
-    generate_booth_id,
     get_next_sponsor_group_level,
     storable_request_field_settings,
 )
@@ -104,6 +103,7 @@ from .utils import (
     claim_pool_vouchers,
     event_exhibitor_settings,
     invitation_account,
+    pending_voucher_emails,
     pool_remaining,
     provision_exhibitor_devices,
     public_exhibitor_sessions,
@@ -111,7 +111,9 @@ from .utils import (
     reset_exhibitor_device_setup,
     resolve_voucher_defaults,
     should_hide_applicant_emails,
+    split_vouchers_for_deletion,
     sync_exhibitor_from_request,
+    voucher_was_emailed,
     with_voucher_state,
 )
 
@@ -2232,16 +2234,11 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
     @transaction.atomic
     def form_valid(self, form):
         form.instance.event = self.request.event
-
-        # Only generate booth_id for exhibitors if none was provided.
-        if form.cleaned_data.get("is_exhibitor", True) and not form.cleaned_data.get("booth_id"):
-            form.instance.booth_id = generate_booth_id(event=self.request.event)
-
         response = super().form_valid(form)
         self.save_link_formsets()
         self.object.log_action(
             LOG_ORGANIZATION_ADDED,
-            data={"name": localize_event_text(self.object.name), "booth_id": self.object.booth_id},
+            data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
             user=self.request.user,
         )
         if access_newly_granted(form.instance):
@@ -2289,14 +2286,6 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             .values("lead_scanning_enabled", "allow_voucher_access")
             .first()
         ) or {}
-
-        # Generate booth_id only for exhibitors if none exists.
-        if (
-            form.cleaned_data.get("is_exhibitor", True)
-            and not form.cleaned_data.get("booth_id")
-            and not form.instance.booth_id
-        ):
-            form.instance.booth_id = generate_booth_id(event=self.request.event)
 
         response = super().form_valid(form)
         self.save_link_formsets()
@@ -2347,7 +2336,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
     def form_valid(self, form):
         self.object.log_action(
             LOG_ORGANIZATION_DELETED,
-            data={"name": localize_event_text(self.object.name), "booth_id": self.object.booth_id},
+            data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
             user=self.request.user,
         )
         return super().form_valid(form)
@@ -2361,6 +2350,11 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
             "both": _("Delete Exhibitor & Sponsor"),
         }.get(organization_type, _("Delete Exhibitor or Sponsor"))
         context["cancel_url"] = organization_list_url(self.request.event, organization_type)
+        returnable, deletable, kept = split_vouchers_for_deletion(self.object)
+        context["vouchers_returned"] = len(returnable)
+        context["vouchers_deleted"] = len(deletable)
+        context["vouchers_kept"] = len(kept)
+        context["voucher_emails_discarded"] = pending_voucher_emails(self.object).count()
         return context
 
     def get_success_url(self) -> str:
@@ -2441,7 +2435,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         if link.voucher.redeemed:
             messages.error(request, _("This voucher has already been redeemed and cannot be returned."))
             return redirect(self.get_success_url())
-        if self.was_already_emailed(link):
+        if voucher_was_emailed(link):
             messages.error(
                 request,
                 _(
@@ -2453,18 +2447,6 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         link.delete()
         messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
-
-    def was_already_emailed(self, link):
-        """Whether a voucher email went out after this code was assigned, and so lists it.
-
-        Returning such a code would hand it to somebody else while the first recipient still
-        holds it in their inbox.
-        """
-        return ExhibitionEmailQueue.objects.filter(
-            exhibitor=self.object,
-            role=mail_helpers.VOUCHERS,
-            created__gte=link.created,
-        ).exists()
 
     @transaction.atomic
     def create_vouchers(self, request):

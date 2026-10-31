@@ -433,9 +433,13 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "The text entered in this field will not be visible to the user and is available for your convenience."
         ),
     )
-    booth_id = forms.CharField(
+    booth_number = forms.CharField(
         required=False,
-        label=_("Booth ID"),
+        empty_value=None,
+        label=_("Booth number"),
+        help_text=_(
+            "Assigned by the organizer when planning the floor, such as B12 or Hall 1-04. Leave empty until then."
+        ),
     )
     sessions = SessionChoiceField(
         queryset=Submission.objects.none(),
@@ -466,7 +470,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "is_exhibitor",
             "is_sponsor",
             "sponsor_group",
-            "booth_id",
+            "booth_number",
             "booth_name",
             "lead_scanning_enabled",
             "allow_voucher_access",
@@ -520,7 +524,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
     SPONSOR_ONLY_FIELDS = ("sponsor_group",)
     EXHIBITOR_ONLY_FIELDS = (
-        "booth_id",
+        "booth_number",
         "booth_name",
         "lead_scanning_enabled",
         "allow_lead_access",
@@ -731,7 +735,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 self.add_error("booth_name", _("This field is required."))
         else:
             cleaned_data["booth_name"] = ""
-            cleaned_data["booth_id"] = None
+            cleaned_data["booth_number"] = None
             cleaned_data["lead_scanning_enabled"] = False
             cleaned_data["allow_lead_access"] = False
             cleaned_data["lead_scanning_scope_by_device"] = False
@@ -845,7 +849,7 @@ class ExhibitorSelfEditForm(ExhibitorInfoForm):
         "allow_lead_access",
         "lead_scanning_scope_by_device",
         "comment",
-        "booth_id",
+        "booth_number",
         "sessions",
     )
 
@@ -1676,7 +1680,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         instance.is_sponsor = self.cleaned_data.get("is_sponsor", False)
         if not instance.is_exhibitor:
             instance.booth_name = ""
-            instance.booth_id = None
+            instance.booth_number = None
         if commit:
             instance.save()
             self.save_m2m()
@@ -1698,14 +1702,14 @@ class ExhibitionRequestReviewForm(I18nModelForm):
             "is_exhibitor",
             "is_sponsor",
             "sponsor_group",
-            "booth_id",
+            "booth_number",
             "booth_name",
             "review_notes",
         ]
         labels = {
             "is_exhibitor": _("Approve as exhibitor"),
             "is_sponsor": _("Approve as sponsor"),
-            "booth_id": _("Booth ID"),
+            "booth_number": _("Booth number"),
             "booth_name": _("Booth name"),
             "review_notes": _("Internal review notes"),
         }
@@ -1726,7 +1730,7 @@ class ExhibitionRequestReviewForm(I18nModelForm):
         if not cleaned_data.get("is_sponsor"):
             cleaned_data["sponsor_group"] = None
         if not cleaned_data.get("is_exhibitor"):
-            cleaned_data["booth_id"] = None
+            cleaned_data["booth_number"] = None
             cleaned_data["booth_name"] = ""
         return cleaned_data
 

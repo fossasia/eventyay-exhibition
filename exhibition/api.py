@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from eventyay.api.serializers.i18n import I18nAwareModelSerializer
 from eventyay.base.models import OrderPosition
@@ -16,7 +17,6 @@ from .models import (
     ExhibitorTag,
     Lead,
     SponsorGroup,
-    generate_booth_id,
     get_next_sponsor_group_level,
 )
 from .social_links import SOCIAL_LINK_SPECS
@@ -118,7 +118,8 @@ class ExhibitorAuthView(views.APIView):
                     "success": True,
                     "exhibitor_id": exhibitor.id,
                     "exhibitor_name": _localize_i18n_value(exhibitor.name, locale),
-                    "booth_id": exhibitor.booth_id,
+                    "booth_number": exhibitor.booth_number,
+                    "booth_id": exhibitor.booth_number,
                     "booth_name": _localize_i18n_value(exhibitor.booth_name, locale),
                 },
                 status=status.HTTP_200_OK,
@@ -158,7 +159,7 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
             "sponsor_group_name",
             "sponsor_group_level",
             "is_exhibitor",
-            "booth_id",
+            "booth_number",
             "booth_name",
             "lead_scanning_enabled",
             "allow_voucher_access",
@@ -172,9 +173,16 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["slides_url"] = instance.visible_slides_url
+        data["booth_id"] = instance.booth_number
         data["social_links"] = [{"network": link.network, "url": link.url} for link in instance.social_links.all()]
         data["extra_links"] = [{"label": link.label, "url": link.url} for link in instance.extra_links.all()]
         return data
+
+    def to_internal_value(self, data):
+        if "booth_id" in data and "booth_number" not in data:
+            data = data.copy()
+            data["booth_number"] = data["booth_id"]
+        return super().to_internal_value(data)
 
     def validate_social_links(self, value):
         normalized = []
@@ -265,13 +273,11 @@ class ExhibitorInfoSerializer(I18nAwareModelSerializer):
 
         if not instance.is_exhibitor:
             instance.booth_name = ""
-            instance.booth_id = None
+            instance.booth_number = None
             instance.lead_scanning_enabled = False
             instance.allow_voucher_access = False
             instance.allow_lead_access = False
             instance.lead_scanning_scope_by_device = False
-        elif not instance.booth_id:
-            instance.booth_id = generate_booth_id(event=self.context["event"])
 
     def _replace_links(self, instance, social_links=UNSET, extra_links=UNSET):
         if social_links is not UNSET:
@@ -451,7 +457,7 @@ class LeadCreateView(views.APIView):
             scanned=timezone.now(),
             scan_type=scan_type,
             device_name=device_name,
-            booth_id=exhibitor.booth_id,
+            booth_number=exhibitor.booth_number or "",
             booth_name=_localize_i18n_value(exhibitor.booth_name, locale),
             attendee=attendee_data,
         )
@@ -485,9 +491,10 @@ class LeadRetrieveView(views.APIView):
             "scanned",
             "scan_type",
             "device_name",
-            "booth_id",
+            "booth_number",
             "booth_name",
             "attendee",
+            booth_id=F("booth_number"),
         )
 
         return Response({"success": True, "leads": list(leads)}, status=status.HTTP_200_OK)

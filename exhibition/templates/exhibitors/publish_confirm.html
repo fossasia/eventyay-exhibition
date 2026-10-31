@@ -21,14 +21,14 @@
                 <thead>
                 <tr>
                     <th>{% trans "Name" %}</th>
-                    <th>{% trans "Booth" %}</th>
+                    <th>{% trans "Booth number" %}</th>
                 </tr>
                 </thead>
                 <tbody>
                 {% for organization in waiting %}
                     <tr>
                         <td>{{ organization.name }}</td>
-                        <td>{{ organization.localized_booth_name|default:"—" }}</td>
+                        <td>{{ organization.booth_number|default:"—" }}</td>
                     </tr>
                 {% endfor %}
                 </tbody>

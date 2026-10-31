@@ -27,7 +27,7 @@
         {% include "exhibitors/_profile_fields.html" %}
     </fieldset>
 
-    {% if form.published or form.is_exhibitor or form.is_sponsor or form.sponsor_group or form.booth_id %}
+    {% if form.published or form.is_exhibitor or form.is_sponsor or form.sponsor_group or form.booth_number %}
     <fieldset>
         <legend>{% trans "Organizer only" %}</legend>
         {% if form.published %}
@@ -48,9 +48,9 @@
             {% bootstrap_field form.sponsor_group layout="control" %}
         </div>
         {% endif %}
-        {% if form.booth_id %}
-        <div id="booth-id-wrapper">
-            {% bootstrap_field form.booth_id layout="control" %}
+        {% if form.booth_number %}
+        <div id="booth-number-wrapper">
+            {% bootstrap_field form.booth_number layout="control" %}
         </div>
         {% endif %}
         {% if form.sessions %}

@@ -557,7 +557,7 @@ def test_sponsor_form_hides_exhibitor_fields(event):
     form = ExhibitorInfoForm(event=event, organization_type="sponsor")
     assert "sponsor_group" in form.fields
     assert "is_exhibitor" in form.fields
-    for name in ("booth_id", "booth_name", "lead_scanning_enabled", "is_sponsor"):
+    for name in ("booth_number", "booth_name", "lead_scanning_enabled", "is_sponsor"):
         assert name not in form.fields
 
 
@@ -571,7 +571,7 @@ def test_new_sponsor_form_does_not_preselect_exhibitor(event):
 @pytest.mark.django_db
 def test_exhibitor_form_hides_sponsor_fields(event):
     form = ExhibitorInfoForm(event=event, organization_type="exhibitor")
-    assert "booth_id" in form.fields
+    assert "booth_number" in form.fields
     assert "is_sponsor" in form.fields
     for name in ("sponsor_group", "is_exhibitor"):
         assert name not in form.fields
@@ -1060,3 +1060,33 @@ def test_request_detail_preserves_plain_text_newlines(client, event, settings):
     assert "First line of plain description<br>" in content
     assert "Second line of plain description" in content
     assert "<p>Third paragraph</p>" in content
+
+
+@pytest.mark.django_db
+def test_sidebar_highlights_exhibition_requests_on_the_request_pages(client, event, settings):
+    login_settings_user(client, event, settings)
+    with scopes_disabled():
+        exhibition_request = ExhibitionRequest.objects.create(
+            event=event, user=User.objects.get(email="admin@dummy.dummy"), name="Alpha Corp"
+        )
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+    list_url = reverse("plugins:exhibition:request.list", kwargs=kwargs)
+    detail_url = reverse("plugins:exhibition:request.detail", kwargs={**kwargs, "code": exhibition_request.code})
+
+    for url in (list_url, detail_url):
+        response = client.get(url)
+        assert response.status_code == 200
+        assert f'href="{list_url}" class="active"' in response.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["call.fields.edit", "call.fields.reset"])
+def test_sidebar_highlights_exhibitor_form_on_the_built_in_field_pages(client, event, settings, url_name):
+    login_settings_user(client, event, settings)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+
+    response = client.get(reverse(f"plugins:exhibition:{url_name}", kwargs={**kwargs, "key": "description"}))
+
+    assert response.status_code == 200
+    questions_url = reverse("plugins:exhibition:call.questions", kwargs=kwargs)
+    assert f'href="{questions_url}" class="active"' in response.content.decode()

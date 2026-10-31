@@ -31,7 +31,7 @@ from exhibition.models import (
 )
 
 _codes = itertools.count(1)
-OLD_COLUMNS = ["Name", "Booth ID", "Booth name", "Email", "Access key"]
+OLD_COLUMNS = ["Name", "Booth number", "Booth name", "Email", "Access key"]
 
 
 @pytest.fixture(autouse=True)
@@ -76,14 +76,14 @@ def _rows(response):
 @pytest.mark.django_db
 def test_download_keeps_the_columns_of_the_old_key_download(event):
     with scopes_disabled():
-        acme = _organization(event, "Acme", booth_id="A1", booth_name={"en": "Privacy Lounge"})
+        acme = _organization(event, "Acme", booth_number="A1", booth_name={"en": "Privacy Lounge"})
     rows, header = _rows(_download(_client(event), event))
 
     assert header[:1] == ["Name"] and all(column in header for column in OLD_COLUMNS)
     assert [{column: row[column] for column in OLD_COLUMNS} for row in rows] == [
         {
             "Name": "Acme",
-            "Booth ID": "A1",
+            "Booth number": "A1",
             "Booth name": "Privacy Lounge",
             "Email": "acme@example.com",
             "Access key": acme.key,
@@ -229,7 +229,7 @@ def test_voucher_and_lead_columns_match_the_list(event):
                 scanned=now(),
                 scan_type="lead",
                 device_name="Phone",
-                booth_id="A1",
+                booth_number="A1",
                 booth_name="Lounge",
             )
     rows, _header = _rows(_download(_client(event), event))
@@ -365,7 +365,7 @@ def test_answers_are_exported_in_the_event_default_language(event):
 @pytest.mark.django_db
 def test_excel_download_has_the_same_rows(event):
     with scopes_disabled():
-        acme = _organization(event, "Acme", booth_id="A1", description={"en": "=1+1"})
+        acme = _organization(event, "Acme", booth_number="A1", description={"en": "=1+1"})
     response = _download(_client(event), event, export_format="xlsx")
 
     assert response.status_code == 200

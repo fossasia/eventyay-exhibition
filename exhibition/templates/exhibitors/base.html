@@ -67,7 +67,7 @@
           </a>
         </li>
         <li>
-          <a href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'call.questions' or url_name == 'call.questions.add' or url_name == 'call.questions.edit' or url_name == 'call.questions.delete' %}class="active"{% endif %}>
+          <a href="{% url 'plugins:exhibition:call.questions' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'call.questions' or url_name == 'call.questions.add' or url_name == 'call.questions.edit' or url_name == 'call.questions.delete' or url_name == 'call.fields.edit' or url_name == 'call.fields.reset' %}class="active"{% endif %}>
             <span class="sidebar-text">{% trans "Exhibitor form" %}</span>
           </a>
         </li>
@@ -76,7 +76,7 @@
   {% endif %}
   {% if 'can_change_event_settings' in request.eventpermset or 'can_change_exhibition_proposals' in request.eventpermset or 'is_exhibition_reviewer' in request.eventpermset %}
     <li>
-      <a href="{% url 'plugins:exhibition:request.list' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'exhibition_request.list' or url_name == 'exhibition_request.detail' %}class="active"{% endif %}>
+      <a href="{% url 'plugins:exhibition:request.list' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'request.list' or url_name == 'request.detail' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-inbox"></span>
         <span class="sidebar-text">{% trans "Exhibition requests" %}</span>
       </a>

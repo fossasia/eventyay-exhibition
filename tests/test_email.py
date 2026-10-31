@@ -95,7 +95,7 @@ def exhibitor(mail_event):
             event=mail_event,
             name="Acme Corp",
             email="exhibitor@example.com",
-            booth_id="B-9",
+            booth_number="B-9",
             lead_scanning_enabled=True,
         )
         provision_exhibitor_devices(organization, 1)
@@ -297,7 +297,7 @@ def test_access_email_resolves_placeholders_and_keeps_newlines(mail_event, exhib
     )
     mail_event.settings.set(
         mail_helpers.body_settings_key(mail_helpers.EXHIBITOR_ACCESS),
-        "Hello {exhibitor_name},\n\nBooth: {booth_id}\nCode: {exhibitor_access_code}",
+        "Hello {exhibitor_name},\n\nBooth: {booth_number}\nCode: {exhibitor_access_code}",
     )
 
     queued = mail_helpers.queue_exhibitor_access_email(mail_event, exhibitor)

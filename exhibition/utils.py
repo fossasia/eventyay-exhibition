@@ -204,12 +204,10 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
         ExhibitorExtraLink,
         ExhibitorInfo,
         ExhibitorSocialLink,
-        generate_booth_id,
+        normalize_booth_number,
     )
 
-    booth_id = exhibition_request.booth_id
-    if exhibition_request.is_exhibitor and not booth_id:
-        booth_id = generate_booth_id(event=exhibition_request.event)
+    booth_number = normalize_booth_number(exhibition_request.booth_number)
 
     if exhibition_request.approved_exhibitor_id:
         exhibitor = exhibition_request.approved_exhibitor
@@ -217,10 +215,10 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
         exhibitor.is_exhibitor = exhibition_request.is_exhibitor
         exhibitor.is_sponsor = exhibition_request.is_sponsor
         exhibitor.sponsor_group = exhibition_request.sponsor_group if exhibition_request.is_sponsor else None
-        exhibitor.booth_id = booth_id if exhibition_request.is_exhibitor else None
+        exhibitor.booth_number = (booth_number or exhibitor.booth_number) if exhibition_request.is_exhibitor else None
         exhibitor.booth_name = exhibition_request.booth_name if exhibition_request.is_exhibitor else ""
         exhibitor.save(
-            update_fields=["active", "is_exhibitor", "is_sponsor", "sponsor_group", "booth_id", "booth_name"]
+            update_fields=["active", "is_exhibitor", "is_sponsor", "sponsor_group", "booth_number", "booth_name"]
         )
         exhibition_request.state = ExhibitionRequestState.ACCEPTED
         exhibition_request.submitted = exhibition_request.submitted or timezone.now()
@@ -251,7 +249,7 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
         is_sponsor=exhibition_request.is_sponsor,
         sponsor_group=exhibition_request.sponsor_group if exhibition_request.is_sponsor else None,
         is_exhibitor=exhibition_request.is_exhibitor,
-        booth_id=booth_id if exhibition_request.is_exhibitor else None,
+        booth_number=booth_number if exhibition_request.is_exhibitor else None,
         booth_name=exhibition_request.booth_name if exhibition_request.is_exhibitor else "",
     )
     ExhibitorSocialLink.objects.bulk_create(
@@ -291,7 +289,7 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
     )
     exhibitor.log_action(
         LOG_ORGANIZATION_CREATED,
-        data={"exhibition_request": exhibition_request.code, "booth_id": exhibitor.booth_id},
+        data={"exhibition_request": exhibition_request.code, "booth_number": exhibitor.booth_number},
         user=requestor,
     )
     return exhibitor
@@ -347,8 +345,54 @@ def unassigned_pool_vouchers(event, pool_tag):
 
     if not pool_tag:
         return Voucher.objects.none()
-    linked_ids = ExhibitorVoucher.objects.filter(exhibitor__event=event).values("voucher_id")
+    linked_ids = ExhibitorVoucher.objects.filter(voucher__event=event).values("voucher_id")
     return Voucher.objects.filter(event=event, tag=pool_tag).exclude(pk__in=linked_ids)
+
+
+def voucher_was_emailed(link, *, include_unsent=True):
+    """Whether a voucher email listing this code went to its organization, or is waiting to.
+
+    Such a code cannot go back to the pool: it would reach somebody else while the first
+    recipient still holds it in their inbox.
+    """
+    from .mail import VOUCHERS
+    from .models import ExhibitionEmailQueue
+
+    emails = ExhibitionEmailQueue.objects.filter(
+        exhibitor_id=link.exhibitor_id, role=VOUCHERS, created__gte=link.created
+    )
+    if not include_unsent:
+        emails = emails.filter(sent_at__isnull=False)
+    return emails.exists()
+
+
+def pending_voucher_emails(exhibitor):
+    from .mail import VOUCHERS
+    from .models import ExhibitionEmailQueue
+
+    return ExhibitionEmailQueue.objects.filter(exhibitor=exhibitor, role=VOUCHERS, sent_at__isnull=True)
+
+
+def split_vouchers_for_deletion(exhibitor):
+    """What deleting this organization does to each of its codes: returned, deleted, or kept.
+
+    Codes that were used, or that an order or cart still refers to, are kept out of the pool for
+    good. Of the rest, codes nobody received go back to the pool and emailed ones are deleted from
+    Tickets. Its outbox voucher emails are discarded on deletion, so only emails already sent count
+    here.
+    """
+    from .models import ExhibitorVoucher
+
+    returnable, deletable, kept = [], [], []
+    for link in ExhibitorVoucher.objects.filter(exhibitor=exhibitor).select_related("voucher"):
+        voucher = link.voucher
+        if not voucher.allow_delete() or voucher.is_in_cart():
+            kept.append(link)
+        elif voucher_was_emailed(link, include_unsent=False):
+            deletable.append(link)
+        else:
+            returnable.append(link)
+    return returnable, deletable, kept
 
 
 def pool_remaining(event, pool_tag):
