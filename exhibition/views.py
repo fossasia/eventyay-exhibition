@@ -3024,10 +3024,17 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 scheduled_at=scheduled_at,
                 send_now=send_now,
                 requestor=self.request.user,
+                role=self.compose_role(form),
             )
             if created and draft is not None:
                 draft.delete()
         return created
+
+    def compose_role(self, form):
+        """Tag emails for a group that is checked again at send time; picked organizations are not re-checked."""
+        if self.single_request is not None or form.cleaned_data.get("organizations"):
+            return ""
+        return mail_helpers.compose_role(form.cleaned_data.get("state"))
 
     def form_valid(self, form):
         from .tasks import send_scheduled_email
@@ -3113,6 +3120,9 @@ class ApplicantEmailVisibilityMixin:
         return context
 
 
+COMPOSE_GROUP_LABELS = {mail_helpers.VOUCHERS_NOT_ALL_USED: _("Vouchers not all used")}
+
+
 def group_email_entries(emails):
     """Collapse rows that share a compose batch into one entry per message."""
     entries = []
@@ -3142,6 +3152,7 @@ def group_email_entries(emails):
                 "sent_at": email.sent_at,
                 "scheduled_at": email.scheduled_at,
                 "is_batch": True,
+                "group_label": COMPOSE_GROUP_LABELS.get(email.role, ""),
             }
             by_batch[key] = entry
             entries.append(entry)
@@ -3277,6 +3288,8 @@ class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView
             if selection not in counts:
                 counts[selection] = draft.recipient_count()
             draft.recipient_total = counts[selection]
+            picked = draft.exhibition_request_id or draft.organizations
+            draft.group_label = "" if picked else COMPOSE_GROUP_LABELS.get(draft.state, "")
         return context
 
 

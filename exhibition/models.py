@@ -627,6 +627,7 @@ LOG_QUESTION_ADDED = f"{LOG_PREFIX}.question.added"
 LOG_QUESTION_CHANGED = f"{LOG_PREFIX}.question.changed"
 LOG_QUESTION_DELETED = f"{LOG_PREFIX}.question.deleted"
 LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
+LOG_EMAIL_SKIPPED = f"{LOG_PREFIX}.email.skipped"
 
 SUBMITTER_PROFILE_FIELD_LABELS = {
     "description": _("Organization Description"),
@@ -1289,14 +1290,27 @@ class ExhibitionEmailQueue(LoggedModel):
         return f"{self.to_email} · {state} · {self.subject}"
 
     def send(self, requestor=None):
-        """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
+        """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits.
+
+        A composed email whose recipient has left its group since it was queued is dropped instead of sent.
+        """
         from eventyay.base.services.mail import mail
+
+        from .mail import still_in_compose_group
 
         if self.sent_at:
             return
 
         with transaction.atomic():
             if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
+                return
+            if not still_in_compose_group(self):
+                self.log_action(
+                    LOG_EMAIL_SKIPPED,
+                    user=requestor,
+                    data={"to": self.to_email, "subject": self.subject},
+                )
+                self.delete()
                 return
             mail(
                 email=self.to_email,

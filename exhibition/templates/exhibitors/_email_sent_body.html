@@ -27,6 +27,7 @@
                     {% endif %}
                     {% if entry.is_batch %}
                         <span class="label label-default">{{ entry.recipients|length }}</span>
+                        {% if entry.group_label %}<span class="label label-info">{{ entry.group_label }}</span>{% endif %}
                     {% endif %}
                 </td>
                 <td>

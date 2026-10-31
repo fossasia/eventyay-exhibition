@@ -43,6 +43,9 @@
                         {% plural %}
                             {{ counter }} recipients
                         {% endblocktrans %}
+                        {% if draft.group_label %}
+                            <span class="label label-info">{{ draft.group_label }}</span>
+                        {% endif %}
                     </td>
                     <td>
                         <a href="{{ compose_url }}?draft={{ draft.pk }}">

@@ -39,6 +39,7 @@ from .models import (
     LOG_CALL_SECRET_REGENERATED,
     LOG_CALL_SETTINGS_CHANGED,
     LOG_EMAIL_SENT,
+    LOG_EMAIL_SKIPPED,
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
     LOG_GROUP_DELETED,
@@ -471,6 +472,7 @@ LOG_ENTRY_LABELS = {
     LOG_QUESTION_CHANGED: _("Exhibitor form question changed."),
     LOG_QUESTION_DELETED: _("Exhibitor form question deleted."),
     LOG_EMAIL_SENT: _("Email sent."),
+    LOG_EMAIL_SKIPPED: _("Email not sent: the recipient no longer matches the group it was written for."),
 }
 
 

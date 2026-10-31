@@ -2247,6 +2247,7 @@ class ExhibitionComposeForm(forms.Form):
         choices=[
             ("", _("Any state")),
             *((state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT),
+            (mail_helpers.VOUCHERS_NOT_ALL_USED, _("Vouchers sent – not all used")),
         ],
         required=False,
     )
@@ -2288,6 +2289,10 @@ class ExhibitionComposeForm(forms.Form):
                 self.fields.pop(name)
         else:
             self.set_organization_choices(show_emails)
+            if not mail_helpers.event_uses_vouchers(self.event):
+                self.fields["state"].choices = [
+                    choice for choice in self.fields["state"].choices if choice[0] != mail_helpers.VOUCHERS_NOT_ALL_USED
+                ]
         self.fields["body"] = ExhibitionEmailBodyFormField(
             label=_("Body"),
             placeholders=mail_helpers.placeholder_names(self.event, mail_helpers.REQUEST_PLACEHOLDER_CONTEXT),

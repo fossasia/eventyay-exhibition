@@ -31,6 +31,7 @@ VOUCHERS = "vouchers"
 EXHIBITOR_PROFILE = "exhibitor_profile"
 EXHIBITOR_PROFILE_NEW_ACCOUNT = "exhibitor_profile_new_account"
 REQUEST_MESSAGE = "request_message"
+VOUCHERS_NOT_ALL_USED = "vouchers_not_all_used"
 
 LIFECYCLE_ROLES = (
     REQUEST_NEW,
@@ -665,6 +666,47 @@ def organizer_created_profiles(event):
     )
 
 
+def event_uses_vouchers(event):
+    """Whether exhibition vouchers are in play: a pool is set up or codes were already handed out."""
+    from .models import ExhibitorSettings, ExhibitorVoucher
+
+    settings = ExhibitorSettings.objects.filter(event=event).first()
+    if settings is not None and (settings.voucher_pool_tag or settings.sponsor_voucher_pool_tag):
+        return True
+    return ExhibitorVoucher.objects.filter(voucher__event=event).exists()
+
+
+def organizations_with_unused_vouchers(event, organization_type="", sponsor_group=None):
+    """Active profiles whose vouchers were emailed and are not all used yet, as the organization lists show them."""
+    from .models import ExhibitorInfo, OrganizationVoucherState
+    from .utils import with_voucher_state
+
+    queryset = ExhibitorInfo.objects.filter(event=event, active=True)
+    if organization_type == "exhibitor":
+        queryset = queryset.filter(is_exhibitor=True)
+    elif organization_type == "sponsor":
+        queryset = queryset.filter(is_sponsor=True)
+    if sponsor_group is not None:
+        queryset = queryset.filter(sponsor_group=sponsor_group)
+    return with_voucher_state(queryset, event).filter(
+        voucher_state__in=[OrganizationVoucherState.SENT, OrganizationVoucherState.PARTIAL]
+    )
+
+
+def compose_role(state):
+    """The queue role marking composed emails whose recipients are checked again when they are sent."""
+    return VOUCHERS_NOT_ALL_USED if state == VOUCHERS_NOT_ALL_USED else ""
+
+
+def still_in_compose_group(queued):
+    """Whether a queued composed email's recipient still belongs to the group it was written for."""
+    if queued.role != VOUCHERS_NOT_ALL_USED:
+        return True
+    if queued.exhibitor_id is None:
+        return False
+    return organizations_with_unused_vouchers(queued.event).filter(pk=queued.exhibitor_id).exists()
+
+
 def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
     """Applications and profiles a composed email goes to: the chosen organizations, else everyone matching the filters.
 
@@ -680,6 +722,11 @@ def resolve_compose_recipients(event, *, organizations=(), state="", organizatio
         exhibition_requests = compose_recipients(event).filter(pk__in=chosen(REQUEST_CHOICE_PREFIX))
         profiles = organizer_created_profiles(event).filter(pk__in=chosen(PROFILE_CHOICE_PREFIX))
         return exhibition_requests, profiles
+    if state == VOUCHERS_NOT_ALL_USED:
+        profiles = organizations_with_unused_vouchers(
+            event, organization_type=organization_type, sponsor_group=sponsor_group
+        )
+        return compose_recipients(event).none(), profiles
     exhibition_requests = compose_recipients(
         event,
         states=[state] if state else None,
@@ -698,7 +745,16 @@ def compose_recipient_emails(exhibition_requests, exhibitors=()):
 
 
 def queue_compose_emails(
-    event, exhibition_requests, subject, body, *, exhibitors=(), scheduled_at=None, send_now=False, requestor=None
+    event,
+    exhibition_requests,
+    subject,
+    body,
+    *,
+    exhibitors=(),
+    scheduled_at=None,
+    send_now=False,
+    requestor=None,
+    role="",
 ):
     """Fan a composed message out into per-recipient queued rows sharing a batch."""
     from .models import ExhibitionEmailQueue
@@ -716,6 +772,7 @@ def queue_compose_emails(
         queued = ExhibitionEmailQueue.objects.create(
             event=event,
             batch=batch,
+            role=role,
             to_email=to_email,
             subject=_render(subject, context, locale),
             body=_render(body, context, locale),
