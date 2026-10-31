@@ -37,6 +37,7 @@ from .views import ExhibitorLinkFormsetMixin
 
 REQUEST_STATE_LABELS = {
     ExhibitionRequestState.ACCEPTED: "label-success",
+    ExhibitionRequestState.CONFIRMED: "label-success",
     ExhibitionRequestState.REJECTED: "label-danger",
     ExhibitionRequestState.WITHDRAWN: "label-default",
     ExhibitionRequestState.DRAFT: "label-default",
@@ -107,11 +108,7 @@ class MyExhibitionsView(LoginRequiredMixin, ListView):
             .order_by("-created")
         )
         for exhibition_request in requests:
-            exhibitor = (
-                exhibition_request.approved_exhibitor
-                if exhibition_request.state == ExhibitionRequestState.ACCEPTED
-                else None
-            )
+            exhibitor = exhibition_request.approved_exhibitor if exhibition_request.is_accepted else None
             yield {
                 "name": exhibition_request.name,
                 "event": exhibition_request.event,

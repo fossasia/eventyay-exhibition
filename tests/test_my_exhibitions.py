@@ -200,6 +200,31 @@ def test_my_exhibitions_lists_requests_and_organizer_added_profiles(event):
         assert user_has_exhibitions(user)
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("state", "has_vouchers", "status_class"),
+    [
+        (ExhibitionRequestState.ACCEPTED, True, "label-success"),
+        (ExhibitionRequestState.CONFIRMED, True, "label-success"),
+        (ExhibitionRequestState.REJECTED, False, "label-danger"),
+    ],
+)
+def test_my_exhibitions_keeps_the_vouchers_button_after_confirming(event, state, has_vouchers, status_class):
+    with scopes_disabled():
+        _settings(event)
+        _exhibitor, user = _accepted(event, state=state)
+        request = RequestFactory().get("/")
+        request.user = user
+        view = MyExhibitionsView()
+        view.request = request
+        view.kwargs = {}
+
+        (entry,) = view.get_queryset()
+
+    assert bool(entry["vouchers_url"]) is has_vouchers
+    assert entry["status_class"] == status_class
+
+
 def _my_exhibitions(user, query=""):
     request = RequestFactory().get(f"/{query}")
     request.user = user
