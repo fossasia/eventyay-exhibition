@@ -1,0 +1,11 @@
+{% load i18n %}
+{% if e.is_sponsor %}
+    <span class="label label-info">{% trans "Sponsor" %}</span>
+    {% if e.sponsor_group %}
+        <small class="organization-voucher-detail text-muted">{{ e.sponsor_group.localized_name }}</small>
+    {% endif %}
+{% elif e.exhibitor_group %}
+    {{ e.group_label }}
+{% else %}
+    <span class="text-muted">{{ e.group_label }}</span>
+{% endif %}

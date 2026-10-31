@@ -18,3 +18,7 @@
 .btn-default[disabled] {
     box-shadow: 0 0 0 1px #cccccc inset;
 }
+
+.organization-group-col {
+    white-space: nowrap;
+}

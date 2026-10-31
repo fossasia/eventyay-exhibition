@@ -12,6 +12,7 @@
         var exhibitorCheckbox = document.getElementById('id_is_exhibitor')
         var boothNameWrapper = document.getElementById('booth-name-wrapper')
         var boothNumberWrapper = document.getElementById('booth-number-wrapper')
+        var exhibitorGroupWrapper = document.getElementById('exhibitor-group-wrapper')
         var leadScanningSection = document.getElementById('lead-scanning-section')
         var socialLinksFormset = document.getElementById('social-links-formset')
         var extraLinksFormset = document.getElementById('extra-links-formset')
@@ -155,8 +156,17 @@
             })
         }
 
+        function toggleExhibitorGroup() {
+            if (!exhibitorGroupWrapper) {
+                return
+            }
+            var isExhibitor = !exhibitorCheckbox || exhibitorCheckbox.checked
+            exhibitorGroupWrapper.classList.toggle('hidden', !isExhibitor)
+        }
+
         toggleSponsorGroup()
         toggleExhibitorFields()
+        toggleExhibitorGroup()
 
         if (sponsorCheckbox) {
             sponsorCheckbox.addEventListener('change', toggleSponsorGroup)
@@ -164,6 +174,7 @@
 
         if (exhibitorCheckbox) {
             exhibitorCheckbox.addEventListener('change', toggleExhibitorFields)
+            exhibitorCheckbox.addEventListener('change', toggleExhibitorGroup)
         }
 
         document.querySelectorAll('[data-organization-image-source-pair]').forEach(initImageSourcePair)

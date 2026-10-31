@@ -1,10 +1,10 @@
 from django import forms
-from django.db.models import Q, Value
+from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.db.models.functions import NullIf, Trim
 from django.utils.translation import gettext_lazy as _
 from eventyay.control.forms.filter import FilterForm
 
-from .models import ExhibitionRequestState, OrganizationVoucherState, SponsorGroup
+from .models import ExhibitionRequestState, ExhibitorGroup, OrganizationVoucherState, SponsorGroup
 
 FLAG_CHOICES = (
     ("", _("Any")),
@@ -128,16 +128,9 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
         "booth": "booth_number",
         "active": "active",
         "published": "published",
+        "group": "group_rank",
         "vouchers": "voucher_rank",
     }
-
-    def apply_ordering(self, queryset):
-        ordering = self.cleaned_data.get("ordering")
-        if ordering not in ("booth", "-booth"):
-            return super().apply_ordering(queryset)
-        booth = NullIf(Trim("booth_number"), Value(""))
-        booth = booth.desc(nulls_last=True) if ordering == "-booth" else booth.asc(nulls_last=True)
-        return queryset.order_by(booth, "name", "pk")
 
     query = forms.CharField(
         label=_("Search organizations…"),
@@ -168,6 +161,10 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
         required=False,
         empty_label=_("All groups"),
     )
+    group = forms.ChoiceField(
+        label=_("Group"),
+        required=False,
+    )
     lead_scanning = forms.ChoiceField(
         label=_("Lead scanning"),
         choices=FLAG_CHOICES,
@@ -193,10 +190,58 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
         self.event = event
         self.organization_type = organization_type
         super().__init__(*args, **kwargs)
-        if organization_type == "exhibitor":
-            del self.fields["sponsor_group"]
-        else:
+        if organization_type == "sponsor":
+            del self.fields["group"]
             self.fields["sponsor_group"].queryset = sponsor_group_queryset(event)
+        else:
+            del self.fields["sponsor_group"]
+            self.fields["group"].choices = self.group_choices(event)
+
+    @staticmethod
+    def group_choices(event):
+        """Every sponsor group, then the two exhibitor groups, as one filter."""
+        sponsor_groups = sponsor_group_queryset(event).order_by("level", "pk") if event else []
+        return [
+            ("", _("All groups")),
+            ("sponsors", _("All sponsors")),
+            *(
+                (f"sponsor-{group.pk}", _("Sponsor · {group}").format(group=group.localized_name))
+                for group in sponsor_groups
+            ),
+            *ExhibitorGroup.choices,
+            ("none", _("No group")),
+        ]
+
+    def filter_group(self, queryset, value):
+        if value == "sponsors":
+            return queryset.filter(is_sponsor=True)
+        if value.startswith("sponsor-"):
+            return queryset.filter(is_sponsor=True, sponsor_group_id=value.removeprefix("sponsor-"))
+        if value == "none":
+            return queryset.filter(is_sponsor=False, exhibitor_group="")
+        return queryset.filter(is_sponsor=False, exhibitor_group=value)
+
+    def apply_ordering(self, queryset):
+        """Booths sort with blank numbers last; groups list sponsors by level, then paid, non-paid and ungrouped."""
+        ordering = self.cleaned_data.get("ordering") or ""
+        if ordering in ("booth", "-booth"):
+            booth = NullIf(Trim("booth_number"), Value(""))
+            booth = booth.desc(nulls_last=True) if ordering == "-booth" else booth.asc(nulls_last=True)
+            return queryset.order_by(booth, "name", "pk")
+        if ordering.lstrip("-") != "group":
+            return super().apply_ordering(queryset)
+        queryset = queryset.annotate(
+            group_rank=Case(
+                When(is_sponsor=True, then=Value(0)),
+                When(exhibitor_group=ExhibitorGroup.PAID, then=Value(1)),
+                When(exhibitor_group=ExhibitorGroup.NON_PAID, then=Value(2)),
+                default=Value(3),
+                output_field=IntegerField(),
+            )
+        )
+        if ordering.startswith("-"):
+            return queryset.order_by("-group_rank", F("sponsor_group__level").desc(nulls_first=True), "name", "pk")
+        return queryset.order_by("group_rank", F("sponsor_group__level").asc(nulls_last=True), "name", "pk")
 
     def filter_qs(self, queryset):
         fdata = self.cleaned_data
@@ -217,6 +262,9 @@ class ExhibitorFilterForm(ExhibitionFilterForm):
 
         if fdata.get("sponsor_group"):
             queryset = queryset.filter(sponsor_group=fdata["sponsor_group"])
+
+        if fdata.get("group"):
+            queryset = self.filter_group(queryset, fdata["group"])
 
         queryset = apply_flag(queryset, "lead_scanning_enabled", fdata.get("lead_scanning"))
         queryset = apply_flag(queryset, "allow_lead_access", fdata.get("lead_access"))
