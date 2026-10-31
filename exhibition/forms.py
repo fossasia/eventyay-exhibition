@@ -102,7 +102,6 @@ def flag_oversized_upload(form, field_name, submitted):
 
 EXHIBITION_IMAGE_CONTENT_TYPES = ("image/png", "image/jpeg", "image/webp")
 
-# The width caps core applies to organizer logos and header images.
 EXHIBITION_IMAGE_SETTING_KEYS = {"logo": "organizer_logo_image", "banner": "organizer_header_image"}
 
 
@@ -111,10 +110,8 @@ def mpo_primary_image(upload):
     upload.seek(0)
     with Image.open(upload) as mpo:
         mpo.seek(0)
-        # Core turns Pillow's decompression-bomb warning into an error, but this frame is decoded before core runs.
         if Image.MAX_IMAGE_PIXELS is not None and mpo.width * mpo.height > Image.MAX_IMAGE_PIXELS:
             raise ValueError("MPO frame exceeds the maximum pixel count")
-        # The PNG carries no EXIF, so apply the camera's orientation now.
         photo = ImageOps.exif_transpose(mpo)
     buffer = BytesIO()
     photo.save(buffer, format="PNG", compress_level=1)
@@ -127,7 +124,6 @@ class ExhibitionImageUploadMixin:
     def set_image_accept_attrs(self):
         for field_name in EXHIBITION_IMAGE_SETTING_KEYS:
             if field_name in self.fields:
-                # Assigned, not defaulted: Django's ImageField has already set accept="image/*".
                 self.fields[field_name].widget.attrs["accept"] = ",".join(EXHIBITION_IMAGE_CONTENT_TYPES)
 
     def clean_logo(self):
@@ -139,20 +135,14 @@ class ExhibitionImageUploadMixin:
     def convert_image_upload(self, field_name):
         upload = self.cleaned_data.get(field_name)
         if not isinstance(upload, UploadedFile):
-            # Nothing new was uploaded: keep the stored file, or the clear flag, as it is.
             return upload
         if upload.size > django_settings.MAX_SIZE_CONFIG[SizeKey.UPLOAD_SIZE_IMAGE]:
-            # clean() rejects it through flag_oversized_upload; don't decode it first.
             return upload
-        # ImageField has already decoded the file and attached it, so this is the real format, not the file name.
         image = upload.image
-        # Phone cameras save photos with a depth map or preview as MPO: a JPEG with extra frames. Pillow reports
-        # it as animated, so it is let through here and reduced to its first frame, the photo itself.
         is_mpo = image.format == "MPO"
         if not is_mpo and Image.MIME.get(image.format) not in EXHIBITION_IMAGE_CONTENT_TYPES:
             raise ValidationError(_("Upload a PNG, JPG or WebP image."))
         if not is_mpo and getattr(image, "is_animated", False):
-            # Core passes animated images through untouched, so they would skip the WebP conversion and width cap.
             raise ValidationError(_("Animated images are not supported. Please upload a still image."))
         try:
             if is_mpo:
