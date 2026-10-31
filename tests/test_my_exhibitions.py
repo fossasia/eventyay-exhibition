@@ -6,7 +6,7 @@ import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.sessions.backends.db import SessionStore
 from django.http import Http404
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
 from django.urls import resolve, reverse
 from django.utils.timezone import now
 from django_scopes import scopes_disabled
@@ -248,6 +248,22 @@ def test_login_email_is_the_contact_email_for_organizer_added_exhibitors(event):
 def test_dashboard_link_is_hidden_without_any_exhibition(event):
     with scopes_disabled():
         assert not user_has_exhibitions(_user("nobody@example.com"))
+
+
+@pytest.mark.django_db
+def test_my_exhibitions_empty_state_loads_the_dashboard_styles(event, settings):
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    client = Client()
+    client.force_login(_user("nobody@example.com"))
+
+    response = client.get(reverse("plugins:exhibition:my_exhibitions"))
+    html = response.content.decode()
+
+    assert response.status_code == 200
+    assert "personal-empty-state" in html
+    assert "eventyay-common/css/common_dashboard.css" in html
 
 
 def _nav_request(url_name, user):
