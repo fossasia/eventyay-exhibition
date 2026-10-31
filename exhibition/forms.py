@@ -1,12 +1,15 @@
 import json
+import logging
 from html import unescape
+from io import BytesIO
+from pathlib import Path
 
 import dateutil.parser
 from django import forms
 from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
-from django.core.files.uploadedfile import UploadedFile
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.db import transaction
 from django.db.models import Max
 from django.forms import inlineformset_factory
@@ -45,9 +48,11 @@ from eventyay.consts import SizeKey
 from eventyay.control.forms import ExtFileField, SplitDateTimeField
 from eventyay.helpers.countries import CachedCountries
 from eventyay.helpers.i18n import get_format_without_seconds, is_rtl
+from eventyay.helpers.image_optimize import optimize_question_image, optimize_uploaded_image
 from i18nfield.forms import I18nFormField, I18nTextInput
 from i18nfield.strings import LazyI18nString
 from phonenumber_field.formfields import PhoneNumberField
+from PIL import Image, ImageOps
 
 from . import mail as mail_helpers
 from .models import (
@@ -80,6 +85,8 @@ from .social_links import (
 )
 from .utils import localized_value_for, merge_localized_value, pool_tag_choices
 
+logger = logging.getLogger(__name__)
+
 
 def flag_oversized_upload(form, field_name, submitted):
     """Reject an upload past the limit the field advertises, which ImageField itself does not check."""
@@ -91,6 +98,64 @@ def flag_oversized_upload(form, field_name, submitted):
         return False
     form.add_error(field_name, _("The upload limit is {size}.").format(size=filesize(max_size)))
     return True
+
+
+EXHIBITION_IMAGE_CONTENT_TYPES = ("image/png", "image/jpeg", "image/webp")
+
+EXHIBITION_IMAGE_SETTING_KEYS = {"logo": "organizer_logo_image", "banner": "organizer_header_image"}
+
+
+def mpo_primary_image(upload):
+    """Return the first picture of an MPO upload as a still PNG upload, so core encodes it like any photo."""
+    upload.seek(0)
+    with Image.open(upload) as mpo:
+        mpo.seek(0)
+        if Image.MAX_IMAGE_PIXELS is not None and mpo.width * mpo.height > Image.MAX_IMAGE_PIXELS:
+            raise ValueError("MPO frame exceeds the maximum pixel count")
+        photo = ImageOps.exif_transpose(mpo)
+    buffer = BytesIO()
+    photo.save(buffer, format="PNG", compress_level=1)
+    return SimpleUploadedFile(f"{Path(upload.name).stem}.png", buffer.getvalue(), content_type="image/png")
+
+
+class ExhibitionImageUploadMixin:
+    """Store new logo and banner uploads as WebP, through the same pipeline core uses for event images."""
+
+    def set_image_accept_attrs(self):
+        for field_name in EXHIBITION_IMAGE_SETTING_KEYS:
+            if field_name in self.fields:
+                self.fields[field_name].widget.attrs["accept"] = ",".join(EXHIBITION_IMAGE_CONTENT_TYPES)
+
+    def clean_logo(self):
+        return self.convert_image_upload("logo")
+
+    def clean_banner(self):
+        return self.convert_image_upload("banner")
+
+    def convert_image_upload(self, field_name):
+        upload = self.cleaned_data.get(field_name)
+        if not isinstance(upload, UploadedFile):
+            return upload
+        if upload.size > django_settings.MAX_SIZE_CONFIG[SizeKey.UPLOAD_SIZE_IMAGE]:
+            return upload
+        image = upload.image
+        is_mpo = image.format == "MPO"
+        if not is_mpo and Image.MIME.get(image.format) not in EXHIBITION_IMAGE_CONTENT_TYPES:
+            raise ValidationError(_("Upload a PNG, JPG or WebP image."))
+        if not is_mpo and getattr(image, "is_animated", False):
+            raise ValidationError(_("Animated images are not supported. Please upload a still image."))
+        try:
+            if is_mpo:
+                upload = mpo_primary_image(upload)
+            result = optimize_uploaded_image(upload, EXHIBITION_IMAGE_SETTING_KEYS[field_name])
+        except (OSError, ValueError) as exc:
+            logger.exception("Failed to convert %s upload %s to WebP", field_name, upload.name)
+            raise ValidationError(_("This image could not be processed. Please upload a different file.")) from exc
+        return SimpleUploadedFile(
+            f"{Path(upload.name).stem}.{result.optimized_ext}",
+            result.optimized.read(),
+            content_type=f"image/{result.optimized_ext}",
+        )
 
 
 def get_tz_help(event):
@@ -380,7 +445,7 @@ class SessionChoiceField(forms.ModelMultipleChoiceField):
         return str(obj.title)
 
 
-class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
+class ExhibitorInfoForm(ExhibitionImageUploadMixin, ExhibitionQuestionFieldsMixin, I18nModelForm):
     sponsor_group = forms.ModelChoiceField(
         queryset=SponsorGroup.objects.none(),
         required=False,
@@ -559,8 +624,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 )
         else:
             self._drop_fields(("sessions",))
-        for field_name in ("logo", "banner"):
-            self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
+        self.set_image_accept_attrs()
         self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         if self.instance and self.instance.pk:
             self.initial["lead_scanning_scope_by_device"] = self.instance.lead_scanning_scope_by_device
@@ -1030,6 +1094,7 @@ ANSWER_FILE_EXTENSIONS = (
     ".tiff",
     ".heic",
     ".heif",
+    ".webp",
     ".svg",
     ".pdf",
     ".txt",
@@ -1274,8 +1339,8 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                     answer.file = None
                     answer.answer = ""
                 elif isinstance(value, UploadedFile):
-                    answer.file = value
-                    answer.answer = value.name
+                    answer.file = optimize_question_image(value)
+                    answer.answer = answer.file.name
                 answer.save()
                 answer.options.clear()
             elif isinstance(field, forms.ModelMultipleChoiceField):
@@ -1297,7 +1362,7 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 answer.options.clear()
 
 
-class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
+class ExhibitionRequestForm(ExhibitionImageUploadMixin, ExhibitionQuestionFieldsMixin, I18nModelForm):
     content_locale = forms.ChoiceField(
         label=_("Language"),
         help_text=_("The language you are filling in this form with."),
@@ -1398,9 +1463,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             self.required_request_fields = {
                 key: value["required"] for key, value in self.request_field_settings.items()
             }
-        for field_name in ("logo", "banner"):
-            if field_name in self.fields:
-                self.fields[field_name].widget.attrs.setdefault("accept", "image/*")
+        self.set_image_accept_attrs()
         if "slides" in self.fields:
             self.fields["slides"].widget.attrs.setdefault("accept", ".pdf,application/pdf")
         description_field = self.fields.get("description")
