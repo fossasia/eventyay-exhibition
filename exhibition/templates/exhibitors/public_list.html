@@ -14,48 +14,75 @@
     <main aria-label="{% trans 'Exhibition' %}">
         <section class="front-page exhibition-public-page" aria-labelledby="exhibition-heading">
             {% include "exhibitors/_public_preview_notice.html" %}
-            <h2 id="exhibition-heading">{% trans "Exhibition" %}</h2>
-            <form method="get" action="" class="exhibition-public-filter" role="search">
-                {% if preview_unpublished %}<input type="hidden" name="preview" value="1">{% endif %}
-                <div class="exhibition-public-filter-field">
-                    {{ filter_form.query }}
-                </div>
-                {% if filter_form.has_group_choices %}
-                    <div class="exhibition-public-filter-field">
-                        <label class="sr-only" for="{{ filter_form.sponsor_group.id_for_label }}">{{ filter_form.sponsor_group.label }}</label>
-                        {{ filter_form.sponsor_group }}
-                    </div>
+            <div class="exhibition-public-heading">
+                <h2 id="exhibition-heading">{% trans "Exhibition" %}</h2>
+                {% if show_layout %}
+                    <a href="?{{ list_view_query }}" class="btn btn-default exhibition-public-layout-toggle">
+                        <i class="fa fa-th-large" aria-hidden="true"></i>
+                        {% trans "View exhibitors" %}
+                    </a>
+                {% elif layout_url %}
+                    <a href="?{{ layout_view_query }}" class="btn btn-default exhibition-public-layout-toggle">
+                        <i class="fa fa-map-o" aria-hidden="true"></i>
+                        {% trans "View layout" %}
+                    </a>
                 {% endif %}
-                <button type="submit" class="btn btn-primary exhibition-public-filter-submit">
-                    <i class="fa fa-search" aria-hidden="true"></i>
-                    {% trans "Search" %}
-                </button>
-                <button type="submit" name="clear" value="1" class="btn btn-primary exhibition-public-filter-reset">
-                    {% trans "Clear" %}
-                </button>
-            </form>
-            {% if exhibitors %}
-                <div class="exhibition-public-grid">
-                    {% for exhibitor in exhibitors %}
-                        <a href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=exhibitor.pk %}{% if navigation_query %}?{{ navigation_query }}{% endif %}" class="exhibition-public-card-link">
-                            <article class="exhibition-public-card">
-                                <div class="exhibition-public-card-image">
-                                    <img src="{{ exhibitor.visible_banner_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
-                                </div>
-                                <div class="exhibition-public-card-body">
-                                    <span class="exhibition-public-card-logo-wrap">
-                                        <img class="exhibition-public-card-logo" src="{{ exhibitor.visible_logo_url }}" alt="{{ exhibitor.name|event_localize }} logo" loading="lazy">
-                                    </span>
-                                    <h3 class="exhibition-public-card-name">{{ exhibitor.name|event_localize }}</h3>
-                                </div>
-                            </article>
-                        </a>
-                    {% endfor %}
-                </div>
-            {% elif filter_form.query.value or filter_form.sponsor_group.value %}
-                <p>{% trans "No exhibitors match your search." %}</p>
+            </div>
+            {% if show_layout %}
+                {% with caption=layout_caption|event_localize %}
+                    <section id="exhibition-layout" class="exhibition-public-layout" aria-labelledby="exhibition-layout-heading">
+                        <h3 id="exhibition-layout-heading">{% trans "Layout" %}</h3>
+                        <figure>
+                            <a href="{{ layout_url }}" target="_blank" rel="noopener" title="{% trans 'Open the layout at full size' %}">
+                                <img src="{{ layout_url }}" alt="{% if caption %}{{ caption }}{% else %}{% trans 'Exhibition layout' %}{% endif %}">
+                            </a>
+                            {% if caption %}<figcaption>{{ caption }}</figcaption>{% endif %}
+                        </figure>
+                    </section>
+                {% endwith %}
             {% else %}
-                <p>{% trans "No exhibitors are currently available." %}</p>
+                <form method="get" action="" class="exhibition-public-filter" role="search">
+                    {% if preview_unpublished %}<input type="hidden" name="preview" value="1">{% endif %}
+                    <div class="exhibition-public-filter-field">
+                        {{ filter_form.query }}
+                    </div>
+                    {% if filter_form.has_group_choices %}
+                        <div class="exhibition-public-filter-field">
+                            <label class="sr-only" for="{{ filter_form.sponsor_group.id_for_label }}">{{ filter_form.sponsor_group.label }}</label>
+                            {{ filter_form.sponsor_group }}
+                        </div>
+                    {% endif %}
+                    <button type="submit" class="btn btn-primary exhibition-public-filter-submit">
+                        <i class="fa fa-search" aria-hidden="true"></i>
+                        {% trans "Search" %}
+                    </button>
+                    <button type="submit" name="clear" value="1" class="btn btn-primary exhibition-public-filter-reset">
+                        {% trans "Clear" %}
+                    </button>
+                </form>
+                {% if exhibitors %}
+                    <div class="exhibition-public-grid">
+                        {% for exhibitor in exhibitors %}
+                            <a href="{% url 'plugins:exhibition:public_detail' organizer=request.event.organizer.slug event=request.event.slug pk=exhibitor.pk %}{% if navigation_query %}?{{ navigation_query }}{% endif %}" class="exhibition-public-card-link">
+                                <article class="exhibition-public-card">
+                                    <div class="exhibition-public-card-image">
+                                        <img src="{{ exhibitor.visible_banner_url }}" alt="{{ exhibitor.name|event_localize }}" loading="lazy">
+                                    </div>
+                                    <div class="exhibition-public-card-body">
+                                        <span class="exhibition-public-card-logo-wrap">
+                                            <img class="exhibition-public-card-logo" src="{{ exhibitor.visible_logo_url }}" alt="{{ exhibitor.name|event_localize }} logo" loading="lazy">
+                                        </span>
+                                        <h3 class="exhibition-public-card-name">{{ exhibitor.name|event_localize }}</h3>
+                                    </div>
+                                </article>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% elif filter_form.query.value or filter_form.sponsor_group.value %}
+                    <p>{% trans "No exhibitors match your search." %}</p>
+                {% else %}
+                    <p>{% trans "No exhibitors are currently available." %}</p>
+                {% endif %}
             {% endif %}
         </section>
     </main>

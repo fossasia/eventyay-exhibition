@@ -52,6 +52,8 @@ from phonenumber_field.formfields import PhoneNumberField
 from . import mail as mail_helpers
 from .models import (
     DEPENDENCY_PARENT_VARIANTS,
+    LAYOUT_IMAGE_EXTENSIONS,
+    LAYOUT_IMAGE_FORMATS,
     QUESTION_OPTION_VARIANTS,
     REQUEST_DEFAULT_FIELD_KEYS,
     REQUEST_FORMSET_FIELD_KEYS,
@@ -969,6 +971,39 @@ class ExhibitorVoucherDefaultsForm(VoucherDefaultsFormMixin, forms.ModelForm):
             current = self.get_initial_for_field(self.fields[name], name)
             known = tags if not current or current in tags else [*tags, current]
             self.fields[name].choices = [("", empty_label), *((tag, tag) for tag in known)]
+
+
+class ExhibitionLayoutForm(I18nModelForm):
+    """The floor plan shown to visitors of the public Exhibition page."""
+
+    class Meta:
+        model = ExhibitorSettings
+        localized_fields = "__all__"
+        fields = ["layout_image", "layout_caption"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.previous_layout_name = self.instance.layout_image.name if self.instance.layout_image else ""
+        self.fields["layout_image"].widget.attrs["accept"] = ",".join(
+            f".{extension}" for extension in LAYOUT_IMAGE_EXTENSIONS
+        )
+
+    def clean_layout_image(self):
+        layout_image = self.cleaned_data.get("layout_image")
+        if flag_oversized_upload(self, "layout_image", layout_image):
+            return layout_image
+        image = getattr(layout_image, "image", None)
+        if isinstance(layout_image, UploadedFile) and image is not None and image.format not in LAYOUT_IMAGE_FORMATS:
+            raise forms.ValidationError(_("Upload a PNG, JPG or WebP image."))
+        return layout_image
+
+    def save(self, commit=True):
+        instance = super().save(commit=commit)
+        current_name = instance.layout_image.name if instance.layout_image else ""
+        if commit and self.previous_layout_name and self.previous_layout_name != current_name:
+            previous_name = self.previous_layout_name
+            transaction.on_commit(lambda: default_storage.delete(previous_name))
+        return instance
 
 
 class CallSettingsForm(I18nModelForm):
