@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
@@ -667,18 +667,18 @@ def organizer_created_profiles(event):
 
 
 def event_uses_vouchers(event):
-    """Whether exhibition vouchers are in play: a pool is set up or codes were already handed out."""
-    from .models import ExhibitorSettings, ExhibitorVoucher
+    """Whether exhibition vouchers are in play: a pool is set up or a voucher email has gone out."""
+    from .models import ExhibitionEmailQueue, ExhibitorSettings
 
     settings = ExhibitorSettings.objects.filter(event=event).first()
     if settings is not None and (settings.voucher_pool_tag or settings.sponsor_voucher_pool_tag):
         return True
-    return ExhibitorVoucher.objects.filter(voucher__event=event).exists()
+    return ExhibitionEmailQueue.objects.filter(event=event, role=VOUCHERS, sent_at__isnull=False).exists()
 
 
 def organizations_with_unused_vouchers(event, organization_type="", sponsor_group=None):
-    """Active profiles whose vouchers were emailed and are not all used yet, as the organization lists show them."""
-    from .models import ExhibitorInfo, OrganizationVoucherState
+    """Active profiles that were sent a voucher email and still hold a code nobody has used for a ticket."""
+    from .models import ExhibitorInfo
     from .utils import with_voucher_state
 
     queryset = ExhibitorInfo.objects.filter(event=event, active=True)
@@ -686,25 +686,35 @@ def organizations_with_unused_vouchers(event, organization_type="", sponsor_grou
         queryset = queryset.filter(is_exhibitor=True)
     elif organization_type == "sponsor":
         queryset = queryset.filter(is_sponsor=True)
-    if sponsor_group is not None:
+    if sponsor_group:
         queryset = queryset.filter(sponsor_group=sponsor_group)
     return with_voucher_state(queryset, event).filter(
-        voucher_state__in=[OrganizationVoucherState.SENT, OrganizationVoucherState.PARTIAL]
+        voucher_pending=False,
+        voucher_sent_at__isnull=False,
+        voucher_total__gt=F("voucher_claimed"),
     )
 
 
-def compose_role(state):
-    """The queue role marking composed emails whose recipients are checked again when they are sent."""
-    return VOUCHERS_NOT_ALL_USED if state == VOUCHERS_NOT_ALL_USED else ""
+def compose_role(state, organization_type="", sponsor_group=None):
+    """Queue role for composed emails that are checked again when sent, carrying the filters they were sent with."""
+    if state != VOUCHERS_NOT_ALL_USED:
+        return ""
+    group_pk = getattr(sponsor_group, "pk", sponsor_group) or ""
+    return f"{VOUCHERS_NOT_ALL_USED}:{organization_type or ''}:{group_pk}"
+
+
+def is_voucher_reminder(role):
+    return (role or "").split(":", 1)[0] == VOUCHERS_NOT_ALL_USED
 
 
 def still_in_compose_group(queued):
-    """Whether a queued composed email's recipient still belongs to the group it was written for."""
-    if queued.role != VOUCHERS_NOT_ALL_USED:
+    """Whether some organization in the group the email was written for still uses its recipient address."""
+    if not is_voucher_reminder(queued.role):
         return True
-    if queued.exhibitor_id is None:
-        return False
-    return organizations_with_unused_vouchers(queued.event).filter(pk=queued.exhibitor_id).exists()
+    _role, organization_type, sponsor_group = (queued.role.split(":") + ["", ""])[:3]
+    to_email = queued.to_email.strip().lower()
+    group = organizations_with_unused_vouchers(queued.event, organization_type, sponsor_group or None)
+    return any((organization.recipient_email or "").strip().lower() == to_email for organization in group)
 
 
 def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
@@ -780,8 +790,8 @@ def queue_compose_emails(
             scheduled_at=scheduled_at,
             **link,
         )
-        if send_now:
-            queued.send(requestor=requestor)
+        if send_now and not queued.send(requestor=requestor):
+            return
         created.append(queued)
 
     for exhibition_request in exhibition_requests:
