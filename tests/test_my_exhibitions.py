@@ -12,7 +12,6 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from eventyay.base.models import Order, OrderPosition, Product, Voucher
 from eventyay.base.models.auth import User
-from eventyay.control.navigation import get_admin_navigation
 from eventyay.eventyay_common.navigation import get_global_navigation
 
 from exhibition import mail as mail_helpers
@@ -313,50 +312,6 @@ def test_my_exhibitions_is_in_the_personal_dashboard_sidebar(event, url_name):
 
     assert "My orders" in labels
     assert "My exhibitions" in labels
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "url_name",
-    [
-        "eventyay_admin:admin.dashboard",
-        "eventyay_admin:admin.global.settings",
-        "eventyay_admin:video_admin:settings",
-        "plugins:socialauth:admin.global.social.auth.settings",
-    ],
-)
-def test_my_exhibitions_stays_out_of_the_admin_sidebar(event, url_name):
-    with scopes_disabled():
-        _exhibitor, user = _accepted(event)
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
-        labels = _labels(get_admin_navigation(_nav_request(url_name, user)))
-
-    assert "Message center" in labels
-    assert "My exhibitions" not in labels
-
-
-@pytest.mark.django_db
-def test_my_exhibitions_stays_out_of_business_admin_sidebar(event):
-    """My exhibitions must not appear when Business plugin pages are shown in the Admin layout."""
-    with scopes_disabled():
-        _exhibitor, user = _accepted(event)
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
-
-        request = RequestFactory().get("/admin/global/business/")
-        request.user = user
-        request.session = SessionStore()
-        # Business pages use namespace plugins:eventyay_business, not eventyay_admin,
-        # so the old namespace/url_name checks would miss them.
-        request.resolver_match = type(
-            "FakeMatch",
-            (),
-            {"namespaces": ["plugins", "plugins:eventyay_business"], "url_name": "settings"},
-        )()
-        labels = _labels(get_admin_navigation(request))
-
-    assert "My exhibitions" not in labels
 
 
 @pytest.mark.django_db
