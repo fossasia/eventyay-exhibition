@@ -1293,17 +1293,18 @@ class ExhibitionEmailQueue(LoggedModel):
         """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits.
 
         A composed email whose recipient has left its group since it was queued is dropped instead of sent.
+        Returns whether this call delivered the email.
         """
         from eventyay.base.services.mail import mail
 
         from .mail import still_in_compose_group
 
         if self.sent_at:
-            return
+            return False
 
         with transaction.atomic():
             if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
-                return
+                return False
             if not still_in_compose_group(self):
                 self.log_action(
                     LOG_EMAIL_SKIPPED,
@@ -1311,7 +1312,7 @@ class ExhibitionEmailQueue(LoggedModel):
                     data={"to": self.to_email, "subject": self.subject},
                 )
                 self.delete()
-                return
+                return False
             mail(
                 email=self.to_email,
                 subject=self.subject,
@@ -1331,6 +1332,7 @@ class ExhibitionEmailQueue(LoggedModel):
                 user=requestor,
                 data={"to": self.to_email, "subject": self.subject},
             )
+        return True
 
     send.alters_data = True
 

@@ -3034,7 +3034,11 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         """Tag emails for a group that is checked again at send time; picked organizations are not re-checked."""
         if self.single_request is not None or form.cleaned_data.get("organizations"):
             return ""
-        return mail_helpers.compose_role(form.cleaned_data.get("state"))
+        return mail_helpers.compose_role(
+            form.cleaned_data.get("state"),
+            form.cleaned_data.get("organization_type"),
+            form.cleaned_data.get("sponsor_group"),
+        )
 
     def form_valid(self, form):
         from .tasks import send_scheduled_email
@@ -3120,7 +3124,7 @@ class ApplicantEmailVisibilityMixin:
         return context
 
 
-COMPOSE_GROUP_LABELS = {mail_helpers.VOUCHERS_NOT_ALL_USED: _("Vouchers not all used")}
+VOUCHER_REMINDER_LABEL = _("Vouchers not all used")
 
 
 def group_email_entries(emails):
@@ -3152,7 +3156,7 @@ def group_email_entries(emails):
                 "sent_at": email.sent_at,
                 "scheduled_at": email.scheduled_at,
                 "is_batch": True,
-                "group_label": COMPOSE_GROUP_LABELS.get(email.role, ""),
+                "group_label": VOUCHER_REMINDER_LABEL if mail_helpers.is_voucher_reminder(email.role) else "",
             }
             by_batch[key] = entry
             entries.append(entry)
@@ -3289,7 +3293,8 @@ class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView
                 counts[selection] = draft.recipient_count()
             draft.recipient_total = counts[selection]
             picked = draft.exhibition_request_id or draft.organizations
-            draft.group_label = "" if picked else COMPOSE_GROUP_LABELS.get(draft.state, "")
+            reminder = not picked and draft.state == mail_helpers.VOUCHERS_NOT_ALL_USED
+            draft.group_label = VOUCHER_REMINDER_LABEL if reminder else ""
         return context
 
 
@@ -3377,8 +3382,13 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
 
         self.object.save()
         if "_send" in self.request.POST:
-            self.object.send(requestor=self.request.user)
-            messages.success(self.request, _("The email has been saved and sent."))
+            if self.object.send(requestor=self.request.user):
+                messages.success(self.request, _("The email has been saved and sent."))
+            else:
+                messages.warning(
+                    self.request,
+                    _("The email was not sent: its recipient no longer belongs to the group it was written for."),
+                )
         else:
             if reschedule:
                 self.reschedule([self.object], scheduled_at)
@@ -3393,8 +3403,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
-        self.object.refresh_from_db()
-        if self.object.sent_at is not None:
+        if ExhibitionEmailQueue.objects.filter(pk=self.object.pk, sent_at__isnull=False).exists():
             return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
         return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
 
@@ -3412,8 +3421,8 @@ class EmailSendView(EventPermissionRequiredMixin, View):
             rows = [email]
         count = 0
         for row in rows:
-            row.send(requestor=request.user)
-            count += 1
+            if row.send(requestor=request.user):
+                count += 1
         messages.success(
             request,
             ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count) % {"count": count},
@@ -3512,8 +3521,8 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         if action == "send":
             count = 0
             for row in rows:
-                row.send(requestor=request.user)
-                count += 1
+                if row.send(requestor=request.user):
+                    count += 1
             if count:
                 messages.success(
                     request,
