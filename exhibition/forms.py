@@ -2289,7 +2289,10 @@ class ExhibitionComposeForm(forms.Form):
                 self.fields.pop(name)
         else:
             self.set_organization_choices(show_emails)
-            if not mail_helpers.event_uses_vouchers(self.event):
+            chosen_states = (self.initial.get("state"), self.data.get("state"))
+            if mail_helpers.VOUCHERS_NOT_ALL_USED not in chosen_states and not mail_helpers.event_uses_vouchers(
+                self.event
+            ):
                 self.fields["state"].choices = [
                     choice for choice in self.fields["state"].choices if choice[0] != mail_helpers.VOUCHERS_NOT_ALL_USED
                 ]
