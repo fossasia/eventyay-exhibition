@@ -277,7 +277,7 @@ def _list_html(event, view_class, url_name):
     with scopes_disabled():
         view.object_list = view.get_queryset()
         context = view.get_context_data()
-        return render_to_string(view.partial_template_name, context, request=request)
+        return render_to_string(view.partial_template_name, {**context, "request": request})
 
 
 @pytest.mark.django_db
