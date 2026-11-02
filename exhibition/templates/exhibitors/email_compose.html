@@ -33,6 +33,7 @@
         <form action="" method="get" class="form-inline custom-template-picker">
             {% if draft %}
                 <input type="hidden" name="draft" value="{{ draft.pk }}">
+                {% if request.GET.next %}<input type="hidden" name="next" value="{{ request.GET.next }}">{% endif %}
             {% elif single_request %}
                 <input type="hidden" name="request" value="{{ single_request.code }}">
             {% endif %}
