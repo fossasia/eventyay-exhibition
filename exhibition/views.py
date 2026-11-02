@@ -404,7 +404,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         ctx["settings"] = settings
-        ctx["data_access_fields"] = self.get_data_access_fields(settings)
+        ctx["data_access_fields"] = self.get_data_access_fields(kwargs.get("data_access_settings") or settings)
         ctx["device_defaults_form"] = kwargs.get("device_defaults_form") or ExhibitorDeviceDefaultsForm(
             instance=settings
         )
@@ -500,6 +500,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         self.object_list = self.get_queryset()
 
         if action == "save_exhibitor_settings":
+            allowed_fields = request.POST.getlist("exhibitors_access_voucher")
             layout_form = ExhibitionLayoutForm(
                 request.POST,
                 request.FILES,
@@ -507,9 +508,12 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 event=self.request.event,
             )
             if not layout_form.is_valid():
+                settings.allowed_fields = allowed_fields
                 messages.error(self.request, _("We could not save your changes. See below for details."))
-                return self.render_to_response(self.get_context_data(layout_form=layout_form))
-            layout_form.instance.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
+                return self.render_to_response(
+                    self.get_context_data(layout_form=layout_form, data_access_settings=settings)
+                )
+            layout_form.instance.allowed_fields = allowed_fields
             layout_form.save()
             settings.log_action(
                 LOG_SETTINGS_CHANGED,
