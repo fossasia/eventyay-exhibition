@@ -993,7 +993,7 @@ class ExhibitionLayoutForm(I18nModelForm):
         if flag_oversized_upload(self, "layout_image", layout_image):
             return layout_image
         image = getattr(layout_image, "image", None)
-        if isinstance(layout_image, UploadedFile) and image is not None and image.format not in LAYOUT_IMAGE_FORMATS:
+        if isinstance(layout_image, UploadedFile) and getattr(image, "format", None) not in LAYOUT_IMAGE_FORMATS:
             raise forms.ValidationError(_("Upload a PNG, JPG or WebP image."))
         return layout_image
 
