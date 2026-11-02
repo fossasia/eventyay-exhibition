@@ -164,6 +164,10 @@
     flex: 0 0 auto;
 }
 
+.exhibition-public-page [hidden] {
+    display: none !important;
+}
+
 .exhibition-public-layout h3 {
     margin-top: 0;
     margin-bottom: 12px;
@@ -177,11 +181,11 @@
     display: block;
     width: 100%;
     height: auto;
-    border: 1px solid #e5e5e5;
+    border: 1px solid var(--color-grey-light, #e5e5e5);
     border-radius: 4px;
 }
 
 .exhibition-public-layout figcaption {
     margin-top: 8px;
-    color: #737373;
+    color: var(--color-grey-dark, #737373);
 }
