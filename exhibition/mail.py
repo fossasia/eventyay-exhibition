@@ -712,9 +712,19 @@ def still_in_compose_group(queued):
     if not is_voucher_reminder(queued.role):
         return True
     _role, organization_type, sponsor_group = (queued.role.split(":") + ["", ""])[:3]
-    to_email = queued.to_email.strip().lower()
-    group = organizations_with_unused_vouchers(queued.event, organization_type, sponsor_group or None)
-    return any((organization.recipient_email or "").strip().lower() == to_email for organization in group)
+    to_email = queued.to_email.strip()
+    addressed = (
+        Q(email__iexact=to_email)
+        | Q(source_requests__email__iexact=to_email)
+        | Q(source_requests__user__email__iexact=to_email)
+    )
+    candidates = (
+        organizations_with_unused_vouchers(queued.event, organization_type, sponsor_group or None)
+        .filter(addressed)
+        .distinct()
+        .prefetch_related("source_requests__user")
+    )
+    return any((organization.recipient_email or "").strip().lower() == to_email.lower() for organization in candidates)
 
 
 def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
