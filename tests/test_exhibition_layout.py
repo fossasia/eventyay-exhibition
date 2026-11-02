@@ -161,31 +161,49 @@ def _event_with_layout(event):
 
 
 @pytest.mark.django_db
-def test_exhibitor_list_links_to_the_layout_without_showing_it(event):
+def test_exhibitor_list_keeps_the_layout_hidden_and_the_search_in_the_toggle(event):
     with scopes_disabled():
         _event_with_layout(event)
 
-    html = _public_list_html(event)
+    html = _public_list_html(event, "?query=Acme")
 
-    assert 'href="?view=layout"' in html
-    assert "View layout" in html
-    assert 'id="exhibition-layout-heading"' not in html
-    assert 'role="search"' in html
+    assert "?query=Acme&amp;view=layout" in html
+    assert 'data-exhibition-view="layout" hidden' in html
+    assert 'data-exhibition-view="list" hidden' not in html
+    assert 'href="?"' not in html
 
 
 @pytest.mark.django_db
-def test_layout_view_shows_only_the_layout_and_links_back(event):
+def test_layout_view_shows_the_layout_and_links_back(event):
     with scopes_disabled():
         settings = _event_with_layout(event)
 
     html = _public_list_html(event, "?view=layout")
 
-    assert 'id="exhibition-layout-heading"' in html
+    assert 'data-exhibition-view="layout" hidden' not in html
+    assert 'data-exhibition-view="list" hidden' in html
     assert f'src="{settings.visible_layout_url}"' in html
-    assert f'href="{settings.visible_layout_url}"' in html
+    assert 'alt="Exhibition layout: Hall 1, ground floor"' in html
     assert "<figcaption>Hall 1, ground floor</figcaption>" in html
-    assert "View exhibitors" in html
-    assert 'role="search"' not in html
+    assert 'rel="noopener noreferrer"' in html
+
+
+@pytest.mark.django_db
+def test_failed_layout_upload_keeps_the_chosen_data_access(event):
+    with scopes_disabled():
+        response = _settings_post(
+            event,
+            {
+                "action": "save_exhibitor_settings",
+                "tab": "exhibitors",
+                "layout_image": _layout(content=b"not an image"),
+                "exhibitors_access_voucher": ["attendee_email"],
+            },
+        )
+        checked = {field["value"] for field in response.context_data["data_access_fields"] if field["checked"]}
+
+    assert response.status_code == 200
+    assert checked == {"attendee_email"}
 
 
 @pytest.mark.django_db
@@ -198,7 +216,7 @@ def test_public_exhibition_page_hides_the_layout_section_without_a_layout(event)
 
     assert 'id="exhibition-layout-heading"' not in html
     assert "View layout" not in html
-    assert 'role="search"' in html
+    assert 'data-exhibition-view="list" hidden' not in html
 
 
 @pytest.mark.django_db
