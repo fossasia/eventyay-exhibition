@@ -259,6 +259,21 @@ def test_shared_address_still_gets_the_reminder_while_one_organization_qualifies
 
 
 @pytest.mark.django_db
+def test_reminder_matches_a_stored_address_with_spaces_and_capitals(mail_event):
+    with scopes_disabled():
+        organization = _organization(mail_event, "Acme", email="  Acme@Example.com ")
+        _vouchers(mail_event, organization, 1)
+        (queued,) = _scheduled_reminder(mail_event, [organization])
+
+        with patch("eventyay.base.services.mail.mail") as mocked_mail:
+            delivered = queued.send()
+
+    assert queued.to_email == "Acme@Example.com"
+    assert delivered
+    assert mocked_mail.called
+
+
+@pytest.mark.django_db
 def test_reopened_draft_keeps_the_group_after_vouchers_stop_being_used(mail_event):
     with scopes_disabled():
         form = ExhibitionComposeForm(event=mail_event, initial={"state": mail_helpers.VOUCHERS_NOT_ALL_USED})
