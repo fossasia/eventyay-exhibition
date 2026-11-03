@@ -124,6 +124,11 @@ Run tests::
 
     pytest
 
+Backfill existing images to WebP::
+
+    python manage.py backfill_exhibition_images --dry-run
+    python manage.py backfill_exhibition_images --backup-dir /path/to/backup
+
 Run formatting and lint checks::
 
     ruff format --check .
@@ -158,6 +163,7 @@ Important files and directories:
 - ``exhibition/templates/``: HTML templates for exhibitor pages, settings,
   proposals, and public call pages.
 - ``exhibition/static/``: JavaScript and static assets.
+- ``exhibition/management/commands/``: management commands, including WebP image backfill.
 - ``tests/``: test suite.
 
 Public routes
