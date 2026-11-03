@@ -1,8 +1,14 @@
 {% extends "eventyay_common/base.html" %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
 
 {% block title %}{% translate "My exhibitions" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'eventyay-common/css/common_dashboard.css' %}">
+{% endblock %}
 
 {% block content %}
     <h1>{% translate "My exhibitions" %}</h1>
