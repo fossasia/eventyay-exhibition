@@ -157,6 +157,18 @@ def organization_list_type(request, organization):
     return "sponsor" if organization.is_sponsor and not organization.is_exhibitor else "exhibitor"
 
 
+def organization_list_return_url(request, organization):
+    """The Exhibitors or Sponsors list page a row action on ``organization`` came from."""
+    organization_type = organization_list_type(request, organization)
+    return list_return_url(request, organization_list_url(request.event, organization_type))
+
+
+def with_list_state(request, url):
+    """``url`` carrying the ``type`` and ``next`` of the list the page was opened from."""
+    params = {key: request.GET[key] for key in ("type", "next") if request.GET.get(key)}
+    return f"{url}?{urlencode(params)}" if params else url
+
+
 def list_return_url(request, list_url):
     """The ``next`` page of ``list_url`` a row action came from, so it keeps its page and filters."""
     next_url = request.POST.get("next") or request.GET.get("next") or ""
@@ -301,7 +313,21 @@ class PublicCallEnabledMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
-class FilteredListMixin(PaginationMixin):
+class ClampedPaginationMixin(PaginationMixin):
+    """Shows the last page instead of a 404 when the requested page no longer exists."""
+
+    def paginate_queryset(self, queryset, page_size):
+        paginator = self.get_paginator(
+            queryset,
+            page_size,
+            orphans=self.get_paginate_orphans(),
+            allow_empty_first_page=self.get_allow_empty(),
+        )
+        page = paginator.get_page(self.kwargs.get(self.page_kwarg) or self.request.GET.get(self.page_kwarg))
+        return paginator, page, page.object_list, page.has_other_pages()
+
+
+class FilteredListMixin(ClampedPaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
     selection_field = None
@@ -2335,8 +2361,7 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
         return context
 
     def get_success_url(self):
-        organization_type = organization_list_type(self.request, self.object)
-        return list_return_url(self.request, organization_list_url(self.request.event, organization_type))
+        return organization_list_return_url(self.request, self.object)
 
 
 class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
@@ -2372,8 +2397,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
         return context
 
     def get_success_url(self) -> str:
-        organization_type = organization_list_type(self.request, self.object)
-        return list_return_url(self.request, organization_list_url(self.request.event, organization_type))
+        return organization_list_return_url(self.request, self.object)
 
 
 class ExhibitorCopyKeyView(EventPermissionRequiredMixin, View):
@@ -2408,6 +2432,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         defaults = resolve_voucher_defaults(self.object)
         context.setdefault("form", ExhibitorVoucherBatchForm(initial={"count": defaults["count"]}))
+        context["cancel_url"] = organization_list_return_url(self.request, self.object)
         context["vouchers"] = self.voucher_links()
         context["pool_tag"] = defaults["pool_tag"]
         context["pool_remaining"] = pool_remaining(self.request.event, defaults["pool_tag"])
@@ -2425,9 +2450,9 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         return response
 
     def get_success_url(self):
-        return reverse(
-            "plugins:exhibition:vouchers",
-            kwargs={**event_kwargs(self.request.event), "pk": self.object.pk},
+        return with_list_state(
+            self.request,
+            reverse("plugins:exhibition:vouchers", kwargs={**event_kwargs(self.request.event), "pk": self.object.pk}),
         )
 
     def post(self, request, *args, **kwargs):
@@ -2858,12 +2883,13 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
         context.setdefault("form", ExhibitorDeviceProvisionForm())
         context["device_links"] = self.device_links()
         context["can_provision"] = self.can_provision()
+        context["cancel_url"] = organization_list_return_url(self.request, self.object)
         return context
 
     def get_success_url(self):
-        return reverse(
-            "plugins:exhibition:devices",
-            kwargs={**event_kwargs(self.request.event), "pk": self.object.pk},
+        return with_list_state(
+            self.request,
+            reverse("plugins:exhibition:devices", kwargs={**event_kwargs(self.request.event), "pk": self.object.pk}),
         )
 
     def post(self, request, *args, **kwargs):
@@ -3270,7 +3296,7 @@ class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=False)
 
 
-class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView):
+class EmailDraftListView(EventPermissionRequiredMixin, ClampedPaginationMixin, ListView):
     """Composed emails saved for later. They stay here, unsent, until queued from the compose screen."""
 
     permission = EMAIL_MANAGE_PERMISSION
