@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import F, Q
+from django.db.models.functions import Lower, Trim
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
@@ -712,19 +713,19 @@ def still_in_compose_group(queued):
     if not is_voucher_reminder(queued.role):
         return True
     _role, organization_type, sponsor_group = (queued.role.split(":") + ["", ""])[:3]
-    to_email = queued.to_email.strip()
-    addressed = (
-        Q(email__iexact=to_email)
-        | Q(source_requests__email__iexact=to_email)
-        | Q(source_requests__user__email__iexact=to_email)
-    )
+    to_email = queued.to_email.strip().lower()
     candidates = (
         organizations_with_unused_vouchers(queued.event, organization_type, sponsor_group or None)
-        .filter(addressed)
+        .alias(
+            own_email=Lower(Trim("email")),
+            applied_email=Lower(Trim("source_requests__email")),
+            account_email=Lower(Trim("source_requests__user__email")),
+        )
+        .filter(Q(own_email=to_email) | Q(applied_email=to_email) | Q(account_email=to_email))
         .distinct()
         .prefetch_related("source_requests__user")
     )
-    return any((organization.recipient_email or "").strip().lower() == to_email.lower() for organization in candidates)
+    return any((organization.recipient_email or "").strip().lower() == to_email for organization in candidates)
 
 
 def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
