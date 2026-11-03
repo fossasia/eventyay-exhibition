@@ -11,8 +11,11 @@ from exhibition.models import ExhibitionEmailDraft, ExhibitionEmailQueue, Exhibi
 from exhibition.views import (
     EmailDeleteView,
     EmailDraftDeleteView,
+    EmailDraftListView,
     ExhibitorDeleteView,
+    ExhibitorDeviceManageView,
     ExhibitorEditView,
+    ExhibitorVoucherManageView,
     list_return_url,
     outbox_return_url,
 )
@@ -93,3 +96,26 @@ def test_draft_discard_returns_to_the_page_it_came_from(event):
     request.session = SessionStore()
     request._messages = FallbackStorage(request)
     assert _view(EmailDraftDeleteView, request, draft).get_success_url() == f"{drafts}?page=4"
+
+
+@pytest.mark.django_db
+def test_list_shows_last_page_when_returning_to_a_page_that_no_longer_exists(event):
+    with scopes_disabled():
+        for index in range(3):
+            ExhibitionEmailDraft.objects.create(event=event, subject=f"Draft {index}")
+        view = EmailDraftListView()
+        view.request = _request(event, page=9)
+        view.kwargs = {}
+        paginator, page, _rows, _paged = view.paginate_queryset(view.get_queryset(), 2)
+        assert page.number == paginator.num_pages == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("view_class", [ExhibitorVoucherManageView, ExhibitorDeviceManageView])
+def test_voucher_and_device_pages_keep_the_list_they_came_from(event, view_class):
+    with scopes_disabled():
+        sponsor = ExhibitorInfo.objects.create(event=event, name="Acme", is_sponsor=True, is_exhibitor=True)
+    sponsors = reverse("plugins:exhibition:sponsors", kwargs=_kwargs(event))
+    request = _request(event, type="sponsor", next=f"{sponsors}?page=2")
+    success_url = _view(view_class, request, sponsor).get_success_url()
+    assert success_url.endswith(f"?{urlencode({'type': 'sponsor', 'next': f'{sponsors}?page=2'})}")
