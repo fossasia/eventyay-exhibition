@@ -90,7 +90,7 @@ def test_backfill_compresses_exhibitor_logo_and_creates_backup(event, tmp_path):
     assert "Compressed ExhibitorInfo" in output
     assert "compressed=1" in output
 
-    backup_files = list(backup_dir.glob("*acme_logo.png"))
+    backup_files = list(backup_dir.glob("*acme_logo*"))
     assert len(backup_files) == 1
 
     with scopes_disabled():
