@@ -3,7 +3,7 @@ import secrets
 import string
 
 from django.conf import settings
-from django.core.validators import MaxValueValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator
 from django.db import models, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
@@ -98,6 +98,14 @@ exhibitor_header_image_path = exhibitor_banner_path
 
 def exhibitor_slides_path(instance, filename):
     return os.path.join("exhibitors", "slides", organization_folder_name(instance), filename)
+
+
+LAYOUT_IMAGE_EXTENSIONS = ("png", "jpg", "jpeg", "webp")
+LAYOUT_IMAGE_FORMATS = ("PNG", "JPEG", "WEBP")
+
+
+def exhibition_layout_path(instance, filename):
+    return os.path.join("exhibitors", "layouts", str(instance.event_id), filename)
 
 
 def request_file_path(instance, filename, file_type):
@@ -300,6 +308,27 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     call_private = models.BooleanField(default=False)
     call_secret = models.CharField(max_length=64, default=generate_call_secret)
     request_field_settings = models.JSONField(default=default_request_field_settings)
+    layout_image = models.ImageField(
+        upload_to=exhibition_layout_path,
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(LAYOUT_IMAGE_EXTENSIONS)],
+        verbose_name=_("Exhibition layout"),
+        help_text=_(
+            "A floor plan of the exhibition area. Visitors open it with View layout on the public Exhibition page. "
+            "PNG, JPG or WebP."
+        ),
+    )
+    layout_caption = I18nCharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Layout caption"),
+        help_text=_('Shown under the layout, such as "Hall 1, ground floor".'),
+    )
+
+    @property
+    def visible_layout_url(self):
+        return self.layout_image.url if self.layout_image else ""
 
     def is_field_allowed(self, identifier):
         return identifier in (self.allowed_fields or [])
