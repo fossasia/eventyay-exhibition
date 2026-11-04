@@ -11,7 +11,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('exhibition', '0034_exhibitorvoucher_keep_after_delete'),
+        ('exhibition', '0035_exhibitorsettings_layout'),
     ]
 
     operations = [
