@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 from django_scopes import scopes_disabled
-from eventyay.base.models import Order, OrderPosition, Product
+from eventyay.base.models import Event, Order, OrderPosition, Product
 from eventyay.base.models.auth import User
 from rest_framework.test import APIRequestFactory
 
@@ -223,6 +223,48 @@ def test_leads_record_for_exhibitors_without_a_booth_number(event):
 
     assert response.status_code == 201
     assert lead.booth_number == ""
+
+
+@pytest.mark.django_db
+def test_lead_creation_does_not_find_attendees_from_another_event(event):
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", lead_scanning_enabled=True)
+        other_event = Event.objects.create(
+            organizer=event.organizer,
+            name="Other Event",
+            slug="other-event",
+            live=True,
+            date_from=event.date_from,
+        )
+        product = Product.objects.create(event=other_event, name="Ticket", default_price=10, active=True)
+        order = Order.objects.create(
+            code="LEAD2",
+            event=other_event,
+            email="attendee@example.com",
+            status=Order.STATUS_PAID,
+            datetime=timezone.now(),
+            expires=timezone.now() + timedelta(days=10),
+            total=Decimal("10.00"),
+            locale="en",
+        )
+        position = OrderPosition.objects.create(order=order, product=product, price=Decimal("10.00"))
+        request = APIRequestFactory().post(
+            "/",
+            {
+                "lead": position.pseudonymization_id,
+                "scanned": timezone.now().isoformat(),
+                "scan_type": "lead",
+                "device_name": "Phone",
+            },
+            format="json",
+            HTTP_EXHIBITOR=exhibitor.key,
+        )
+        response = LeadCreateView.as_view(authentication_classes=[], permission_classes=[])(
+            request, organizer=event.organizer.slug, event=event.slug
+        )
+
+    assert response.status_code == 404
+    assert response.data == {"success": False, "error": "Attendee not found"}
 
 
 @pytest.mark.django_db
