@@ -40,6 +40,7 @@ from .forms import (
     ExhibitionCustomEmailTemplateForm,
     ExhibitionDefaultFieldForm,
     ExhibitionEmailQueueForm,
+    ExhibitionLayoutForm,
     ExhibitionMailTemplatesForm,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
@@ -403,10 +404,16 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         settings = ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
         ctx["settings"] = settings
-        ctx["data_access_fields"] = self.get_data_access_fields(settings)
+        ctx["data_access_fields"] = self.get_data_access_fields(kwargs.get("data_access_settings") or settings)
         ctx["device_defaults_form"] = kwargs.get("device_defaults_form") or ExhibitorDeviceDefaultsForm(
             instance=settings
         )
+        ctx["layout_form"] = kwargs.get("layout_form") or ExhibitionLayoutForm(
+            instance=settings,
+            event=self.request.event,
+        )
+        allow_blob_image_previews(self.request)
+        add_external_image_csp_sources(self.request, [settings.visible_layout_url] if settings.layout_image else [])
         ctx["active_tab"] = self.get_active_tab()
 
         edit_group_forms = kwargs.get("edit_group_forms", {})
@@ -493,11 +500,24 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         self.object_list = self.get_queryset()
 
         if action == "save_exhibitor_settings":
-            settings.allowed_fields = request.POST.getlist("exhibitors_access_voucher")
-            settings.save(update_fields=["allowed_fields"])
+            allowed_fields = request.POST.getlist("exhibitors_access_voucher")
+            layout_form = ExhibitionLayoutForm(
+                request.POST,
+                request.FILES,
+                instance=settings,
+                event=self.request.event,
+            )
+            if not layout_form.is_valid():
+                settings.allowed_fields = allowed_fields
+                messages.error(self.request, _("We could not save your changes. See below for details."))
+                return self.render_to_response(
+                    self.get_context_data(layout_form=layout_form, data_access_settings=settings)
+                )
+            layout_form.instance.allowed_fields = allowed_fields
+            layout_form.save()
             settings.log_action(
                 LOG_SETTINGS_CHANGED,
-                data={"allowed_fields": settings.allowed_fields},
+                data={"allowed_fields": settings.allowed_fields, "changed": layout_form.changed_data},
                 user=request.user,
             )
             messages.success(self.request, _("Settings have been saved."))
@@ -759,14 +779,29 @@ class PublicExhibitorListView(PublicExhibitorBrowsingMixin, ListView):
         context["preview_unpublished"] = self.preview_unpublished
         context["navigation_query"] = self.navigation_query()
         context["social_image"] = self.request.event.visible_header_image_url
+        layout_settings = ExhibitorSettings.objects.filter(event=self.request.event).first()
+        context["layout_url"] = layout_settings.visible_layout_url if layout_settings else ""
+        context["layout_caption"] = layout_settings.layout_caption if layout_settings else ""
+        context["show_layout"] = bool(context["layout_url"]) and self.request.GET.get("view") == "layout"
+        layout_params = self.request.GET.copy()
+        layout_params["view"] = "layout"
+        list_params = self.request.GET.copy()
+        list_params.pop("view", None)
+        context["layout_view_url"] = f"{self.request.path}?{layout_params.urlencode()}"
+        context["list_view_url"] = (
+            f"{self.request.path}?{list_params.urlencode()}" if list_params else self.request.path
+        )
         add_external_image_csp_sources(
             self.request,
             [
                 image_url
-                for exhibitor in context["exhibitors"]
                 for image_url in (
-                    exhibitor.visible_banner_url,
-                    exhibitor.visible_logo_url,
+                    context["layout_url"],
+                    *(
+                        exhibitor_image
+                        for exhibitor in context["exhibitors"]
+                        for exhibitor_image in (exhibitor.visible_banner_url, exhibitor.visible_logo_url)
+                    ),
                 )
                 if image_url
             ],
