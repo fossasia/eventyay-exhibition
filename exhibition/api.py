@@ -555,7 +555,7 @@ class LeadUpdateView(views.APIView):
     def post(self, request, organizer, event, lead_id, *args, **kwargs):
         key = request.headers.get("Exhibitor")
         note = request.data.get("note")
-        tags = request.data.get("tags", [])
+        tags = request.data.get("tags")
 
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
