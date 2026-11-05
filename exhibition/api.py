@@ -113,7 +113,7 @@ class SponsorGroupLevelField(serializers.IntegerField):
 
 
 class ExhibitorAuthView(views.APIView):
-    def post(self, request, *args, **kwargs):
+    def post(self, request, organizer=None, event=None, *args, **kwargs):
         key = request.data.get("key")
 
         if not key:
@@ -121,6 +121,12 @@ class ExhibitorAuthView(views.APIView):
 
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
+            if not _exhibitor_belongs_to_event(exhibitor, organizer, event):
+                return Response(
+                    {"detail": "Forbidden: API key does not belong to this event."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
             locale = _get_exhibitor_locale(exhibitor)
             return Response(
                 {
@@ -456,11 +462,6 @@ class LeadCreateView(views.APIView):
                 order_position = OrderPosition.objects.get(
                     pseudonymization_id=pseudonymization_id,
                     order__event_id=exhibitor.event_id,
-                )
-            if order_position.order.event_id != exhibitor.event_id:
-                return Response(
-                    {"success": False, "error": "Attendee not found"},
-                    status=status.HTTP_404_NOT_FOUND,
                 )
         except OrderPosition.DoesNotExist:
             return Response(

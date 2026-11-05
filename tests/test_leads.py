@@ -146,6 +146,14 @@ def test_exhibitor_api_keys_are_scoped_to_the_requested_event(event):
 
         responses = [
             (
+                "ExhibitorAuthView",
+                _dispatch(
+                    ExhibitorAuthView,
+                    _api_post(None, {"key": exhibitor.key}),
+                    **bad_event_kwargs,
+                ),
+            ),
+            (
                 "LeadCreateView",
                 _dispatch(LeadCreateView, _api_post(exhibitor.key, _scan_payload()), **bad_event_kwargs),
             ),
@@ -173,6 +181,7 @@ def test_exhibitor_api_keys_are_forbidden_when_event_parameters_are_missing(even
         exhibitor = _exhibitor(event, lead_scanning_enabled=True, allow_lead_access=True)
 
         responses = [
+            ("ExhibitorAuthView", _dispatch(ExhibitorAuthView, _api_post(None, {"key": exhibitor.key}), None, None)),
             ("LeadCreateView", _dispatch(LeadCreateView, _api_post(exhibitor.key, _scan_payload()), None, None)),
             ("LeadRetrieveView", _dispatch(LeadRetrieveView, _api_get(exhibitor.key), None, None)),
             ("TagListView", _dispatch(TagListView, _api_get(exhibitor.key), None, None)),
@@ -197,7 +206,11 @@ def test_exhibitor_api_keys_are_forbidden_when_event_parameters_are_missing(even
 def test_exhibitor_auth_view_accepts_valid_key(event):
     with scopes_disabled():
         exhibitor = _exhibitor(event, lead_scanning_enabled=True)
-        response = _dispatch(ExhibitorAuthView, _api_post(None, {"key": exhibitor.key}))
+        response = _dispatch(
+            ExhibitorAuthView,
+            _api_post(None, {"key": exhibitor.key}),
+            **_event_kwargs(event),
+        )
 
     assert response.status_code == 200
     assert response.data["success"] is True
