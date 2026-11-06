@@ -31,6 +31,8 @@ VOUCHERS = "vouchers"
 EXHIBITOR_PROFILE = "exhibitor_profile"
 EXHIBITOR_PROFILE_NEW_ACCOUNT = "exhibitor_profile_new_account"
 REQUEST_MESSAGE = "request_message"
+ORDER_PLACED = "order_placed"
+ORDER_PAID = "order_paid"
 
 LIFECYCLE_ROLES = (
     REQUEST_NEW,
@@ -41,6 +43,8 @@ LIFECYCLE_ROLES = (
     VOUCHERS,
     EXHIBITOR_PROFILE,
     EXHIBITOR_PROFILE_NEW_ACCOUNT,
+    ORDER_PLACED,
+    ORDER_PAID,
 )
 TEMPLATE_ROLES = (*LIFECYCLE_ROLES, REQUEST_MESSAGE)
 
@@ -79,6 +83,13 @@ PLACEHOLDER_DOCS = (
             "their profile, vouchers and redemptions (voucher and profile emails only)"
         ),
     ),
+    ("{order_code}", _lazy("The exhibition order's code (order emails only)")),
+    ("{order_url}", _lazy("Link for the buyer to view the order (order emails only)")),
+    ("{order_products}", _lazy("The products in the order (order emails only)")),
+    ("{order_total}", _lazy("The order total with currency (order emails only)")),
+    ("{order_contact_name}", _lazy("The contact person given in the order (order emails only)")),
+    ("{order_organization}", _lazy("The organisation given in the order (order emails only)")),
+    ("{order_payment_info}", _lazy("How to pay the order, from its payment method (order placed email only)")),
 )
 
 _SETTINGS_PREFIX = "exhibition_mail_"
@@ -200,6 +211,33 @@ DEFAULT_TEMPLATE_SOURCES = {
             "The {event_name} Team"
         ),
     ),
+    ORDER_PLACED: (
+        gettext_noop("Your order {order_code} for {event_name}"),
+        gettext_noop(
+            "Hello {order_contact_name},\n\n"
+            "thank you for your order for {event_name}. We have received it.\n\n"
+            "Order: {order_code}\n"
+            "Total: {order_total}\n\n"
+            "{order_products}\n\n"
+            "Please complete your payment to confirm the order:\n\n"
+            "{order_payment_info}\n\n"
+            "You can view your order here:\n{order_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    ),
+    ORDER_PAID: (
+        gettext_noop("Your order {order_code} for {event_name} is confirmed"),
+        gettext_noop(
+            "Hello {order_contact_name},\n\n"
+            "your order {order_code} for {event_name} is confirmed. Thank you!\n\n"
+            "Total: {order_total}\n\n"
+            "{order_products}\n\n"
+            "We will be in touch with the next steps. You can view your order here:\n{order_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    ),
     REQUEST_MESSAGE: (
         gettext_noop("Your request for {event_name}"),
         gettext_noop(
@@ -276,6 +314,7 @@ _PREVIEW_URL_RE = re.compile(r"^(https?://|www\.)[^\s]+$")
 
 REQUEST_PLACEHOLDER_CONTEXT = ["event", "exhibition_request"]
 EXHIBITOR_PLACEHOLDER_CONTEXT = ["event", "exhibitor"]
+ORDER_PLACEHOLDER_CONTEXT = ["event", "exhibition_order"]
 
 ROLE_PLACEHOLDER_CONTEXT = {
     REQUEST_NEW: REQUEST_PLACEHOLDER_CONTEXT,
@@ -287,6 +326,8 @@ ROLE_PLACEHOLDER_CONTEXT = {
     EXHIBITOR_PROFILE: EXHIBITOR_PLACEHOLDER_CONTEXT,
     EXHIBITOR_PROFILE_NEW_ACCOUNT: [*EXHIBITOR_PLACEHOLDER_CONTEXT, "invited_user"],
     REQUEST_MESSAGE: REQUEST_PLACEHOLDER_CONTEXT,
+    ORDER_PLACED: ORDER_PLACEHOLDER_CONTEXT,
+    ORDER_PAID: ORDER_PLACEHOLDER_CONTEXT,
 }
 
 
@@ -354,6 +395,31 @@ def build_exhibitor_context(event, exhibitor, **extra):
     context = get_email_context(event=event, exhibitor=exhibitor, **extra)
     context.setdefault("event_name", str(event.name))
     return context
+
+
+def build_order_context(event, order):
+    from eventyay.base.email import get_email_context
+
+    context = get_email_context(event=event, exhibition_order=order)
+    context.setdefault("event_name", str(event.name))
+    return context
+
+
+def order_public_url(exhibition_order):
+    path = reverse(
+        "plugins:exhibition:shop.order",
+        kwargs={
+            "organizer": exhibition_order.event.organizer.slug,
+            "event": exhibition_order.event.slug,
+            "code": exhibition_order.code,
+            "secret": exhibition_order.secret,
+        },
+    )
+    return urljoin(django_settings.SITE_URL, path)
+
+
+def order_product_list(exhibition_order):
+    return "\n".join(f"- {position}" for position in exhibition_order.positions.all())
 
 
 def request_public_url(exhibition_request):
@@ -553,6 +619,32 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
     queued = ExhibitionEmailQueue.objects.create(
         event=event,
         exhibition_request=exhibition_request,
+        role=role,
+        to_email=to_email,
+        subject=_render(subject_tpl, context, locale),
+        body=_render(body_tpl, context, locale),
+        locale=locale or "",
+    )
+    if send_now:
+        queued.send(requestor=requestor)
+    return queued
+
+
+def queue_order_email(event, order, role, *, send_now=False, requestor=None):
+    """Queue an order email to the buyer; ``send_now`` sends it instead of leaving it in the outbox."""
+    from .models import ExhibitionEmailQueue
+
+    to_email = (order.email or "").strip()
+    if not to_email:
+        return None
+
+    locale = recipient_locale(event)
+    subject_tpl, body_tpl = get_email_template(event, role)
+    context = build_order_context(event, order)
+
+    queued = ExhibitionEmailQueue.objects.create(
+        event=event,
+        exhibition_order=order,
         role=role,
         to_email=to_email,
         subject=_render(subject_tpl, context, locale),
