@@ -433,43 +433,43 @@ def exhibition_mail_placeholders(sender, **kwargs):
             my_exhibitions_url,
             my_exhibitions_url(),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_code",
             ["exhibition_order"],
             lambda exhibition_order: exhibition_order.code,
             "ABC12",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_url",
             ["exhibition_order"],
             order_public_url,
             "https://example.com/orga/event/exhibition/packages/order/ABC12/secret/",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_products",
             ["exhibition_order"],
             order_product_list,
             _("- Gold sponsorship"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_total",
             ["exhibition_order"],
             lambda exhibition_order: money_filter(exhibition_order.total, exhibition_order.currency),
             "€5,000.00",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_contact_name",
             ["exhibition_order"],
             lambda exhibition_order: exhibition_order.name,
             _("Jane Doe"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_organization",
             ["exhibition_order"],
             lambda exhibition_order: exhibition_order.organization_name,
             _("Acme Corp"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        ExhibitionMailPlaceholder(
             "order_payment_info",
             ["exhibition_order"],
             payment_instructions,

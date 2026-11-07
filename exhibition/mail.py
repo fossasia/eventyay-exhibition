@@ -400,9 +400,7 @@ def build_exhibitor_context(event, exhibitor, **extra):
 def build_order_context(event, order):
     from eventyay.base.email import get_email_context
 
-    context = get_email_context(event=event, exhibition_order=order)
-    context.setdefault("event_name", str(event.name))
-    return context
+    return get_email_context(event=event, exhibition_order=order, **{MAIL_CONTEXT_KEY: True})
 
 
 def order_public_url(exhibition_order):
