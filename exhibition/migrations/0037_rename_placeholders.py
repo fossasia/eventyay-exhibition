@@ -65,7 +65,7 @@ def backwards(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("exhibition", "0034_exhibitorvoucher_keep_after_delete"),
+        ("exhibition", "0036_exhibition_sales"),
     ]
 
     operations = [
