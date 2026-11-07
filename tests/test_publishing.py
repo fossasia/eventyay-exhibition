@@ -8,7 +8,7 @@ from eventyay.base.models import Team
 from eventyay.base.models.auth import StaffSession, User
 
 from exhibition.filters import ExhibitorFilterForm
-from exhibition.models import ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo
+from exhibition.models import ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo, SponsorGroup
 from exhibition.utils import create_exhibitor_from_request, public_exhibitors_queryset
 from exhibition.views import ExhibitorPublishView
 
@@ -411,30 +411,59 @@ def test_searching_the_preview_stays_in_the_preview(event):
 
 
 @pytest.mark.django_db
-def test_clearing_the_preview_returns_to_the_unfiltered_preview(event):
+def test_old_clear_links_open_the_preview_normally(event):
     with scopes_disabled():
         event.plugins = "exhibition"
         event.save(update_fields=["plugins"])
+        hidden = _exhibitor(event, name="Hidden", published=False)
         organizer = _organizer_with_settings_access(event)
     list_url = _public_url(event, "public_list")
 
     response = _client(organizer).get(list_url + "?preview=1&query=Hidden&clear=1")
+    html = response.content.decode()
 
-    assert response.status_code == 302
-    assert response.url == list_url + "?preview=1"
+    assert response.status_code == 200
+    assert '<input type="hidden" name="preview" value="1">' in html
+    assert f'href="{_public_url(event, "public_detail", pk=hidden.pk)}?preview=1&amp;query=Hidden"' in html
 
 
 @pytest.mark.django_db
-def test_visitors_search_and_clear_without_a_preview(event):
+def test_public_page_has_only_the_search_box(event):
     with scopes_disabled():
         event.plugins = "exhibition"
         event.save(update_fields=["plugins"])
+        group = SponsorGroup.objects.create(event=event, name="Gold", level=1)
+        grouped = _exhibitor(event, name="Grouped", published=True, is_sponsor=True, sponsor_group=group)
+        other = _exhibitor(event, name="Other", published=True)
     client = _client()
     list_url = _public_url(event, "public_list")
 
     html = client.get(list_url + "?preview=1").content.decode()
-    cleared = client.get(list_url + "?preview=1&query=Acme&clear=1")
+    old_link = client.get(list_url + f"?sponsor_group={group.pk}&clear=1")
+    old_html = old_link.content.decode()
 
+    assert 'name="query"' in html
+    assert 'name="sponsor_group"' not in html
+    assert 'name="clear"' not in html
+    assert "exhibition-public-filter-submit" not in html
     assert 'name="preview"' not in html
-    assert cleared.status_code == 302
-    assert cleared.url == list_url
+    assert old_link.status_code == 200
+    assert _public_url(event, "public_detail", pk=grouped.pk) in old_html
+    assert _public_url(event, "public_detail", pk=other.pk) in old_html
+
+
+@pytest.mark.django_db
+def test_search_results_come_back_in_the_block_the_page_swaps_in(event):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        match = _exhibitor(event, name="Acme", published=True)
+        other = _exhibitor(event, name="Globex", published=True)
+    list_url = _public_url(event, "public_list")
+
+    html = _client().get(list_url + "?query=Acme").content.decode()
+    results = html[html.index("<div data-exhibition-results>") :]
+
+    assert "public-exhibitor-search.js" in html
+    assert _public_url(event, "public_detail", pk=match.pk) in results
+    assert _public_url(event, "public_detail", pk=other.pk) not in results

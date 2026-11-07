@@ -1,0 +1,54 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Delete form field" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Delete form field" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        {% if has_answers %}
+            <p>
+                {% blocktrans trimmed with question=object.localized_question %}
+                    Buyers have answered the field "{{ question }}", so it cannot be deleted. You can deactivate it
+                    instead to stop asking it.
+                {% endblocktrans %}
+            </p>
+        {% else %}
+            <p>
+                {% blocktrans trimmed with question=object.localized_question %}
+                    Are you sure you want to delete the field "{{ question }}"?
+                {% endblocktrans %}
+            </p>
+            {% if dependent_questions %}
+                <div class="alert alert-warning" role="alert">
+                    <p>
+                        {% blocktrans trimmed count counter=dependent_questions|length %}
+                            One other field is only shown when this field is answered in a certain way. Deleting
+                            this field removes that condition, so it will always be shown:
+                        {% plural %}
+                            {{ counter }} other fields are only shown when this field is answered in a certain way.
+                            Deleting this field removes that condition, so they will always be shown:
+                        {% endblocktrans %}
+                    </p>
+                    <ul>
+                        {% for dependent in dependent_questions %}
+                            <li>{{ dependent.localized_question }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endif %}
+        <div class="form-group submit-group">
+            {% if not has_answers %}
+                <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+            {% endif %}
+            <a class="btn btn-default btn-lg" href="{{ cancel_url }}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}
