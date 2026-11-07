@@ -4051,7 +4051,7 @@ class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView
             selection = (
                 draft.exhibition_request_id,
                 tuple(sorted(draft.organizations or ())),
-                draft.state,
+                tuple(sorted(draft.states or ())),
                 draft.organization_type,
                 draft.sponsor_group_id,
             )
