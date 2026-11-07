@@ -1,0 +1,20 @@
+{% load i18n %}
+<td class="text-center">
+    <label class="toggle-switch field-active-toggle {% if active_locked %}always-on{% endif %}" aria-label="{% blocktrans trimmed with field=label %}Toggle active state for {{ field }}{% endblocktrans %}">
+        <input type="checkbox" class="field-active-input" name="{{ input_prefix }}_active" {% if active %}checked{% endif %} {% if active_locked %}disabled{% endif %}>
+        <span class="toggle-slider"></span>
+    </label>
+</td>
+<td class="text-center">
+    <div class="required-status-wrapper {% if not active %}is-disabled{% endif %}" data-current="{% if required %}required{% else %}optional{% endif %}">
+        <select class="required-status-dropdown"
+                name="{{ input_prefix }}_required"
+                data-current="{% if required %}required{% else %}optional{% endif %}"
+                {% if required_locked %}data-locked="1"{% endif %}
+                {% if required_locked or not active %}disabled{% endif %}
+                aria-label="{% blocktrans trimmed with field=label %}Required status for {{ field }}{% endblocktrans %}">
+            <option value="optional" {% if not required %}selected{% endif %}>{% trans "Optional" %}</option>
+            <option value="required" {% if required %}selected{% endif %}>{% trans "Required" %}</option>
+        </select>
+    </div>
+</td>
