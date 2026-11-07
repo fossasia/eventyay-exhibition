@@ -1,4 +1,6 @@
+import importlib
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -85,13 +87,13 @@ def test_saving_a_draft_queues_nothing(mail_event):
     view = _compose_view(mail_event, post={"_draft": "draft"})
 
     with scopes_disabled():
-        response = _submit(view, {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+        response = _submit(view, {"states": ["accepted"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
         draft = ExhibitionEmailDraft.objects.get(event=mail_event)
         assert not ExhibitionEmailQueue.objects.filter(event=mail_event).exists()
 
     assert response.status_code == 302
     assert response.url.endswith("/emails/drafts")
-    assert draft.state == "accepted"
+    assert draft.states == ["accepted"]
     assert str(draft.subject) == "Hi"
     assert _messages(view) == ["The draft has been saved."]
 
@@ -107,7 +109,7 @@ def test_reopening_a_draft_restores_every_compose_field(mail_event):
         _submit(
             view,
             {
-                "state": "accepted",
+                "states": ["accepted"],
                 "organization_type": "sponsor",
                 "sponsor_group": group.pk,
                 "organizations": [f"{REQUEST_CHOICE_PREFIX}{acme.pk}"],
@@ -119,7 +121,7 @@ def test_reopening_a_draft_restores_every_compose_field(mail_event):
 
         initial = _compose_view(mail_event, draft=draft).get_initial()
 
-    assert initial["state"] == "accepted"
+    assert initial["states"] == ["accepted"]
     assert initial["organization_type"] == "sponsor"
     assert initial["sponsor_group"] == group
     assert initial["organizations"] == [f"{REQUEST_CHOICE_PREFIX}{acme.pk}"]
@@ -143,9 +145,9 @@ def test_saving_an_open_draft_updates_it_in_place(mail_event):
 def test_queuing_a_draft_moves_it_to_the_outbox(mail_event):
     _request(mail_event, "Acme", email="a@example.com")
     with scopes_disabled():
-        draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Hi", state="accepted")
+        draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Hi", states=["accepted"])
         view = _compose_view(mail_event, post={"_save": "save"}, draft=draft)
-        response = _submit(view, {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+        response = _submit(view, {"states": ["accepted"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
 
         assert not ExhibitionEmailDraft.objects.filter(pk=draft.pk).exists()
         queued = ExhibitionEmailQueue.objects.get(event=mail_event)
@@ -160,7 +162,7 @@ def test_sending_a_draft_removes_it(mail_event):
         draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Hi")
         view = _compose_view(mail_event, post={"_send": "send"}, draft=draft)
         with patch("eventyay.base.services.mail.mail") as mocked_mail:
-            _submit(view, {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+            _submit(view, {"states": ["accepted"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
 
         assert not ExhibitionEmailDraft.objects.filter(pk=draft.pk).exists()
     assert mocked_mail.call_count == 1
@@ -171,7 +173,7 @@ def test_a_draft_with_no_matching_recipients_is_kept(mail_event):
     with scopes_disabled():
         draft = ExhibitionEmailDraft.objects.create(event=mail_event, subject="Hi")
         view = _compose_view(mail_event, post={"_send": "send"}, draft=draft)
-        _submit(view, {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+        _submit(view, {"states": ["accepted"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
 
         assert ExhibitionEmailDraft.objects.filter(pk=draft.pk).exists()
 
@@ -244,10 +246,10 @@ def test_recipient_count_resolves_recipients_like_the_compose_form(mail_event):
             return ExhibitionEmailDraft(event=mail_event, **fields).recipient_count()
 
         assert count() == 3
-        assert count(state="accepted") == 2
-        assert count(state="accepted", organization_type="sponsor", sponsor_group=gold) == 1
-        assert count(state="submitted", organizations=[f"{REQUEST_CHOICE_PREFIX}{acme.pk}"]) == 1
-        assert count(exhibition_request=acme, state="submitted") == 1
+        assert count(states=["accepted"]) == 2
+        assert count(states=["accepted"], organization_type="sponsor", sponsor_group=gold) == 1
+        assert count(states=["submitted"], organizations=[f"{REQUEST_CHOICE_PREFIX}{acme.pk}"]) == 1
+        assert count(exhibition_request=acme, states=["submitted"]) == 1
 
 
 def _organizer_client(event, settings):
@@ -270,7 +272,7 @@ def test_drafts_list_shows_how_many_recipients_each_draft_reaches(mail_event, se
     _request(mail_event, "Acme", email="a@example.com")
     _request(mail_event, "Globex", email="g@example.com")
     with scopes_disabled():
-        ExhibitionEmailDraft.objects.create(event=mail_event, subject="To everyone", state="accepted")
+        ExhibitionEmailDraft.objects.create(event=mail_event, subject="To everyone", states=["accepted"])
     url = reverse(
         "plugins:exhibition:email.drafts",
         kwargs={"organizer": mail_event.organizer.slug, "event": mail_event.slug},
@@ -291,11 +293,11 @@ def test_a_draft_already_queued_by_another_request_is_not_queued_again(mail_even
         late.draft  # loaded before the first submission went through
         _submit(
             _compose_view(mail_event, post={"_save": "save"}, draft=draft),
-            {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")},
+            {"states": ["accepted"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")},
         )
 
         with patch("eventyay.base.services.mail.mail") as mocked_mail:
-            response = _submit(late, {"state": "accepted", **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+            response = _submit(late, {"states": ["accepted"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
 
         assert ExhibitionEmailQueue.objects.filter(event=mail_event).count() == 1
     assert mocked_mail.call_count == 0
@@ -343,3 +345,37 @@ def test_a_sponsor_group_can_be_deleted_once_its_drafts_are_discarded(mail_event
         gold.delete()
 
         assert not SponsorGroup.objects.filter(pk=gold.pk).exists()
+
+
+@pytest.mark.django_db
+def test_reopened_draft_keeps_every_chosen_state(mail_event):
+    view = _compose_view(mail_event, post={"_draft": "draft"})
+    with scopes_disabled():
+        _submit(view, {"states": ["accepted", "confirmed"], **_i18n(mail_event, subject="Hi", body="<p>Body</p>")})
+        draft = ExhibitionEmailDraft.objects.get(event=mail_event)
+
+        initial = _compose_view(mail_event, draft=draft).get_initial()
+
+    assert initial["states"] == ["accepted", "confirmed"]
+
+
+@pytest.mark.django_db
+def test_draft_count_covers_every_chosen_state(mail_event):
+    _request(mail_event, "Accepted", email="a@example.com")
+    _request(mail_event, "Confirmed", ExhibitionRequestState.CONFIRMED, email="c@example.com")
+    _request(mail_event, "Rejected", ExhibitionRequestState.REJECTED, email="r@example.com")
+
+    with scopes_disabled():
+        draft = ExhibitionEmailDraft(event=mail_event, states=["accepted", "confirmed"])
+        assert draft.recipient_count() == 2
+
+
+def test_migration_keeps_a_draft_saved_with_one_state():
+    migration = importlib.import_module("exhibition.migrations.0037_emaildraft_states")
+    saved = SimpleNamespace(state="accepted", states=[], save=lambda update_fields: None)
+    drafts = SimpleNamespace(exclude=lambda state: [saved])
+    apps = SimpleNamespace(get_model=lambda app, name: SimpleNamespace(objects=drafts))
+
+    migration.state_to_states(apps, None)
+
+    assert saved.states == ["accepted"]
