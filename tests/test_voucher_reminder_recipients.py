@@ -25,7 +25,7 @@ from exhibition.models import (
     ExhibitorVoucher,
     SponsorGroup,
 )
-from exhibition.views import EmailOutboxListView, EmailSentListView, group_email_entries
+from exhibition.views import EmailOutboxListView, EmailSentListView, group_email_entries, send_queued_emails
 
 _codes = itertools.count(1)
 
@@ -316,3 +316,44 @@ def test_outbox_and_sent_lists_show_the_group_label(mail_event):
 
     assert "Vouchers not all used" in _list_html(mail_event, EmailOutboxListView, "email.outbox")
     assert "Vouchers not all used" in _list_html(mail_event, EmailSentListView, "email.sent")
+
+
+@pytest.mark.django_db
+def test_reminder_uses_the_source_applications_placeholders_and_locale(mail_event):
+    with scopes_disabled():
+        organization = _organization(mail_event, "Acme")
+        _vouchers(mail_event, organization, 1)
+        user = User.objects.create_user(email="applicant@example.com", password="pw", locale="de")
+        application = ExhibitionRequest.objects.create(
+            event=mail_event,
+            user=user,
+            name="Acme",
+            state=ExhibitionRequestState.ACCEPTED,
+            approved_exhibitor=organization,
+        )
+        _requests, profiles = mail_helpers.resolve_compose_recipients(
+            mail_event, state=mail_helpers.VOUCHERS_NOT_ALL_USED
+        )
+        (queued,) = mail_helpers.queue_compose_emails(
+            mail_event, [], "Reminder", "Code {request_code}", exhibitors=profiles
+        )
+
+    assert queued.body == f"Code {application.code}"
+    assert queued.locale == "de"
+    assert queued.exhibitor == organization
+
+
+@pytest.mark.django_db
+def test_sending_counts_dropped_reminders_apart_from_sent_and_already_handled_rows(mail_event):
+    with scopes_disabled():
+        used = _organization(mail_event, "Used")
+        used_vouchers = _vouchers(mail_event, used, 1)
+        remaining = _organization(mail_event, "Remaining")
+        _vouchers(mail_event, remaining, 1)
+        rows = _scheduled_reminder(mail_event, [used, remaining])
+        _use(used_vouchers[0])
+
+        with patch("eventyay.base.services.mail.mail"):
+            assert send_queued_emails(rows, None) == (1, 1)
+            already_sent = ExhibitionEmailQueue.objects.get(to_email=remaining.email, batch=rows[1].batch)
+            assert send_queued_emails([already_sent], None) == (0, 0)
