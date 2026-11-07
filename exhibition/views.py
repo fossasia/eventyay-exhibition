@@ -376,7 +376,8 @@ class ClampedPaginationMixin(PaginationMixin):
             orphans=self.get_paginate_orphans(),
             allow_empty_first_page=self.get_allow_empty(),
         )
-        page = paginator.get_page(self.kwargs.get(self.page_kwarg) or self.request.GET.get(self.page_kwarg))
+        number = self.kwargs.get(self.page_kwarg) or self.request.GET.get(self.page_kwarg)
+        page = paginator.get_page(paginator.num_pages if number == "last" else number)
         return paginator, page, page.object_list, page.has_other_pages()
 
 
