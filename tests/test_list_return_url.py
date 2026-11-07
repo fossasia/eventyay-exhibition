@@ -157,7 +157,9 @@ def test_list_still_accepts_page_last(event):
         ),
     ],
 )
-def test_rendered_row_links_carry_the_list_page(event, route, row_routes, make_row):
+def test_rendered_row_links_carry_the_list_page(event, route, row_routes, make_row, settings):
+    settings.SITE_URL = "https://testserver"
+    settings.DEBUG_TOOLBAR_CONFIG = {"SHOW_TOOLBAR_CALLBACK": lambda request: False}
     with scopes_disabled():
         event.plugins = "exhibition"
         event.save()
@@ -168,7 +170,9 @@ def test_rendered_row_links_carry_the_list_page(event, route, row_routes, make_r
     client = Client()
     client.force_login(user)
     list_url = f"{reverse(f'plugins:exhibition:{route}', kwargs=_kwargs(event))}?page=1"
-    html = client.get(list_url).content.decode()
+    response = client.get(list_url)
+    assert response.status_code == 200
+    html = response.content.decode()
     encoded = quote(list_url, safe="/")
     for row_route in row_routes:
         url = reverse(f"plugins:exhibition:{row_route}", kwargs={**_kwargs(event), "pk": row.pk})
