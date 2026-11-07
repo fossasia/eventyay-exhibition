@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, quote_plus, urlparse
+from urllib.parse import parse_qs, urlparse
 
 from django.db import IntegrityError, transaction
 from django.db.models import (
@@ -549,12 +549,9 @@ VOUCHER_CSV_FILENAME = "exhibitor-vouchers.csv"
 
 def voucher_redeem_url(event, voucher):
     """Public checkout link that pre-applies this voucher code."""
-    from eventyay.multidomain.urlreverse import build_absolute_uri
+    from eventyay.base.email import voucher_redeem_url as core_voucher_redeem_url
 
-    url = f"{build_absolute_uri(event, 'presale:event.redeem')}?voucher={quote_plus(voucher.code)}"
-    if voucher.subevent_id:
-        url = f"{url}&subevent={voucher.subevent_id}"
-    return url
+    return core_voucher_redeem_url(event, voucher.code, voucher.subevent_id)
 
 
 def build_voucher_csv(event, vouchers) -> str:
