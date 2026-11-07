@@ -1,0 +1,64 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load money %}
+
+{% block title %}{{ request.event.name }} - {% trans "Create exhibition order" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Create exhibition order" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <p>
+        {% blocktrans trimmed %}
+            Book a negotiated sponsorship, a complimentary booth or an offline agreement. The order counts against
+            the product quotas and creates the organization profile like any order placed on the public page.
+        {% endblocktrans %}
+    </p>
+    {% if not products %}
+        <form action="" method="get" class="form-horizontal">
+            {% bootstrap_form products_form layout="control" %}
+            <div class="form-group submit-group">
+                <button type="submit" class="btn btn-primary btn-save">{% trans "Continue" %}</button>
+                <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:orders' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    {% trans "Cancel" %}
+                </a>
+            </div>
+        </form>
+    {% else %}
+        <form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% for product in products %}
+                <input type="hidden" name="products" value="{{ product.pk }}">
+            {% endfor %}
+            <fieldset>
+                <legend>{% trans "Products" %}</legend>
+                <ul>
+                    {% for product in products %}
+                        <li>
+                            {{ product }} ({{ product.price|money:request.event.currency }})
+                            {% if not product.active %}<span class="label label-default">{% trans "Inactive" %}</span>{% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p>
+                    <a href="{% url 'plugins:exhibition:orders.add' organizer=request.event.organizer.slug event=request.event.slug %}">
+                        <span class="fa fa-edit" aria-hidden="true"></span> {% trans "Change products" %}
+                    </a>
+                </p>
+            </fieldset>
+            <fieldset>
+                <legend>{% trans "Order form" %}</legend>
+                {% bootstrap_form order_form layout="control" %}
+            </fieldset>
+            <fieldset>
+                <legend>{% trans "Payment" %}</legend>
+                {% bootstrap_form booking_form layout="control" %}
+            </fieldset>
+            <div class="form-group submit-group">
+                <button type="submit" class="btn btn-primary btn-save">{% trans "Create order" %}</button>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}
