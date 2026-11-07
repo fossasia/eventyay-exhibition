@@ -8,7 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
 from django.urls import reverse
@@ -194,6 +194,34 @@ def organization_list_url(event, organization_type):
     return reverse(route, kwargs=event_kwargs(event))
 
 
+def organization_list_type(request, organization):
+    """The list a row action on ``organization`` came from: ``?type=`` first, else its own type."""
+    organization_type = request.GET.get("type")
+    if organization_type in ("sponsor", "exhibitor"):
+        return organization_type
+    return "sponsor" if organization.is_sponsor and not organization.is_exhibitor else "exhibitor"
+
+
+def organization_list_return_url(request, organization):
+    """The Exhibitors or Sponsors list page a row action on ``organization`` came from."""
+    organization_type = organization_list_type(request, organization)
+    return list_return_url(request, organization_list_url(request.event, organization_type))
+
+
+def with_list_state(request, url):
+    """``url`` carrying the ``type`` and ``next`` of the list the page was opened from."""
+    params = {key: request.GET[key] for key in ("type", "next") if request.GET.get(key)}
+    return f"{url}?{urlencode(params)}" if params else url
+
+
+def list_return_url(request, list_url):
+    """The ``next`` page of ``list_url`` a row action came from, so it keeps its page and filters."""
+    next_url = request.POST.get("next") or request.GET.get("next") or ""
+    if next_url.startswith(f"{list_url}?"):
+        return next_url
+    return list_url
+
+
 def send_request_confirmation(event, exhibition_request, requestor):
     """Send the submission confirmation email once the transaction commits."""
     transaction.on_commit(
@@ -338,7 +366,22 @@ class PublicCallEnabledMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
-class FilteredListMixin(PaginationMixin):
+class ClampedPaginationMixin(PaginationMixin):
+    """Shows the last page instead of a 404 when the requested page no longer exists."""
+
+    def paginate_queryset(self, queryset, page_size):
+        paginator = self.get_paginator(
+            queryset,
+            page_size,
+            orphans=self.get_paginate_orphans(),
+            allow_empty_first_page=self.get_allow_empty(),
+        )
+        number = self.kwargs.get(self.page_kwarg) or self.request.GET.get(self.page_kwarg)
+        page = paginator.get_page(paginator.num_pages if number == "last" else number)
+        return paginator, page, page.object_list, page.has_other_pages()
+
+
+class FilteredListMixin(ClampedPaginationMixin):
     """Wires a control-panel FilterForm and pagination into a ListView."""
 
     selection_field = None
@@ -1937,10 +1980,12 @@ class ExhibitionProductMixin(EventPermissionRequiredMixin):
         return ExhibitionProduct.objects.filter(event=self.request.event).select_related("category").in_sales_order()
 
     def get_success_url(self):
-        return reverse("plugins:exhibition:products", kwargs=event_kwargs(self.request.event))
+        return list_return_url(
+            self.request, reverse("plugins:exhibition:products", kwargs=event_kwargs(self.request.event))
+        )
 
 
-class ExhibitionProductListView(ExhibitionProductMixin, PaginationMixin, ListView):
+class ExhibitionProductListView(ExhibitionProductMixin, ClampedPaginationMixin, ListView):
     template_name = "exhibitors/products.html"
     context_object_name = "products"
 
@@ -3087,6 +3132,7 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             "exhibitor": _("Edit Exhibitor"),
             "both": _("Edit Exhibitor & Sponsor"),
         }.get(organization_type_of(self.object), _("Edit Exhibitor or Sponsor"))
+        context["cancel_url"] = self.get_success_url()
         context["exhibition_orders"] = self.object.exhibition_orders.prefetch_related(
             Prefetch("positions", queryset=ExhibitionOrderPosition.objects.select_related("product")),
             Prefetch(
@@ -3099,11 +3145,7 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
         return context
 
     def get_success_url(self):
-        # Return to the list the organization was edited from; fall back to its type.
-        organization_type = self.request.GET.get("type")
-        if organization_type not in ("sponsor", "exhibitor"):
-            organization_type = "sponsor" if self.object.is_sponsor and not self.object.is_exhibitor else "exhibitor"
-        return organization_list_url(self.request.event, organization_type)
+        return organization_list_return_url(self.request, self.object)
 
 
 class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
@@ -3130,7 +3172,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
             "exhibitor": _("Delete Exhibitor"),
             "both": _("Delete Exhibitor & Sponsor"),
         }.get(organization_type, _("Delete Exhibitor or Sponsor"))
-        context["cancel_url"] = organization_list_url(self.request.event, organization_type)
+        context["cancel_url"] = self.get_success_url()
         returnable, deletable, kept = split_vouchers_for_deletion(self.object)
         context["vouchers_returned"] = len(returnable)
         context["vouchers_deleted"] = len(deletable)
@@ -3139,7 +3181,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
         return context
 
     def get_success_url(self) -> str:
-        return organization_list_url(self.request.event, organization_type_of(self.object))
+        return organization_list_return_url(self.request, self.object)
 
 
 class ExhibitorCopyKeyView(EventPermissionRequiredMixin, View):
@@ -3174,6 +3216,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         defaults = resolve_voucher_defaults(self.object)
         context.setdefault("form", ExhibitorVoucherBatchForm(initial={"count": defaults["count"]}))
+        context["cancel_url"] = organization_list_return_url(self.request, self.object)
         context["vouchers"] = self.voucher_links()
         context["pool_tag"] = defaults["pool_tag"]
         context["pool_remaining"] = pool_remaining(self.request.event, defaults["pool_tag"])
@@ -3191,9 +3234,9 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         return response
 
     def get_success_url(self):
-        return reverse(
-            "plugins:exhibition:vouchers",
-            kwargs={**event_kwargs(self.request.event), "pk": self.object.pk},
+        return with_list_state(
+            self.request,
+            reverse("plugins:exhibition:vouchers", kwargs={**event_kwargs(self.request.event), "pk": self.object.pk}),
         )
 
     def post(self, request, *args, **kwargs):
@@ -3624,12 +3667,13 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
         context.setdefault("form", ExhibitorDeviceProvisionForm())
         context["device_links"] = self.device_links()
         context["can_provision"] = self.can_provision()
+        context["cancel_url"] = organization_list_return_url(self.request, self.object)
         return context
 
     def get_success_url(self):
-        return reverse(
-            "plugins:exhibition:devices",
-            kwargs={**event_kwargs(self.request.event), "pk": self.object.pk},
+        return with_list_state(
+            self.request,
+            reverse("plugins:exhibition:devices", kwargs={**event_kwargs(self.request.event), "pk": self.object.pk}),
         )
 
     def post(self, request, *args, **kwargs):
@@ -3778,7 +3822,12 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             draft.fill_from_form(form.cleaned_data)
             draft.save()
         messages.success(self.request, _("The draft has been saved."))
-        return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
+        return redirect(self.drafts_url())
+
+    def drafts_url(self):
+        return list_return_url(
+            self.request, reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
+        )
 
     def queue_emails(self, form, scheduled_at, send_now):
         """Queue the composed email, consuming the draft it came from so that draft is queued only once.
@@ -4031,7 +4080,7 @@ class EmailSentListView(EmailListMixin, EventPermissionRequiredMixin, ListView):
         return ExhibitionEmailQueue.objects.filter(event=self.request.event, sent_at__isnull=False)
 
 
-class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView):
+class EmailDraftListView(EventPermissionRequiredMixin, ClampedPaginationMixin, ListView):
     """Composed emails saved for later. They stay here, unsent, until queued from the compose screen."""
 
     permission = EMAIL_MANAGE_PERMISSION
@@ -4061,6 +4110,16 @@ class EmailDraftListView(EventPermissionRequiredMixin, PaginationMixin, ListView
         return context
 
 
+def outbox_return_url(request):
+    """The outbox page a row action came from, without a finished bulk run's ``?bulk=done``."""
+    url, _sep, query = list_return_url(
+        request, reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(request.event))
+    ).partition("?")
+    params = QueryDict(query, mutable=True)
+    params.pop("bulk", None)
+    return f"{url}?{params.urlencode()}" if params else url
+
+
 class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
     """Discard a saved draft."""
 
@@ -4072,9 +4131,19 @@ class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
     def get_queryset(self):
         return ExhibitionEmailDraft.objects.filter(event=self.request.event)
 
+    def drafts_url(self):
+        return list_return_url(
+            self.request, reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["cancel_url"] = self.drafts_url()
+        return context
+
     def get_success_url(self):
         messages.success(self.request, _("The draft has been discarded."))
-        return reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
+        return self.drafts_url()
 
 
 class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin, UpdateView):
@@ -4164,7 +4233,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         self.object.refresh_from_db()
         if self.object.sent_at is not None:
             return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
-        return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
+        return outbox_return_url(self.request)
 
 
 class EmailSendView(EventPermissionRequiredMixin, View):
@@ -4186,7 +4255,7 @@ class EmailSendView(EventPermissionRequiredMixin, View):
             request,
             ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count) % {"count": count},
         )
-        return redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
+        return redirect(outbox_return_url(request))
 
 
 class EmailDeleteView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin, DeleteView):
@@ -4208,6 +4277,7 @@ class EmailDeleteView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixi
             )
         else:
             context["recipients"] = [self.object.to_email]
+        context["cancel_url"] = outbox_return_url(self.request)
         return context
 
     def form_valid(self, form):
@@ -4221,7 +4291,7 @@ class EmailDeleteView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixi
 
     def get_success_url(self):
         messages.success(self.request, _("The email has been discarded."))
-        return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
+        return outbox_return_url(self.request)
 
 
 class EmailBulkActionView(EventPermissionRequiredMixin, View):

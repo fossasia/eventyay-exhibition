@@ -45,7 +45,7 @@
                         {% endblocktrans %}
                     </td>
                     <td>
-                        <a href="{{ compose_url }}?draft={{ draft.pk }}">
+                        <a href="{{ compose_url }}?draft={{ draft.pk }}&amp;next={{ request.get_full_path|urlencode }}">
                             {% if draft.subject %}{{ draft.subject }}{% else %}<span class="text-muted">{% trans "(no subject)" %}</span>{% endif %}
                         </a>
                     </td>
@@ -61,13 +61,13 @@
                         <div class="btn-toolbar" role="toolbar">
                             <div class="btn-group" role="group">
                                 <a class="btn btn-sm btn-info" title="{% trans 'Edit' %}" data-toggle="tooltip"
-                                   href="{{ compose_url }}?draft={{ draft.pk }}">
+                                   href="{{ compose_url }}?draft={{ draft.pk }}&amp;next={{ request.get_full_path|urlencode }}">
                                     <i class="fa fa-edit"></i>
                                 </a>
                             </div>
                             <div class="btn-group" role="group">
                                 <a class="btn btn-sm btn-danger" title="{% trans 'Discard' %}" data-toggle="tooltip"
-                                   href="{% url 'plugins:exhibition:email.draft.delete' organizer=request.event.organizer.slug event=request.event.slug pk=draft.pk %}">
+                                   href="{% url 'plugins:exhibition:email.draft.delete' organizer=request.event.organizer.slug event=request.event.slug pk=draft.pk %}?next={{ request.get_full_path|urlencode }}">
                                     <i class="fa fa-trash"></i>
                                 </a>
                             </div>

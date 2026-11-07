@@ -64,7 +64,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="{% url 'plugins:exhibition:email.edit' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}">
+                        <a href="{% url 'plugins:exhibition:email.edit' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}?next={{ request.get_full_path|urlencode }}">
                             {{ entry.subject }}
                         </a>
                     </td>
@@ -81,21 +81,21 @@
                             <div class="btn-group" role="group">
                                 <button type="submit" class="btn btn-sm btn-primary" title="{% trans 'Send' %}"
                                         data-toggle="tooltip"
-                                        formaction="{% url 'plugins:exhibition:email.send' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}">
+                                        formaction="{% url 'plugins:exhibition:email.send' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}?next={{ request.get_full_path|urlencode }}">
                                     <i class="fa fa-mail-forward"></i>
                                 </button>
                             </div>
                             <div class="btn-group" role="group">
                                 <a class="btn btn-sm btn-info" title="{% trans 'Edit' %}"
                                    data-toggle="tooltip"
-                                   href="{% url 'plugins:exhibition:email.edit' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}">
+                                   href="{% url 'plugins:exhibition:email.edit' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}?next={{ request.get_full_path|urlencode }}">
                                     <i class="fa fa-edit"></i>
                                 </a>
                             </div>
                             <div class="btn-group" role="group">
                                 <a class="btn btn-sm btn-danger" title="{% trans 'Discard' %}"
                                    data-toggle="tooltip"
-                                   href="{% url 'plugins:exhibition:email.delete' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}">
+                                   href="{% url 'plugins:exhibition:email.delete' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}?next={{ request.get_full_path|urlencode }}">
                                     <i class="fa fa-trash"></i>
                                 </a>
                             </div>

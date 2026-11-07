@@ -7,7 +7,7 @@
     {% endif %}
     <td>
         {% if "can_change_event_settings" in request.eventpermset %}
-            <strong><a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}">
+            <strong><a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}&amp;next={{ request.get_full_path|urlencode }}">
                 {{ e.name }}
             </a></strong>
         {% else %}
@@ -48,11 +48,11 @@
     {% endif %}
     <td class="text-right flip">
         {% if "can_change_event_settings" in request.eventpermset %}
-            <a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}" class="btn btn-default btn-sm" title="{% trans "Edit" %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+            <a href="{% url "plugins:exhibition:edit" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}&amp;next={{ request.get_full_path|urlencode }}" class="btn btn-default btn-sm" title="{% trans "Edit" %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
             <button type="button" class="btn btn-default btn-sm exhibitor-copy-key" data-url="{% url "plugins:exhibition:copy_key" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" data-copied-label="{% trans "Copied!" %}" data-failed-label="{% trans "Copy failed" %}" title="{% trans "Key" %}" data-toggle="tooltip"><i class="fa fa-copy"></i></button>
-            <a href="{% url "plugins:exhibition:vouchers" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-default btn-sm" title="{% trans "Vouchers" %}" data-toggle="tooltip"><i class="fa fa-ticket"></i></a>
+            <a href="{% url "plugins:exhibition:vouchers" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}&amp;next={{ request.get_full_path|urlencode }}" class="btn btn-default btn-sm" title="{% trans "Vouchers" %}" data-toggle="tooltip"><i class="fa fa-ticket"></i></a>
             {% if e.is_exhibitor %}
-                <a href="{% url "plugins:exhibition:devices" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}" class="btn btn-default btn-sm" title="{% trans "Lead-scanning devices" %}" data-toggle="tooltip"><i class="fa fa-mobile"></i></a>
+                <a href="{% url "plugins:exhibition:devices" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}&amp;next={{ request.get_full_path|urlencode }}" class="btn btn-default btn-sm" title="{% trans "Lead-scanning devices" %}" data-toggle="tooltip"><i class="fa fa-mobile"></i></a>
             {% else %}
                 <span data-toggle="tooltip" title="{% trans "Lead scanning is only available to exhibitors. Mark this sponsor as an exhibitor too to enable it." %}">
                     <button type="button" class="btn btn-default btn-sm" disabled><i class="fa fa-mobile"></i></button>
@@ -67,7 +67,7 @@
                     </button>
                 </form>
             {% endif %}
-            <a href="{% url "plugins:exhibition:delete" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}" class="btn btn-delete btn-danger btn-sm" title="{% trans "Delete" %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+            <a href="{% url "plugins:exhibition:delete" organizer=request.event.organizer.slug event=request.event.slug pk=e.id %}?type={{ organization_type }}&amp;next={{ request.get_full_path|urlencode }}" class="btn btn-delete btn-danger btn-sm" title="{% trans "Delete" %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
             {% if reorder_enabled %}
                 <button type="button" draggable="true" class="btn btn-primary btn-sm dragsort-button" title="{% trans 'Move' %}" aria-label="{% trans 'Move' %}" data-toggle="tooltip">
                     <i class="fa fa-arrows"></i>

@@ -95,7 +95,7 @@
                             <td class="list-name-cell">
                                 <strong>
                                     {% if not product.active %}<strike>{% endif %}
-                                    <a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}">{{ product }}</a>
+                                    <a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}?next={{ request.get_full_path|urlencode }}">{{ product }}</a>
                                     {% if not product.active %}</strike>{% endif %}
                                 </strong>
                             </td>
@@ -127,9 +127,9 @@
                                 {% if product.category %}<span class="category-pill">{{ product.category.backend_name }}</span>{% endif %}
                             </td>
                             <td class="list-actions text-right flip" data-label="{% trans 'Actions' %}">
-                                <a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}"
+                                <a href="{% url 'plugins:exhibition:products.edit' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}?next={{ request.get_full_path|urlencode }}"
                                    class="btn btn-default btn-sm" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
-                                <a href="{% url 'plugins:exhibition:products.delete' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}"
+                                <a href="{% url 'plugins:exhibition:products.delete' organizer=request.event.organizer.slug event=request.event.slug pk=product.pk %}?next={{ request.get_full_path|urlencode }}"
                                    class="btn btn-delete btn-danger btn-sm" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
                                 {% if reorder_enabled %}
                                     <button type="button" draggable="true" class="btn btn-primary btn-sm dragsort-button" title="{% trans 'Move' %}" aria-label="{% trans 'Move' %}" data-toggle="tooltip">

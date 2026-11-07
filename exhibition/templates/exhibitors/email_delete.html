@@ -24,7 +24,7 @@
             {% endif %}
         </p>
         <div class="form-group submit-group">
-            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:email.outbox' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-default btn-lg" href="{{ cancel_url }}">
                 {% trans "Cancel" %}
             </a>
             <button type="submit" class="btn btn-danger btn-lg">

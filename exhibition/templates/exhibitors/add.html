@@ -90,7 +90,8 @@
                 {% trans "Save" %}
             {% endif %}
         </button>
-        {% if organization_type == 'sponsor' or request.GET.type == 'sponsor' %}
+        {% if cancel_url %}
+        {% elif organization_type == 'sponsor' or request.GET.type == 'sponsor' %}
             {% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
         {% else %}
             {% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
