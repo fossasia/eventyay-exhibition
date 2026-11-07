@@ -36,7 +36,7 @@
         </fieldset>
         <div class="form-group submit-group">
             <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
-            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-default btn-lg" href="{{ view.get_success_url }}">
                 {% trans "Cancel" %}
             </a>
         </div>

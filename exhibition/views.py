@@ -1980,10 +1980,12 @@ class ExhibitionProductMixin(EventPermissionRequiredMixin):
         return ExhibitionProduct.objects.filter(event=self.request.event).select_related("category").in_sales_order()
 
     def get_success_url(self):
-        return reverse("plugins:exhibition:products", kwargs=event_kwargs(self.request.event))
+        return list_return_url(
+            self.request, reverse("plugins:exhibition:products", kwargs=event_kwargs(self.request.event))
+        )
 
 
-class ExhibitionProductListView(ExhibitionProductMixin, PaginationMixin, ListView):
+class ExhibitionProductListView(ExhibitionProductMixin, ClampedPaginationMixin, ListView):
     template_name = "exhibitors/products.html"
     context_object_name = "products"
 
