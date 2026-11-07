@@ -586,13 +586,15 @@ class ExhibitorInfo(LoggedModel):
         stored = (self.email or "").strip()
         if stored:
             return stored
-        exhibition_requests = sorted(
-            self.source_requests.all(), key=lambda exhibition_request: exhibition_request.pk, reverse=True
-        )
-        if not exhibition_requests:
+        latest = self.latest_source_request
+        if latest is None:
             return ""
-        latest = exhibition_requests[0]
         return (latest.email or "").strip() or (latest.user.email if latest.user_id else "")
+
+    @property
+    def latest_source_request(self):
+        """The newest application behind this profile, read from any prefetched requests."""
+        return max(self.source_requests.all(), key=lambda exhibition_request: exhibition_request.pk, default=None)
 
     @property
     def localized_booth_name(self):

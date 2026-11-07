@@ -838,7 +838,7 @@ def resolve_compose_recipients(event, *, organizations=(), state="", organizatio
     if state == VOUCHERS_NOT_ALL_USED:
         profiles = organizations_with_unused_vouchers(
             event, organization_type=organization_type, sponsor_group=sponsor_group
-        )
+        ).prefetch_related("source_requests__user")
         return compose_recipients(event).none(), profiles
     exhibition_requests = compose_recipients(
         event,
@@ -905,10 +905,15 @@ def queue_compose_emails(
             exhibition_request=exhibition_request,
         )
     for exhibitor in exhibitors:
-        context = build_exhibitor_context(event, exhibitor)
-        if not context.get("request_name"):
-            context["request_name"] = context.get("exhibitor_name") or str(exhibitor.name)
-        queue(exhibitor.recipient_email, None, context, exhibitor=exhibitor)
+        source_request = exhibitor.latest_source_request
+        if source_request is not None:
+            context = build_request_context(event, source_request)
+        else:
+            context = build_exhibitor_context(event, exhibitor)
+            if not context.get("request_name"):
+                context["request_name"] = context.get("exhibitor_name") or str(exhibitor.name)
+        user = source_request.user if source_request is not None and source_request.user_id else None
+        queue(exhibitor.recipient_email, user, context, exhibitor=exhibitor)
     return created
 
 
