@@ -3908,6 +3908,38 @@ class ApplicantEmailVisibilityMixin:
 VOUCHER_REMINDER_LABEL = _("Vouchers not all used")
 
 
+def send_queued_emails(rows, requestor):
+    """Send ``rows``; returns how many went out and how many were dropped for leaving their group."""
+    sent = skipped = 0
+    for row in rows:
+        if row.send(requestor=requestor):
+            sent += 1
+        elif row.pk is None:
+            skipped += 1
+    return sent, skipped
+
+
+def report_sent_emails(request, sent, skipped, nothing_message):
+    """Tell the organizer what a send did, using ``nothing_message`` when no row was sent or dropped."""
+    if sent:
+        messages.success(
+            request,
+            ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", sent) % {"count": sent},
+        )
+    if skipped:
+        messages.warning(
+            request,
+            ngettext(
+                "%(count)d email was not sent: its recipient no longer belongs to the group it was written for.",
+                "%(count)d emails were not sent: their recipients no longer belong to the group they were written for.",
+                skipped,
+            )
+            % {"count": skipped},
+        )
+    if not sent and not skipped:
+        messages.info(request, nothing_message)
+
+
 def group_email_entries(emails):
     """Collapse rows that share a compose batch into one entry per message."""
     entries = []
@@ -4153,8 +4185,11 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 for row in rows:
                     row.subject = subject
                     row.body = body
-                    row.send(requestor=self.request.user)
-                messages.success(self.request, _("The emails have been saved and sent."))
+                sent, skipped = send_queued_emails(rows, self.request.user)
+                if sent == len(rows):
+                    messages.success(self.request, _("The emails have been saved and sent."))
+                else:
+                    report_sent_emails(self.request, sent, skipped, _("No emails were sent."))
             else:
                 if reschedule:
                     self.reschedule(rows, scheduled_at)
@@ -4200,14 +4235,8 @@ class EmailSendView(EventPermissionRequiredMixin, View):
             rows = ExhibitionEmailQueue.objects.filter(event=request.event, batch=email.batch, sent_at__isnull=True)
         else:
             rows = [email]
-        count = 0
-        for row in rows:
-            if row.send(requestor=request.user):
-                count += 1
-        messages.success(
-            request,
-            ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count) % {"count": count},
-        )
+        sent, skipped = send_queued_emails(rows, request.user)
+        report_sent_emails(request, sent, skipped, _("No emails were sent."))
         return redirect("plugins:exhibition:email.outbox", **event_kwargs(request.event))
 
 
@@ -4300,19 +4329,9 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         rows = self.target_rows(request, scope)
 
         if action == "send":
-            count = 0
-            for row in rows:
-                if row.send(requestor=request.user):
-                    count += 1
-            if count:
-                messages.success(
-                    request,
-                    ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count)
-                    % {"count": count},
-                )
-            else:
-                messages.info(request, _("No emails were selected."))
-            return self.outbox_redirect(request, done=bool(count))
+            sent, skipped = send_queued_emails(rows, request.user)
+            report_sent_emails(request, sent, skipped, _("No emails were selected."))
+            return self.outbox_redirect(request, done=bool(sent or skipped))
 
         if request.POST.get("confirmed"):
             count = rows.count()
