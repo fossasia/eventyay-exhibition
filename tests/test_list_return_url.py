@@ -1,13 +1,14 @@
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.backends.db import SessionStore
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
 from django.urls import reverse
 from django_scopes import scopes_disabled
+from eventyay.base.models.auth import User
 
-from exhibition.models import ExhibitionEmailDraft, ExhibitionEmailQueue, ExhibitorInfo
+from exhibition.models import ExhibitionEmailDraft, ExhibitionEmailQueue, ExhibitionProduct, ExhibitorInfo
 from exhibition.views import (
     EmailDeleteView,
     EmailDraftDeleteView,
@@ -108,6 +109,72 @@ def test_list_shows_last_page_when_returning_to_a_page_that_no_longer_exists(eve
         view.kwargs = {}
         paginator, page, _rows, _paged = view.paginate_queryset(view.get_queryset(), 2)
         assert page.number == paginator.num_pages == 2
+
+
+@pytest.mark.django_db
+def test_list_still_accepts_page_last(event):
+    with scopes_disabled():
+        for index in range(3):
+            ExhibitionEmailDraft.objects.create(event=event, subject=f"Draft {index}")
+        view = EmailDraftListView()
+        view.request = _request(event, page="last")
+        view.kwargs = {}
+        _paginator, page, _rows, _paged = view.paginate_queryset(view.get_queryset(), 2)
+        assert page.number == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("route", "row_routes", "make_row"),
+    [
+        (
+            "exhibitors",
+            ["edit", "vouchers", "devices", "delete"],
+            lambda event: ExhibitorInfo.objects.create(
+                event=event,
+                name="Acme",
+                is_exhibitor=True,
+                logo="exhibitors/logos/Acme/logo.png",
+                banner="exhibitors/banners/Acme/banner.png",
+            ),
+        ),
+        (
+            "email.outbox",
+            ["email.send", "email.edit", "email.delete"],
+            lambda event: ExhibitionEmailQueue.objects.create(
+                event=event, to_email="a@example.com", subject="Hi", body="<p>Hi</p>"
+            ),
+        ),
+        (
+            "email.drafts",
+            ["email.draft.delete"],
+            lambda event: ExhibitionEmailDraft.objects.create(event=event, subject="Draft"),
+        ),
+        (
+            "products",
+            ["products.edit", "products.delete"],
+            lambda event: ExhibitionProduct.objects.create(event=event, name={"en": "Gold"}),
+        ),
+    ],
+)
+def test_rendered_row_links_carry_the_list_page(event, route, row_routes, make_row):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save()
+        row = make_row(event)
+        user = User.objects.create_user(email="organizer@example.com", password="pw")
+        team = event.organizer.teams.create(name="Organizers", all_events=True, can_change_event_settings=True)
+        team.members.add(user)
+    client = Client()
+    client.force_login(user)
+    list_url = f"{reverse(f'plugins:exhibition:{route}', kwargs=_kwargs(event))}?page=1"
+    html = client.get(list_url).content.decode()
+    encoded = quote(list_url, safe="/")
+    for row_route in row_routes:
+        url = reverse(f"plugins:exhibition:{row_route}", kwargs={**_kwargs(event), "pk": row.pk})
+        assert f"{url}?next={encoded}" in html or f"{url}?type=exhibitor&amp;next={encoded}" in html
+    if route == "email.drafts":
+        assert f"?draft={row.pk}&amp;next={encoded}" in html
 
 
 @pytest.mark.django_db
