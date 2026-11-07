@@ -55,7 +55,7 @@ PLACEHOLDER_DOCS = (
     ("{request_code}", _lazy("The request's unique code")),
     ("{request_url}", _lazy("Link for the applicant to view or edit the request")),
     ("{confirmation_url}", _lazy("Link for the applicant to confirm they will take part (accepted email only)")),
-    ("{name}", _lazy("The applicant's name")),
+    ("{applicant_name}", _lazy("The applicant's name")),
     ("{exhibitor_name}", _lazy("The exhibitor / sponsor name (access email only)")),
     ("{booth_number}", _lazy("The exhibitor's booth number (access email only)")),
     ("{login_email}", _lazy("The email address that opens the exhibitor's My Exhibitions page")),
