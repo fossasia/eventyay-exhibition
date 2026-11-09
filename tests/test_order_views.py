@@ -242,6 +242,21 @@ def test_order_detail_shows_positions_total_and_payment(event, shop):
 
 @pytest.mark.django_db
 @override_settings(SITE_URL="https://testserver")
+def test_order_detail_has_no_back_button_and_keeps_orders_active(event, shop):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        order = _order(event, shop["gold"])
+
+    content = client.get(_url(event, "orders.detail", code=order.code)).content.decode()
+
+    assert "All orders" not in content
+    assert "fa-arrow-left" not in content
+    orders_link = f'<a href="{_url(event, "orders")}" class="active">'
+    assert orders_link in content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
 def test_order_detail_of_another_event_is_not_found(event, shop):
     client = _organizer_client(event)
     with scopes_disabled():
@@ -336,3 +351,4 @@ def test_a_cancelled_order_shows_no_actions(event, shop):
 
     assert _url(event, "orders.mark_paid", code=order.code) not in content
     assert _url(event, "orders.cancel", code=order.code) not in content
+    assert "list-toolbar" not in content
