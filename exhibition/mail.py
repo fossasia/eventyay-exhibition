@@ -789,12 +789,44 @@ def compose_recipient_emails(exhibition_requests, exhibitors=()):
     return emails
 
 
+def keep_attachment(cached_file):
+    """Stop an uploaded attachment from expiring while a draft or queued email uses it."""
+    if cached_file is not None and cached_file.expires is not None:
+        cached_file.expires = None
+        cached_file.save(update_fields=["expires"])
+
+
+def release_attachment(cached_file_id):
+    """Let a kept attachment expire once no draft or queued email uses it any more."""
+    from eventyay.base.models import CachedFile
+
+    from .models import ExhibitionEmailDraft, ExhibitionEmailQueue
+
+    if not cached_file_id:
+        return
+    if ExhibitionEmailQueue.objects.filter(attachment_id=cached_file_id).exists():
+        return
+    if ExhibitionEmailDraft.objects.filter(attachment_id=cached_file_id).exists():
+        return
+    CachedFile.objects.filter(pk=cached_file_id, expires__isnull=True).update(expires=timezone.now())
+
+
 def queue_compose_emails(
-    event, exhibition_requests, subject, body, *, exhibitors=(), scheduled_at=None, send_now=False, requestor=None
+    event,
+    exhibition_requests,
+    subject,
+    body,
+    *,
+    exhibitors=(),
+    scheduled_at=None,
+    send_now=False,
+    requestor=None,
+    attachment=None,
 ):
     """Fan a composed message out into per-recipient queued rows sharing a batch."""
     from .models import ExhibitionEmailQueue
 
+    keep_attachment(attachment)
     batch = uuid.uuid4()
     created = []
     seen_emails = set()
@@ -813,6 +845,7 @@ def queue_compose_emails(
             body=_render(body, context, locale),
             locale=locale or "",
             scheduled_at=scheduled_at,
+            attachment=attachment,
             **link,
         )
         if send_now:

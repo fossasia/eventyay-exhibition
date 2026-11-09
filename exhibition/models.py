@@ -2154,10 +2154,26 @@ class ExhibitionEmailDraft(models.Model):
     subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
     body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    attachment = models.ForeignKey(
+        "base.CachedFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
-    FORM_FIELDS = ("state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at")
+    FORM_FIELDS = (
+        "state",
+        "organization_type",
+        "sponsor_group",
+        "organizations",
+        "subject",
+        "body",
+        "scheduled_at",
+        "attachment",
+    )
 
     class Meta:
         verbose_name = _("Email draft")
@@ -2174,8 +2190,10 @@ class ExhibitionEmailDraft(models.Model):
     def fill_from_form(self, cleaned_data):
         """Copy the compose form's values onto the draft; fields the form leaves out keep their defaults."""
         for name in self.FORM_FIELDS:
-            if name in cleaned_data:
+            if name in cleaned_data and name != "attachment":
                 setattr(self, name, cleaned_data[name])
+        if "attachment" in cleaned_data:
+            self.attachment = cleaned_data["attachment"] or None
         self.organizations = list(self.organizations or [])
 
     def recipient_count(self):
