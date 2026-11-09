@@ -107,33 +107,58 @@
         </div>
         <div class="panel-body">
             {% for order in exhibition_orders %}
-                <h4>
-                    <a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">{{ order.code }}</a>
-                    {% include "exhibitors/_order_status.html" with order=order %}
-                    {% if order.pk == object.source_order_id %}
-                        <small>{% trans "Created this profile" %}</small>
-                    {% endif %}
-                </h4>
-                <dl class="dl-horizontal">
-                    <dt>{% trans "Products" %}</dt>
-                    <dd>{% for position in order.positions.all %}{{ position }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>
-                    <dt>{% trans "Contact person" %}</dt>
-                    <dd>{{ order.name }} ({{ order.email }})</dd>
+                {% if not forloop.first %}<hr>{% endif %}
+                <div class="form-horizontal exhibition-order-detail">
+                    <div class="form-group">
+                        <div class="col-md-12">
+                            <a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">
+                                {{ order.code }}
+                            </a>
+                            {% include "exhibitors/_order_status.html" with order=order %}
+                            {% if order.pk == object.source_order_id %}
+                                <span class="text-muted">{% trans "Profile created from this order" %}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-md-3 control-label">{% trans "Products" %}</label>
+                        <div class="col-md-9">
+                            <p class="form-control-static">
+                                {% for position in order.positions.all %}{{ position }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-md-3 control-label">{% trans "Contact person" %}</label>
+                        <div class="col-md-9">
+                            <p class="form-control-static">
+                                {{ order.name }} ({{ order.email }})
+                            </p>
+                        </div>
+                    </div>
                     {% if order.phone %}
-                        <dt>{% trans "Phone number" %}</dt>
-                        <dd>{{ order.phone }}</dd>
+                        <div class="form-group">
+                            <label class="col-md-3 control-label">{% trans "Phone number" %}</label>
+                            <div class="col-md-9">
+                                <p class="form-control-static">{{ order.phone }}</p>
+                            </div>
+                        </div>
                     {% endif %}
                     {% for answer in order.answers.all %}
-                        <dt>{{ answer.question.localized_question }}</dt>
-                        <dd>
-                            {% if answer.file %}
-                                <a href="{{ answer.file_url }}" target="_blank" rel="noopener">{{ answer.answer_string }}</a>
-                            {% else %}
-                                {{ answer.answer_string|linebreaksbr }}
-                            {% endif %}
-                        </dd>
+                        <div class="form-group">
+                            <label class="col-md-3 control-label">{{ answer.question.localized_question }}</label>
+                            <div class="col-md-9">
+                                <p class="form-control-static">
+                                    {% if answer.file %}
+                                        <a href="{{ answer.file_url }}" target="_blank" rel="noopener">{{ answer.answer_string }}</a>
+                                    {% else %}
+                                        {{ answer.answer_string|linebreaksbr }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
                     {% endfor %}
-                </dl>
+                </div>
             {% endfor %}
         </div>
     </div>
