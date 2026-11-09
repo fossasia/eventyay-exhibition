@@ -13,7 +13,7 @@
 
 {% block exhibitors_content %}
     {% if not is_sent %}
-    <form action="" method="post" class="form-horizontal">
+    <form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
     {% else %}
@@ -69,9 +69,22 @@
                     <div class="form-control-static">{{ email.body|rich_text }}</div>
                 </div>
             </div>
+            {% if email.attachment %}
+                <div class="form-group">
+                    <label class="col-md-3 control-label">{% trans "Attachment" %}</label>
+                    <div class="col-md-9">
+                        <p class="form-control-static">
+                            <a href="{% url 'cachedfile.download' id=email.attachment.id %}" target="_blank" rel="noopener">
+                                <i class="fa fa-paperclip"></i> {{ email.attachment.filename }}
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
         {% else %}
             {% bootstrap_field form.subject layout="control" %}
             {% bootstrap_field form.body layout="control" %}
+            {% bootstrap_field form.attachment layout="control" %}
             {% bootstrap_field form.scheduled_at layout="control" %}
             <div class="form-group submit-group">
                 <div class="col-md-9 col-md-offset-3">
