@@ -30,13 +30,38 @@ def _layout(name="layout.png", content=_PNG_BYTES, content_type="image/png"):
 def _settings_post(event, data):
     request = RequestFactory().post("/", data=data)
     request.event = event
+    request.organizer = event.organizer
     request.user = None
     request.session = {}
+    request.LANGUAGE_CODE = "en"
     request._messages = FallbackStorage(request)
     view = SettingsView()
     view.request = request
     view.kwargs = {}
     return view.post(request)
+
+
+def _settings_get(event, tab="exhibitors"):
+    request = RequestFactory().get(f"/?tab={tab}")
+    request.event = event
+    request.organizer = event.organizer
+    request.user = None
+    request.session = {}
+    request.LANGUAGE_CODE = "en"
+    request._messages = FallbackStorage(request)
+    view = SettingsView()
+    view.request = request
+    view.kwargs = {"tab": tab}
+    response = view.get(request)
+    response.render()
+    return response
+
+
+def _layout_caption_inputs(event, captions_by_locale):
+    settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
+    form = ExhibitionLayoutForm(instance=settings, event=event)
+    locales = form.fields["layout_caption"].widget.locales
+    return {f"layout_caption_{locales.index(locale)}": caption for locale, caption in captions_by_locale.items()}
 
 
 def _public_list_html(event, query=""):
@@ -225,3 +250,91 @@ def test_layout_is_stored_under_the_event_folder(event):
         settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
 
     assert exhibition_layout_path(settings, "plan.png") == f"exhibitors/layouts/{event.pk}/plan.png"
+
+
+@pytest.mark.django_db
+def test_settings_exhibitors_tab_shows_language_switcher_when_multiple_locales(event):
+    event.settings.locales = ["en", "de"]
+    with scopes_disabled():
+        response = _settings_get(event, "exhibitors")
+        caption_inputs = _layout_caption_inputs(event, {"en": "", "de": ""})
+    html = response.content.decode()
+
+    assert response.status_code == 200
+    assert "data-i18n-switcher" in html
+    assert 'data-locale="en"' in html
+    assert 'data-locale="de"' in html
+    for field_name in caption_inputs:
+        assert f'name="{field_name}"' in html
+    assert 'name="exhibitors_access_voucher"' in html
+
+
+@pytest.mark.django_db
+def test_settings_exhibitors_tab_hides_language_switcher_when_single_locale(event):
+    event.settings.locales = ["en"]
+    with scopes_disabled():
+        response = _settings_get(event, "exhibitors")
+    html = response.content.decode()
+
+    assert response.status_code == 200
+    assert "data-i18n-switcher" not in html
+    assert 'data-locale="en"' not in html
+    assert 'name="layout_caption_0"' in html
+    assert "i18n-form-single-language" in html
+    assert 'name="exhibitors_access_voucher"' in html
+
+
+@pytest.mark.django_db
+def test_organizer_saves_layout_caption_in_multiple_languages(event):
+    event.settings.locales = ["en", "de"]
+    with scopes_disabled():
+        caption_inputs = _layout_caption_inputs(
+            event,
+            {"en": "Hall 1, ground floor", "de": "Halle 1, Erdgeschoss"},
+        )
+        response = _settings_post(
+            event,
+            {
+                "action": "save_exhibitor_settings",
+                "tab": "exhibitors",
+                "layout_image": _layout(),
+                **caption_inputs,
+                "exhibitors_access_voucher": ["attendee_name"],
+            },
+        )
+        settings = ExhibitorSettings.objects.get(event=event)
+
+    assert response.status_code == 302
+    assert settings.layout_caption.data == {"en": "Hall 1, ground floor", "de": "Halle 1, Erdgeschoss"}
+    assert settings.allowed_fields == ["attendee_name"]
+
+
+@pytest.mark.django_db
+def test_failed_layout_caption_validation_keeps_data_access_and_shows_switcher(event):
+    event.settings.locales = ["en", "de"]
+    with scopes_disabled():
+        caption_inputs = _layout_caption_inputs(
+            event,
+            {"en": "Hall 1, ground floor", "de": "Halle 1, Erdgeschoss"},
+        )
+        response = _settings_post(
+            event,
+            {
+                "action": "save_exhibitor_settings",
+                "tab": "exhibitors",
+                "layout_image": _layout(content=b"not an image"),
+                **caption_inputs,
+                "exhibitors_access_voucher": ["attendee_email"],
+            },
+        )
+        checked = {field["value"] for field in response.context_data["data_access_fields"] if field["checked"]}
+        response.render()
+        html = response.content.decode()
+
+    assert response.status_code == 200
+    assert checked == {"attendee_email"}
+    assert "data-i18n-switcher" in html
+    assert 'data-locale="en"' in html
+    assert 'data-locale="de"' in html
+    assert "Hall 1, ground floor" in html
+    assert "Halle 1, Erdgeschoss" in html
