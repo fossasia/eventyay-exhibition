@@ -61,6 +61,16 @@ def _order_detail_url(event, order):
     )
 
 
+def _orders_panel(content):
+    start = content.index("Exhibition orders</h3>")
+    return content[start : content.index("exhibition-history", start)]
+
+
+def _order_heading(content, event, order):
+    link = f'href="{_order_detail_url(event, order)}"'
+    return next(part.split("</h4>", 1)[0] for part in content.split("<h4>")[1:] if link in part)
+
+
 def _product(event, name="Gold Sponsor", price="1500.00"):
     return ExhibitionProduct.objects.create(
         event=event,
@@ -118,8 +128,9 @@ def test_panel_uses_3_9_grid_not_dl_horizontal(client, event, settings):
     response = client.get(_edit_url(event, exhibitor))
 
     content = response.content.decode()
-    assert "col-md-3" in content
-    assert "col-md-9" in content
+    panel = _orders_panel(content)
+    assert panel.count('<label class="col-md-3 control-label">') == 2
+    assert panel.count('<div class="col-md-9">') == 2
     assert "dl-horizontal" not in content
 
 
@@ -176,7 +187,7 @@ def test_source_order_shows_marker(client, event, settings):
     response = client.get(_edit_url(event, exhibitor))
 
     content = response.content.decode()
-    assert "Profile created from this order" in content
+    assert "Profile created from this order" in _order_heading(content, event, order)
 
 
 @pytest.mark.django_db
@@ -191,9 +202,9 @@ def test_non_source_order_has_no_marker(client, event, settings):
     response = client.get(_edit_url(event, exhibitor))
 
     content = response.content.decode()
-    assert order1.code in content
-    assert order2.code in content
     assert content.count("Profile created from this order") == 1
+    assert "Profile created from this order" in _order_heading(content, event, order1)
+    assert "Profile created from this order" not in _order_heading(content, event, order2)
 
 
 @pytest.mark.django_db

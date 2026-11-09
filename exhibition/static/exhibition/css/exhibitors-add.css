@@ -237,6 +237,11 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
     padding-bottom: 0;
 }
 
+/* Bootstrap right-aligns labels from 768px, but these columns only sit side by side from 992px. */
+.exhibition-order-detail .control-label {
+    text-align: left;
+}
+
 /* Cancel the panel's 15px padding and 1px border so the 3/9 columns line up with the form above. */
 @media (min-width: 992px) {
     .exhibition-order-detail {
@@ -246,6 +251,7 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
 
     .exhibition-order-detail .col-md-3 {
         padding-left: 31px;
+        text-align: right;
     }
 
     .exhibition-order-detail .col-md-9 {
