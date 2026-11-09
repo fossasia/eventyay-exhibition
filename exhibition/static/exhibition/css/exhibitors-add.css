@@ -222,3 +222,33 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
 #page-wrapper .exhibition-organization-form .form-group:has(.bootstrap3-multi-input) .control-label {
     padding-top: 0;
 }
+
+.exhibition-order-detail {
+    margin-bottom: 20px;
+}
+
+.exhibition-order-detail .form-group {
+    margin-bottom: 4px;
+}
+
+.exhibition-order-detail .form-control-static {
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+/* Cancel the panel's 15px padding and 1px border so the 3/9 columns line up with the form above. */
+@media (min-width: 992px) {
+    .exhibition-order-detail {
+        margin-left: -16px;
+        margin-right: -16px;
+    }
+
+    .exhibition-order-detail .col-md-3 {
+        padding-left: 31px;
+    }
+
+    .exhibition-order-detail .col-md-9 {
+        padding-right: 31px;
+    }
+}

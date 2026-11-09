@@ -107,19 +107,14 @@
         </div>
         <div class="panel-body">
             {% for order in exhibition_orders %}
-                {% if not forloop.first %}<hr>{% endif %}
+                <h4>
+                    <a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">{{ order.code }}</a>
+                    {% include "exhibitors/_order_status.html" with order=order %}
+                    {% if order.pk == object.source_order_id %}
+                        <small>{% trans "Profile created from this order" %}</small>
+                    {% endif %}
+                </h4>
                 <div class="form-horizontal exhibition-order-detail">
-                    <div class="form-group">
-                        <div class="col-md-12">
-                            <a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">
-                                {{ order.code }}
-                            </a>
-                            {% include "exhibitors/_order_status.html" with order=order %}
-                            {% if order.pk == object.source_order_id %}
-                                <span class="text-muted">{% trans "Profile created from this order" %}</span>
-                            {% endif %}
-                        </div>
-                    </div>
                     <div class="form-group">
                         <label class="col-md-3 control-label">{% trans "Products" %}</label>
                         <div class="col-md-9">
