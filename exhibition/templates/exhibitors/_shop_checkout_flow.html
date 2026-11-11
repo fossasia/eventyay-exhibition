@@ -1,0 +1,32 @@
+{% load i18n %}
+<div class="checkout-flow">
+    {% for step in checkout_flow %}
+        <a {% if step.done %}href="{{ step.url }}"{% endif %} class="checkout-step {% if step.done %}step-done{% elif step.current %}step-current{% endif %}">
+            <div class="checkout-step-bar-left"></div>
+            <div class="checkout-step-bar-right"></div>
+            <div class="checkout-step-icon">
+                <span class="fa {% if step.done %}fa-check{% else %}fa-pencil{% endif %}" aria-hidden="true"></span>
+            </div>
+            <div class="checkout-step-label">
+                <span class="sr-only">
+                    {% if step.done %}
+                        {% trans "Completed:" %}
+                    {% elif step.current %}
+                        {% trans "Current:" %}
+                    {% endif %}
+                </span>
+                {{ step.label }}
+            </div>
+        </a>
+    {% endfor %}
+    <a class="checkout-step">
+        <div class="checkout-step-bar-left"></div>
+        <div class="checkout-step-bar-right"></div>
+        <div class="checkout-step-icon">
+            <span class="fa fa-building-o" aria-hidden="true"></span>
+        </div>
+        <div class="checkout-step-label">
+            {% trans "Order confirmed" context "checkoutflow" %}
+        </div>
+    </a>
+</div>

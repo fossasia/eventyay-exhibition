@@ -100,6 +100,44 @@
         </a>
     </div>
 </form>
+{% if action == 'edit' and exhibition_orders %}
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h3 class="panel-title">{% trans "Exhibition orders" %}</h3>
+        </div>
+        <div class="panel-body">
+            {% for order in exhibition_orders %}
+                <h4>
+                    <a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">{{ order.code }}</a>
+                    {% include "exhibitors/_order_status.html" with order=order %}
+                    {% if order.pk == object.source_order_id %}
+                        <small>{% trans "Created this profile" %}</small>
+                    {% endif %}
+                </h4>
+                <dl class="dl-horizontal">
+                    <dt>{% trans "Products" %}</dt>
+                    <dd>{% for position in order.positions.all %}{{ position }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>
+                    <dt>{% trans "Contact person" %}</dt>
+                    <dd>{{ order.name }} ({{ order.email }})</dd>
+                    {% if order.phone %}
+                        <dt>{% trans "Phone number" %}</dt>
+                        <dd>{{ order.phone }}</dd>
+                    {% endif %}
+                    {% for answer in order.answers.all %}
+                        <dt>{{ answer.question.localized_question }}</dt>
+                        <dd>
+                            {% if answer.file %}
+                                <a href="{{ answer.file_url }}" target="_blank" rel="noopener">{{ answer.answer_string }}</a>
+                            {% else %}
+                                {{ answer.answer_string|linebreaksbr }}
+                            {% endif %}
+                        </dd>
+                    {% endfor %}
+                </dl>
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}
 {% if action == 'edit' %}
     <div class="panel panel-default exhibition-history">
         <div class="panel-heading">
