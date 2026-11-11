@@ -253,7 +253,7 @@ def test_editing_a_voucher_email_keeps_the_csv_expiry(mail_event):
 
 
 @pytest.mark.django_db
-def test_sending_uses_the_attachment_saved_on_the_row(mail_event):
+def test_sending_uses_the_content_saved_on_the_row(mail_event):
     with scopes_disabled():
         old = CachedFile.objects.create(filename="old.pdf", expires=None)
         new = CachedFile.objects.create(filename="new.pdf", expires=None)
@@ -261,9 +261,12 @@ def test_sending_uses_the_attachment_saved_on_the_row(mail_event):
             event=mail_event, to_email="a@example.com", subject="Hi", body="<p>Hi</p>", attachment=old
         )
         stale = ExhibitionEmailQueue.objects.get(pk=email.pk)
-        ExhibitionEmailQueue.objects.filter(pk=email.pk).update(attachment=new)
+        ExhibitionEmailQueue.objects.filter(pk=email.pk).update(subject="Updated", body="<p>New</p>", attachment=new)
 
         with patch("eventyay.base.services.mail.mail") as mocked_mail:
             stale.send()
 
-    assert mocked_mail.call_args.kwargs["attach_cached_files"] == [new.pk]
+    sent = mocked_mail.call_args.kwargs
+    assert sent["attach_cached_files"] == [new.pk]
+    assert sent["subject"] == "Updated"
+    assert str(sent["template"]) == "<p>New</p>"
