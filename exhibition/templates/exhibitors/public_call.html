@@ -72,10 +72,12 @@
             <h2 class="content-header" id="{% if show_call %}exhibition-packages-heading{% else %}exhibition-call-heading{% endif %}">{% trans "Sponsorship and exhibition packages" %}</h2>
             {% if discount %}
                 <div class="alert alert-success">
-                    {% blocktrans trimmed with code=discount.code %}
-                        The discount code <strong>{{ code }}</strong> is applied.
-                    {% endblocktrans %}
-                    <a href="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}?discount=">{% trans "Remove" %}</a>
+                    <p>
+                        {% blocktrans trimmed with code=discount.code %}
+                            The discount code <strong>{{ code }}</strong> is applied.
+                        {% endblocktrans %}
+                        <a href="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}?discount=">{% trans "Remove" %}</a>
+                    </p>
                 </div>
             {% elif offers_discounts %}
                 <section class="front-page exhibition-discount" aria-labelledby="exhibition-discount-heading">

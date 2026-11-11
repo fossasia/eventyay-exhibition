@@ -76,7 +76,6 @@ def apply_discount_code(request, code):
         return False
     cart["discount"] = discount.code
     request.session[key] = cart
-    messages.success(request, _("The discount code {code} has been applied.").format(code=discount.code))
     return True
 
 
