@@ -4139,7 +4139,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
 
         if self.object.batch:
             with transaction.atomic():
-                rows = list(self.editable_batch_queryset())
+                rows = list(self.editable_batch_queryset().select_for_update())
                 previous_ids = {row.attachment_id for row in rows}
                 self.keep_new_attachment(previous_ids, attachment)
                 self.editable_batch_queryset().update(
@@ -4160,7 +4160,11 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             return redirect(self.get_success_url())
 
         with transaction.atomic():
-            previous_ids = {self.object.attachment_id}
+            previous_ids = set(
+                ExhibitionEmailQueue.objects.select_for_update()
+                .filter(pk=self.object.pk)
+                .values_list("attachment_id", flat=True)
+            )
             self.keep_new_attachment(previous_ids, attachment)
             self.object.attachment = attachment
             self.object.save()
