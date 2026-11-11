@@ -18,6 +18,7 @@ from django.utils.html import escape
 from django.utils.translation import gettext, gettext_lazy as _lazy, gettext_noop, ngettext, override
 from eventyay.base.models import PriceModeChoices
 from eventyay.base.services.mail import mail
+from eventyay.base.templatetags.money import money_filter
 from i18nfield.strings import LazyI18nString
 
 logger = logging.getLogger(__name__)
@@ -419,7 +420,21 @@ def order_public_url(exhibition_order):
 
 
 def order_product_list(exhibition_order):
-    return "\n".join(f"- {position}" for position in exhibition_order.positions.all())
+    lines = []
+    for position in exhibition_order.positions.select_related("discount"):
+        price = money_filter(position.price, exhibition_order.currency)
+        if position.discount_id:
+            lines.append(
+                gettext("- {product}: {price} instead of {original}, with discount code {code}").format(
+                    product=position,
+                    price=price,
+                    original=money_filter(position.original_price, exhibition_order.currency),
+                    code=position.discount.code,
+                )
+            )
+        else:
+            lines.append(f"- {position}: {price}")
+    return "\n".join(lines)
 
 
 def request_public_url(exhibition_request):
