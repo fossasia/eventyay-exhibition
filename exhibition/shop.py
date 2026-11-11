@@ -37,9 +37,10 @@ def shop_products(event, discount=None):
     """The products on sale now in sales order, with their price under ``discount`` and whether they sold out."""
     products = [
         product
-        for product in ExhibitionProduct.objects.filter(event=event).available().in_sales_order().select_related(
-            "category"
-        )
+        for product in ExhibitionProduct.objects.filter(event=event)
+        .available()
+        .in_sales_order()
+        .select_related("category")
         if not product.hide_without_discount or (discount is not None and discount.reveals(product))
     ]
     for product in products:
@@ -51,9 +52,10 @@ def shop_products(event, discount=None):
 
 
 def session_discount(request):
-    """The discount code applied in this buyer's checkout, if it still exists."""
+    """The discount code applied in this buyer's checkout, while it still exists and can be used."""
     code = request.session.get(checkout_session_key(request.event), {}).get("discount")
-    return find_discount(request.event, code) if code else None
+    discount = find_discount(request.event, code) if code else None
+    return discount if discount is not None and not discount.unusable_reason() else None
 
 
 def apply_discount_code(request, code):
@@ -187,9 +189,9 @@ class ShopCheckoutMixin:
             messages.info(request, _("Please select the products you want to order."))
             return redirect(packages_url(request.event))
         if self.cart.get("discount") and self.discount is None:
-            return self.drop_discount(_("The discount code {code} is no longer valid.").format(code=self.cart["discount"]))
-        if self.discount is not None and self.discount.unusable_reason():
-            return self.drop_discount(self.discount.unusable_reason())
+            return self.drop_discount(
+                _("The discount code {code} can no longer be used.").format(code=self.cart["discount"])
+            )
         if None in self.products:
             messages.error(request, _("One of the selected products is no longer on sale."))
             return redirect(packages_url(request.event))
@@ -383,7 +385,7 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
             return redirect(packages_url(request.event))
         except ExhibitionDiscountError:
             return self.drop_discount(
-                _("Sorry, the discount code {code} can no longer be used.").format(code=self.discount.code)
+                _("Sorry, the discount code {code} has no uses left for this order.").format(code=self.discount.code)
             )
         except ExhibitionOrderError:
             messages.error(request, _("Your order could not be placed. Please check your selection."))
