@@ -3777,7 +3777,8 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                     return self.draft_already_queued()
             previous_attachment_id = draft.attachment_id
             draft.fill_from_form(form.cleaned_data)
-            mail_helpers.keep_attachment(draft.attachment)
+            if draft.attachment_id != previous_attachment_id:
+                mail_helpers.keep_attachment(draft.attachment)
             draft.save()
             if previous_attachment_id != draft.attachment_id:
                 mail_helpers.release_attachment(previous_attachment_id)
@@ -4135,14 +4136,16 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         scheduled_at = form.cleaned_data["scheduled_at"]
         attachment = form.cleaned_data.get("attachment") or None
         reschedule = "scheduled_at" in form.changed_data
-        mail_helpers.keep_attachment(attachment)
 
         if self.object.batch:
-            rows = list(self.editable_batch_queryset())
-            self.editable_batch_queryset().update(
-                subject=subject, body=body, scheduled_at=scheduled_at, attachment=attachment
-            )
-            self.release_replaced_attachments({row.attachment_id for row in rows}, attachment)
+            with transaction.atomic():
+                rows = list(self.editable_batch_queryset())
+                previous_ids = {row.attachment_id for row in rows}
+                self.keep_new_attachment(previous_ids, attachment)
+                self.editable_batch_queryset().update(
+                    subject=subject, body=body, scheduled_at=scheduled_at, attachment=attachment
+                )
+                self.release_replaced_attachments(previous_ids, attachment)
             if "_send" in self.request.POST:
                 for row in rows:
                     row.subject = subject
@@ -4156,10 +4159,12 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 messages.success(self.request, _("The emails have been saved."))
             return redirect(self.get_success_url())
 
-        previous_attachment_id = self.object.attachment_id
-        self.object.attachment = attachment
-        self.object.save()
-        self.release_replaced_attachments({previous_attachment_id}, attachment)
+        with transaction.atomic():
+            previous_ids = {self.object.attachment_id}
+            self.keep_new_attachment(previous_ids, attachment)
+            self.object.attachment = attachment
+            self.object.save()
+            self.release_replaced_attachments(previous_ids, attachment)
         if "_send" in self.request.POST:
             self.object.send(requestor=self.request.user)
             messages.success(self.request, _("The email has been saved and sent."))
@@ -4168,6 +4173,12 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 self.reschedule([self.object], scheduled_at)
             messages.success(self.request, _("The email has been saved."))
         return redirect(self.get_success_url())
+
+    @staticmethod
+    def keep_new_attachment(previous_ids, attachment):
+        """Keep a newly chosen file; an unchanged one, such as a voucher CSV, keeps its own expiry."""
+        if attachment is not None and attachment.pk not in previous_ids:
+            mail_helpers.keep_attachment(attachment)
 
     @staticmethod
     def release_replaced_attachments(previous_ids, attachment):
