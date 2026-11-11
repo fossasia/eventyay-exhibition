@@ -28,7 +28,9 @@
 .exhibition-composer .composer-filters > .form-group > [class*="col-"],
 .exhibition-composer .composer-organizations > .form-group > .control-label,
 .exhibition-composer .composer-organizations > .form-group > [class*="col-"] {
+    flex: none;
     float: none;
+    max-width: 100%;
     padding-left: 0;
     padding-right: 0;
     text-align: left;
