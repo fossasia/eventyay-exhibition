@@ -38,11 +38,11 @@ from .filters import (
 )
 from .forms import (
     CallSettingsForm,
-    ExhibitionDiscountBulkForm,
-    ExhibitionDiscountForm,
     ExhibitionComposeForm,
     ExhibitionCustomEmailTemplateForm,
     ExhibitionDefaultFieldForm,
+    ExhibitionDiscountBulkForm,
+    ExhibitionDiscountForm,
     ExhibitionEmailQueueForm,
     ExhibitionLayoutForm,
     ExhibitionMailTemplatesForm,
@@ -75,6 +75,9 @@ from .forms import (
 from .mail import order_public_url
 from .models import (
     LOG_CALL_SETTINGS_CHANGED,
+    LOG_DISCOUNT_ADDED,
+    LOG_DISCOUNT_CHANGED,
+    LOG_DISCOUNT_DELETED,
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
     LOG_GROUP_DELETED,
@@ -99,9 +102,6 @@ from .models import (
     LOG_QUOTA_ADDED,
     LOG_QUOTA_CHANGED,
     LOG_QUOTA_DELETED,
-    LOG_DISCOUNT_ADDED,
-    LOG_DISCOUNT_CHANGED,
-    LOG_DISCOUNT_DELETED,
     LOG_REQUEST_CHANGED,
     LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
@@ -2321,7 +2321,11 @@ class ExhibitionDiscountBulkCreateView(ExhibitionDiscountMixin, FormView):
                 discount.log_action(LOG_DISCOUNT_ADDED, data={"code": discount.code}, user=self.request.user)
         messages.success(
             self.request,
-            ngettext("%(count)d discount code has been created.", "%(count)d discount codes have been created.", len(discounts))
+            ngettext(
+                "%(count)d discount code has been created.",
+                "%(count)d discount codes have been created.",
+                len(discounts),
+            )
             % {"count": len(discounts)},
         )
         return redirect(self.get_success_url())

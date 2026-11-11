@@ -406,9 +406,7 @@ class DiscountFilterForm(ExhibitionFilterForm):
 
         query = (fdata.get("query") or "").strip()
         if query:
-            queryset = queryset.filter(
-                Q(code__icontains=query) | Q(tag__icontains=query) | Q(comment__icontains=query)
-            )
+            queryset = queryset.filter(Q(code__icontains=query) | Q(tag__icontains=query) | Q(comment__icontains=query))
 
         if fdata.get("tag"):
             queryset = queryset.filter(tag=fdata["tag"])

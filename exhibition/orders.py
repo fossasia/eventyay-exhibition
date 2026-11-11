@@ -169,7 +169,9 @@ def place_exhibition_order(
             user=user,
         )
         if discounted:
-            discount.log_action(LOG_DISCOUNT_REDEEMED, data={"exhibition_order": order.code, "uses": discounted}, user=user)
+            discount.log_action(
+                LOG_DISCOUNT_REDEEMED, data={"exhibition_order": order.code, "uses": discounted}, user=user
+            )
         if not total:
             order.mark_paid(provider=FREE_PAYMENT_PROVIDER, user=user)
         elif paid:

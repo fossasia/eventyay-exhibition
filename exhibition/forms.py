@@ -54,10 +54,8 @@ from phonenumber_field.formfields import PhoneNumberField
 
 from . import mail as mail_helpers
 from .models import (
-    DISCOUNT_CODE_PATTERN,
-    ExhibitionDiscount,
-    ExhibitionDiscountPriceMode,
     DEPENDENCY_PARENT_VARIANTS,
+    DISCOUNT_CODE_PATTERN,
     LAYOUT_IMAGE_EXTENSIONS,
     LAYOUT_IMAGE_FORMATS,
     ORDER_DEFAULT_FIELD_KEYS,
@@ -66,6 +64,8 @@ from .models import (
     REQUEST_FORMSET_FIELD_KEYS,
     ExhibitionAnswer,
     ExhibitionCustomEmailTemplate,
+    ExhibitionDiscount,
+    ExhibitionDiscountPriceMode,
     ExhibitionEmailQueue,
     ExhibitionOrderAnswer,
     ExhibitionOrderQuestion,
@@ -2684,7 +2684,9 @@ class ExhibitionDiscountForm(I18nModelForm):
         value = cleaned_data.get("value")
         if value is not None and value < 0:
             self.add_error("value", _("The value must not be negative."))
-        elif value is not None and cleaned_data.get("price_mode") == ExhibitionDiscountPriceMode.PERCENT and value > 100:
+        elif (
+            value is not None and cleaned_data.get("price_mode") == ExhibitionDiscountPriceMode.PERCENT and value > 100
+        ):
             self.add_error("value", _("A percentage cannot be more than 100."))
         return cleaned_data
 
