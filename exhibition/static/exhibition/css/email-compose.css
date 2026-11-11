@@ -1,0 +1,83 @@
+/* Exhibition compose page: the shared mail composer cards (common/css/_composer.css), adapted to Bootstrap 3 fields. */
+
+.composer-heading .composer-title-detail {
+    font-size: 16px;
+    font-weight: 400;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.exhibition-composer .composer-description {
+    margin: 0 0 16px;
+    padding: 0 2px;
+    white-space: normal;
+}
+
+.exhibition-composer > .card > .card-body > fieldset > .form-group,
+.exhibition-composer .composer-organizations > .form-group {
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.exhibition-composer .composer-filters > .form-group {
+    margin: 0;
+    min-width: 0;
+}
+
+.exhibition-composer .composer-filters > .form-group > .control-label,
+.exhibition-composer .composer-filters > .form-group > [class*="col-"],
+.exhibition-composer .composer-organizations > .form-group > .control-label,
+.exhibition-composer .composer-organizations > .form-group > [class*="col-"] {
+    float: none;
+    padding-left: 0;
+    padding-right: 0;
+    text-align: left;
+    width: 100%;
+}
+
+.exhibition-composer .composer-filters > .form-group > .control-label,
+.exhibition-composer .composer-organizations > .form-group > .control-label {
+    margin-bottom: 8px;
+    padding-top: 0;
+}
+
+.exhibition-composer .composer-organizations {
+    margin-top: 16px;
+}
+
+.exhibition-composer .composer-organizations > .form-group {
+    margin-bottom: 0;
+}
+
+@media (min-width: 1025px) {
+    .exhibition-composer .composer-filters {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.exhibition-composer .card-header .custom-template-picker {
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-bottom: 0;
+}
+
+.exhibition-composer .card-header .custom-template-picker select {
+    min-height: 0;
+    width: auto;
+}
+
+.exhibition-composer > .card > .card-body > fieldset > .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.exhibition-composer .composer-actions-bar {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.exhibition-composer .composer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}

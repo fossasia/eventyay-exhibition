@@ -8,114 +8,155 @@
 
 {% block custom_header %}
     {{ block.super }}
+    <link rel="stylesheet" href="{% static 'common/css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'common/css/_composer.css' %}">
     <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-settings.css' %}">
     <link rel="stylesheet" href="{% static 'exhibition/css/session-select.css' %}">
     <link rel="stylesheet" href="{% static 'exhibition/css/compose-recipients.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/email-compose.css' %}">
     <script defer src="{% static 'exhibition/js/schedule-datetime.js' %}"></script>
     <script defer src="{% static 'exhibition/js/session-select.js' %}"></script>
     <script defer src="{% static 'exhibition/js/compose-recipients.js' %}"></script>
 {% endblock %}
 
 {% block exhibitors_header %}
-    <h1>{% if draft %}{% trans "Edit draft" %}{% else %}{% trans "Compose email" %}{% endif %}</h1>
+    <h1 class="composer-heading">
+        {% if draft %}{% trans "Edit draft" %}{% else %}{% trans "Compose email" %}{% endif %}
+        <small class="composer-title-detail text-muted">
+            {% if single_request %}
+                {% trans "Single applicant" %}
+            {% else %}
+                {% trans "Exhibitors, sponsors" %}
+                <span data-toggle="tooltip" data-placement="bottom" title="{% trans 'Emails are addressed to the exhibition applicants matching your filters, or to the organizations you choose.' %}">
+                    <i class="fa fa-question-circle-o text-info"></i>
+                </span>
+            {% endif %}
+        </small>
+    </h1>
 {% endblock %}
 
 {% block exhibitors_content %}
-    <p class="text-muted">
-        {% if single_request %}
-            {% trans "Send an email to this applicant. Placeholders are resolved for them." %}
-        {% else %}
-            {% trans "Send an update to a group of applicants. One email is queued per recipient, with placeholders resolved individually." %}
-        {% endif %}
-    </p>
-
     {% if custom_templates %}
-        <form action="" method="get" class="form-inline custom-template-picker">
+        <form action="" method="get" id="compose-template-picker">
             {% if draft %}
                 <input type="hidden" name="draft" value="{{ draft.pk }}">
             {% elif single_request %}
                 <input type="hidden" name="request" value="{{ single_request.code }}">
             {% endif %}
-            <label for="id_template_picker" class="control-label">{% trans "Load from template" %}</label>
-            <select name="template" id="id_template_picker" class="form-control input-sm">
-                <option value="">{% trans "Select a saved template…" %}</option>
-                {% for template in custom_templates %}
-                    <option value="{{ template.pk }}">{{ template.name }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit" class="btn btn-default btn-sm">{% trans "Load" %}</button>
         </form>
     {% endif %}
 
-    <form action="" method="post" class="form-horizontal">
+    <form action="" method="post" class="form-horizontal mail-composer exhibition-composer">
         {% csrf_token %}
-        {% bootstrap_form_errors form %}
-        <fieldset>
-            <legend>{% trans "Recipients" %}</legend>
+        <p class="composer-description text-muted">
             {% if single_request %}
-                <div class="form-group">
-                    <label class="col-md-3 control-label" for="id_single_recipient">{% trans "To" %}</label>
-                    <div class="col-md-9">
-                        {% trans "Hidden" as hidden_label %}
-                        <input type="text" id="id_single_recipient" class="form-control" disabled
-                               value="{{ single_recipient|default:hidden_label }}">
-                    </div>
-                </div>
+                {% trans "Send an email to this applicant. Placeholders are resolved for them." %}
             {% else %}
-                <div class="compose-recipient-filters" data-compose-filters>
-                    {% bootstrap_field form.state layout="control" %}
-                    {% bootstrap_field form.organization_type layout="control" %}
-                    {% bootstrap_field form.sponsor_group layout="control" %}
-                </div>
-                <div data-compose-organizations>
-                    {% bootstrap_field form.organizations layout="control" %}
-                </div>
+                {% trans "Send an update to a group of applicants. One email is queued per recipient, with placeholders resolved individually." %}
             {% endif %}
-        </fieldset>
-        <fieldset>
-            <legend>{% trans "Message" %}</legend>
-            {% include 'exhibitors/_i18n_language_switcher.html' %}
-            {% bootstrap_field form.subject layout="control" %}
-            <div class="form-group{% if form.body.errors %} has-error{% endif %}" data-email-preview-wrapper
-                 data-email-preview-url="{% url 'plugins:exhibition:email.templates.preview' organizer=request.event.organizer.slug event=request.event.slug %}?role=compose">
-                <label class="col-md-3 control-label"><span class="label-text">{{ form.body.label }}<span aria-hidden="true" class="required-indicator text-danger"> *</span><span class="sr-only">, {% trans "required" context "form" %}</span></span></label>
-                <div class="col-md-9">
-                    <ul class="nav nav-tabs" role="tablist">
-                        <li role="presentation" class="active">
-                            <a data-toggle="tab" href="#compose_edit"><i class="fa fa-pencil-square-o fa-fw"></i> {% trans "Edit" %}</a>
-                        </li>
-                        <li role="presentation">
-                            <a data-toggle="tab" href="#compose_preview" data-email-preview-tab><i class="fa fa-tv fa-fw"></i> {% trans "Preview" %}</a>
-                        </li>
-                    </ul>
-                    <div class="tab-content">
-                        <div id="compose_edit" class="tab-pane fade in active">
-                            {% bootstrap_field form.body show_label=False form_group_class="" %}
+        </p>
+        {% bootstrap_form_errors form %}
+
+        <section class="card mb-3">
+            <div class="card-header"><strong>{% trans "Audience" %}</strong></div>
+            <div class="card-body">
+                <fieldset>
+                    {% if single_request %}
+                        <div class="form-group">
+                            <label class="col-md-3 control-label" for="id_single_recipient">{% trans "To" %}</label>
+                            <div class="col-md-9">
+                                {% trans "Hidden" as hidden_label %}
+                                <input type="text" id="id_single_recipient" class="form-control" disabled
+                                       value="{{ single_recipient|default:hidden_label }}">
+                            </div>
                         </div>
-                        <div id="compose_preview" class="tab-pane">
-                            <div class="mail-preview-group">
-                                {% for locale in locales %}
-                                    <div lang="{{ locale }}" dir="{{ locale|locale_dir }}" class="mail-preview"></div>
-                                {% endfor %}
+                    {% else %}
+                        <div class="composer-filters compose-recipient-filters" data-compose-filters>
+                            {% bootstrap_field form.state layout="control" %}
+                            {% bootstrap_field form.organization_type layout="control" %}
+                            {% bootstrap_field form.sponsor_group layout="control" %}
+                        </div>
+                        <div class="composer-organizations" data-compose-organizations>
+                            {% bootstrap_field form.organizations layout="control" %}
+                        </div>
+                    {% endif %}
+                </fieldset>
+            </div>
+        </section>
+
+        <section class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>{% trans "Message" %}</strong>
+                {% if custom_templates %}
+                    <span class="custom-template-picker">
+                        <label for="id_template_picker" class="sr-only">{% trans "Load from template" %}</label>
+                        <select name="template" id="id_template_picker" class="form-control input-sm" form="compose-template-picker">
+                            <option value="">{% trans "Select a saved template…" %}</option>
+                            {% for template in custom_templates %}
+                                <option value="{{ template.pk }}">{{ template.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-outline-info" form="compose-template-picker">{% trans "Load" %}</button>
+                    </span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <fieldset>
+                    {% include 'exhibitors/_i18n_language_switcher.html' %}
+                    {% bootstrap_field form.subject layout="control" %}
+                    <div class="form-group{% if form.body.errors %} has-error{% endif %}" data-email-preview-wrapper
+                         data-email-preview-url="{% url 'plugins:exhibition:email.templates.preview' organizer=request.event.organizer.slug event=request.event.slug %}?role=compose">
+                        <label class="col-md-3 control-label"><span class="label-text">{{ form.body.label }}<span aria-hidden="true" class="required-indicator text-danger"> *</span><span class="sr-only">, {% trans "required" context "form" %}</span></span></label>
+                        <div class="col-md-9">
+                            <ul class="nav nav-tabs" role="tablist">
+                                <li role="presentation" class="active">
+                                    <a data-toggle="tab" href="#compose_edit"><i class="fa fa-pencil-square-o fa-fw"></i> {% trans "Edit" %}</a>
+                                </li>
+                                <li role="presentation">
+                                    <a data-toggle="tab" href="#compose_preview" data-email-preview-tab><i class="fa fa-tv fa-fw"></i> {% trans "Preview" %}</a>
+                                </li>
+                            </ul>
+                            <div class="tab-content">
+                                <div id="compose_edit" class="tab-pane fade in active">
+                                    {% bootstrap_field form.body show_label=False form_group_class="" %}
+                                </div>
+                                <div id="compose_preview" class="tab-pane">
+                                    <div class="mail-preview-group">
+                                        {% for locale in locales %}
+                                            <div lang="{{ locale }}" dir="{{ locale|locale_dir }}" class="mail-preview"></div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </fieldset>
             </div>
-            {% bootstrap_field form.scheduled_at layout="control" %}
-        </fieldset>
-        <div class="form-group submit-group">
-            <div class="col-md-9 col-md-offset-3">
-                <button type="submit" class="btn btn-default btn-save" name="_draft" value="draft" formnovalidate>
-                    <i class="fa fa-file-text-o"></i> {% trans "Save as draft" %}
-                </button>
-                <button type="submit" class="btn btn-default btn-save" name="_save" value="save">
-                    {% trans "Save to outbox" %}
-                </button>
-                <button type="submit" class="btn btn-primary btn-save" name="_send" value="send">
-                    <i class="fa fa-paper-plane"></i> {% trans "Send / Schedule" %}
-                </button>
+        </section>
+
+        <section class="card mb-3">
+            <div class="card-header"><strong>{% trans "Delivery" %}</strong></div>
+            <div class="card-body">
+                <fieldset>
+                    {% bootstrap_field form.scheduled_at layout="control" %}
+                </fieldset>
             </div>
-        </div>
+        </section>
+
+        <section class="card mb-3">
+            <div class="card-body composer-actions-bar">
+                <span class="composer-actions">
+                    <button type="submit" class="btn btn-outline-info" name="_draft" value="draft" formnovalidate>
+                        <i class="fa fa-file-text-o"></i> {% trans "Save as draft" %}
+                    </button>
+                    <button type="submit" class="btn btn-outline-info" name="_save" value="save">
+                        {% trans "Save to outbox" %}
+                    </button>
+                    <button type="submit" class="btn btn-primary" name="_send" value="send">
+                        <i class="fa fa-paper-plane"></i> {% trans "Send / Schedule" %}
+                    </button>
+                </span>
+            </div>
+        </section>
     </form>
 {% endblock %}
