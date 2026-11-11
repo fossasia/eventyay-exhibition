@@ -749,7 +749,6 @@ def expire_overdue_exhibition_orders(sender, **kwargs):
     expire_overdue_orders()
 
 
-
 @receiver(nav_global, dispatch_uid="exhibition_nav_global")
 def exhibition_nav_global(sender, request=None, **kwargs):
     """My exhibitions in the personal dashboard, next to My orders and My sessions."""
