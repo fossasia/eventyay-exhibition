@@ -2096,8 +2096,16 @@ class ExhibitionEmailQueue(LoggedModel):
             return
 
         with transaction.atomic():
-            if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
+            current = (
+                type(self)
+                .objects.select_for_update()
+                .filter(pk=self.pk, sent_at__isnull=True)
+                .values("attachment_id")
+                .first()
+            )
+            if current is None:
                 return
+            self.attachment_id = current["attachment_id"]
             mail(
                 email=self.to_email,
                 subject=self.subject,
