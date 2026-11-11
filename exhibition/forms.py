@@ -2718,6 +2718,13 @@ class ExhibitionDiscountBulkForm(ExhibitionDiscountForm):
 
     field_order = ["count", "prefix"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tag"].required = True
+        self.fields["tag"].help_text = _(
+            "The codes are listed together in one row under this tag. Never shown to buyers."
+        )
+
     def create_discounts(self):
         """Create the requested number of codes with these settings and return them."""
         products = list(self.cleaned_data["products"])

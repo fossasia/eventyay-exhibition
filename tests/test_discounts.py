@@ -472,3 +472,38 @@ def test_the_product_api_leaves_out_products_only_sold_with_a_code(event):
         client.get(reverse("api-v1:exhibitionproduct-detail", kwargs={**api_kwargs, "id": hidden.pk})).status_code
         == 404
     )
+
+
+@pytest.mark.django_db
+def test_multiple_codes_need_a_tag(event):
+    with scopes_disabled():
+        form = ExhibitionDiscountBulkForm(
+            data={"count": "2", "price_mode": "percent", "value": "10", "max_usages": "1"}, event=event
+        )
+
+        assert not form.is_valid()
+        assert "tag" in form.errors
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_codes_sharing_a_tag_are_listed_in_one_row(event):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        _discount(event, code="PARTNER-A", tag="partners", max_usages=2)
+        _discount(event, code="PARTNER-B", tag="partners", max_usages=3)
+        _discount(event, code="LOOSE")
+
+    response = client.get(_url(event, "products.discounts"))
+    content = response.content.decode()
+
+    rows = response.context["discounts"]
+    assert sorted(str(row) for row in rows) == ["LOOSE", "PARTNER-A"]
+    group = next(row for row in rows if row.tag).group
+    assert [str(member) for member in group["members"]] == ["PARTNER-A", "PARTNER-B"]
+    assert (group["used"], group["max_usages"]) == (0, 5)
+    assert "0 / 5" in content
+    assert "PARTNER-B" in content
+
+    filtered = client.get(_url(event, "products.discounts"), {"tag": "partners"})
+    assert sorted(str(row) for row in filtered.context["discounts"]) == ["PARTNER-A", "PARTNER-B"]

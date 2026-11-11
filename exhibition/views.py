@@ -2236,7 +2236,8 @@ class ExhibitionDiscountListView(ExhibitionDiscountMixin, FilteredListMixin, Lis
     def build_filter_form(self):
         return DiscountFilterForm(data=self.request.GET, event=self.request.event)
 
-    def get_queryset(self):
+    @cached_property
+    def filtered_queryset(self):
         queryset = (
             super()
             .get_queryset()
@@ -2245,10 +2246,39 @@ class ExhibitionDiscountListView(ExhibitionDiscountMixin, FilteredListMixin, Lis
         )
         return self.apply_filters(queryset)
 
+    @cached_property
+    def grouped(self):
+        """Codes sharing a tag collapse into one row, unless the list is searched or narrowed to one tag."""
+        form = self.filter_form
+        return not (form.is_valid() and (form.cleaned_data.get("query") or form.cleaned_data.get("tag")))
+
+    def get_queryset(self):
+        if not self.grouped:
+            return self.filtered_queryset
+        first_of_tag = {}
+        for pk, tag in self.filtered_queryset.order_by("pk").values_list("pk", "tag"):
+            if tag:
+                first_of_tag.setdefault(tag, pk)
+        return self.filtered_queryset.filter(Q(tag="") | Q(pk__in=first_of_tag.values()))
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["now"] = timezone.now()
+        if self.grouped:
+            self.attach_groups(context["discounts"])
         return context
+
+    def attach_groups(self, discounts):
+        """Give each tag row on this page the codes behind it and their combined uses."""
+        rows = [discount for discount in discounts if discount.tag]
+        groups = {row.tag: {"members": [], "used": 0, "max_usages": 0} for row in rows}
+        for member in self.filtered_queryset.filter(tag__in=groups).order_by("code", "pk"):
+            group = groups[member.tag]
+            group["members"].append(member)
+            group["used"] += member.used
+            group["max_usages"] += member.max_usages
+        for row in rows:
+            row.group = groups[row.tag]
 
 
 class ExhibitionDiscountFormMixin(ExhibitionDiscountMixin):
