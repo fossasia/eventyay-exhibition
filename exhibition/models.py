@@ -1,9 +1,10 @@
 import os
 import secrets
 import string
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
-from django.core.validators import FileExtensionValidator, MaxValueValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator, RegexValidator
 from django.db import models, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
@@ -755,6 +756,10 @@ LOG_ORDER_PAYMENT_CHANGED = f"{LOG_PREFIX}.order.payment_changed"
 LOG_QUOTA_ADDED = f"{LOG_PREFIX}.quota.added"
 LOG_QUOTA_CHANGED = f"{LOG_PREFIX}.quota.changed"
 LOG_QUOTA_DELETED = f"{LOG_PREFIX}.quota.deleted"
+LOG_DISCOUNT_ADDED = f"{LOG_PREFIX}.discount.added"
+LOG_DISCOUNT_CHANGED = f"{LOG_PREFIX}.discount.changed"
+LOG_DISCOUNT_DELETED = f"{LOG_PREFIX}.discount.deleted"
+LOG_DISCOUNT_REDEEMED = f"{LOG_PREFIX}.discount.redeemed"
 LOG_ORDER_FORM_CHANGED = f"{LOG_PREFIX}.order_form.changed"
 LOG_ORDER_QUESTION_ADDED = f"{LOG_PREFIX}.order_question.added"
 LOG_ORDER_QUESTION_CHANGED = f"{LOG_PREFIX}.order_question.changed"
@@ -1478,6 +1483,14 @@ class ExhibitionProduct(LoggedModel):
             "digital package. Exhibition products always include one."
         ),
     )
+    hide_without_discount = models.BooleanField(
+        default=False,
+        verbose_name=_("Only sold with a discount code"),
+        help_text=_(
+            "The product is hidden from the public list until a buyer applies a discount code that covers it "
+            "and shows hidden products."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Exhibition product")
@@ -1555,6 +1568,198 @@ class ExhibitionOrderError(Exception):
 
 class ExhibitionQuotaExceeded(ExhibitionOrderError):
     """A quota has no capacity left for the products asked for."""
+
+
+class ExhibitionDiscountError(ExhibitionOrderError):
+    """A discount code cannot be used for the order as asked."""
+
+
+class ExhibitionDiscountPriceMode(models.TextChoices):
+    SET = "set", _("Set the product price to")
+    SUBTRACT = "subtract", _("Subtract from the product price")
+    PERCENT = "percent", _("Reduce the product price by (%)")
+
+
+DISCOUNT_CODE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+DISCOUNT_CODE_LENGTH = 10
+DISCOUNT_CODE_PATTERN = r"^[A-Za-z0-9_.-]+$"
+
+
+def normalize_discount_code(code):
+    return (code or "").strip().upper()
+
+
+def generate_discount_code(event, prefix=""):
+    """A random code that no other discount of the event uses, optionally after a prefix."""
+    while True:
+        code = normalize_discount_code(prefix) + get_random_string(
+            length=DISCOUNT_CODE_LENGTH, allowed_chars=DISCOUNT_CODE_CHARSET
+        )
+        if not ExhibitionDiscount.objects.filter(event=event, code=code).exists():
+            return code
+
+
+class ExhibitionDiscountQuerySet(models.QuerySet):
+    def with_usage(self):
+        """Annotate ``used``: the products bought with each code by orders that still hold their place."""
+        used = (
+            ExhibitionOrderPosition.objects.filter(discount=OuterRef("pk"), order__status__in=RESERVING_ORDER_STATUSES)
+            .order_by()
+            .values("discount")
+            .annotate(count=Count("pk"))
+            .values("count")
+        )
+        return self.annotate(used=Coalesce(Subquery(used), 0))
+
+
+class ExhibitionDiscount(LoggedModel):
+    """A code that lowers the price of exhibition products, and can reveal those only sold with a code."""
+
+    objects = ExhibitionDiscountQuerySet.as_manager()
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name="exhibition_discounts",
+    )
+    code = models.CharField(
+        max_length=255,
+        verbose_name=_("Discount code"),
+        validators=[
+            RegexValidator(
+                DISCOUNT_CODE_PATTERN,
+                _("Use only letters, numbers, dots, dashes and underscores."),
+            )
+        ],
+    )
+    products = models.ManyToManyField(
+        ExhibitionProduct,
+        related_name="discounts",
+        blank=True,
+        verbose_name=_("Products"),
+        help_text=_("Leave all unchecked to apply the code to every product."),
+    )
+    price_mode = models.CharField(
+        max_length=16,
+        choices=ExhibitionDiscountPriceMode.choices,
+        default=ExhibitionDiscountPriceMode.PERCENT,
+        verbose_name=_("Price effect"),
+    )
+    value = models.DecimalField(
+        max_digits=13,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Value"),
+    )
+    max_usages = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_("Maximum uses"),
+        help_text=_("How many products in total can be bought with this code."),
+    )
+    valid_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Valid until"),
+    )
+    show_hidden_products = models.BooleanField(
+        default=False,
+        verbose_name=_("Show hidden products"),
+        help_text=_("Lets the code reveal the products it covers that are only sold with a discount code."),
+    )
+    tag = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Tag"),
+        help_text=_("Groups codes, for example by partner or campaign. Never shown to buyers."),
+    )
+    comment = models.TextField(
+        blank=True,
+        verbose_name=_("Comment"),
+        help_text=_("An internal note, never shown to buyers."),
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("Exhibition discount")
+        verbose_name_plural = _("Exhibition discounts")
+        ordering = ("code", "id")
+        constraints = [
+            models.UniqueConstraint(fields=["event", "code"], name="exhibition_discount_code_unique_per_event"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.code = normalize_discount_code(self.code)
+        return super().save(*args, **kwargs)
+
+    def count_used(self):
+        return ExhibitionOrderPosition.objects.filter(
+            discount=self,
+            order__status__in=RESERVING_ORDER_STATUSES,
+        ).count()
+
+    @property
+    def used_count(self):
+        """Products bought with the code; reads the ``with_usage()`` annotation when present."""
+        return self.used if hasattr(self, "used") else self.count_used()
+
+    @property
+    def remaining_uses(self):
+        return max(self.max_usages - self.used_count, 0)
+
+    def is_expired(self, now_dt=None):
+        return bool(self.valid_until and self.valid_until < (now_dt or timezone.now()))
+
+    def unusable_reason(self, now_dt=None):
+        """Why buyers cannot apply the code right now, or an empty string when they can."""
+        if self.is_expired(now_dt):
+            return _("The discount code {code} has expired.").format(code=self.code)
+        if not self.remaining_uses:
+            return _("The discount code {code} has already been used.").format(code=self.code)
+        return ""
+
+    @property
+    def product_ids(self):
+        return {product.pk for product in self.products.all()}
+
+    def applies_to(self, product):
+        product_ids = self.product_ids
+        return not product_ids or product.pk in product_ids
+
+    def reveals(self, product):
+        return self.show_hidden_products and self.applies_to(product)
+
+    def price_for(self, product):
+        """The product's price with this code, never below zero and never above the product's own price."""
+        price = product.price
+        if self.price_mode == ExhibitionDiscountPriceMode.SET:
+            price = self.value
+        elif self.price_mode == ExhibitionDiscountPriceMode.SUBTRACT:
+            price = price - self.value
+        elif self.price_mode == ExhibitionDiscountPriceMode.PERCENT:
+            price = price * (Decimal("100") - self.value) / Decimal("100")
+        price = min(max(price, Decimal("0.00")), product.price)
+        return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def __str__(self):
+        return self.code
+
+
+def find_discount(event, code):
+    """The event's discount with this code, whatever case it is typed in, or None."""
+    code = normalize_discount_code(code)
+    if not code:
+        return None
+    return ExhibitionDiscount.objects.filter(event=event, code=code).prefetch_related("products").first()
+
+
+def reserve_discount_usage(discount, needed, *, check_expiry=True):
+    """Lock the code inside the caller's transaction and raise if it has expired or lacks uses for ``needed``."""
+    locked = ExhibitionDiscount.objects.select_for_update().get(pk=discount.pk)
+    if check_expiry and locked.is_expired():
+        raise ExhibitionDiscountError(f"The discount code {locked.code} has expired.")
+    if locked.count_used() + needed > locked.max_usages:
+        raise ExhibitionDiscountError(f"The discount code {locked.code} has no uses left.")
 
 
 def generate_exhibition_order_code(event):
@@ -1748,9 +1953,17 @@ class ExhibitionOrder(LoggedModel):
         )
 
     def _reclaim_quota_capacity(self, current):
-        """An expired order released its quota capacity, so reviving it needs that capacity back."""
-        if current.status == ExhibitionOrderStatus.EXPIRED:
-            reserve_quota_capacity([position.product for position in self.positions.select_related("product")])
+        """An expired order released its quota capacity and code uses, so reviving it needs them back."""
+        if current.status != ExhibitionOrderStatus.EXPIRED:
+            return
+        positions = list(self.positions.select_related("product", "discount"))
+        reserve_quota_capacity([position.product for position in positions])
+        uses = {}
+        for position in positions:
+            if position.discount_id:
+                uses[position.discount] = uses.get(position.discount, 0) + 1
+        for discount, needed in sorted(uses.items(), key=lambda item: item[0].pk):
+            reserve_discount_usage(discount, needed, check_expiry=False)
 
     def _transition(self, allowed_from, status, action, user, check=None, **fields):
         with transaction.atomic():
@@ -1795,13 +2008,29 @@ class ExhibitionOrderPosition(models.Model):
     )
     includes_booth = models.BooleanField(default=False, verbose_name=_("Includes exhibition booth"))
     price = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Price"))
+    original_price = models.DecimalField(
+        max_digits=13,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("Price before discount"),
+    )
+    discount = models.ForeignKey(
+        ExhibitionDiscount,
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        related_name="order_positions",
+        verbose_name=_("Discount code"),
+    )
 
     class Meta:
         ordering = ("order", "id")
 
     @classmethod
-    def for_product(cls, order, product):
-        return cls(
+    def for_product(cls, order, product, discount=None):
+        """The position for one product, priced with ``discount`` when the code covers the product."""
+        position = cls(
             order=order,
             product=product,
             name=product.name,
@@ -1809,6 +2038,11 @@ class ExhibitionOrderPosition(models.Model):
             includes_booth=product.includes_booth,
             price=product.price,
         )
+        if discount is not None and discount.applies_to(product):
+            position.discount = discount
+            position.original_price = product.price
+            position.price = discount.price_for(product)
+        return position
 
     @property
     def localized_name(self):
