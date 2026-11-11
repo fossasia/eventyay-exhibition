@@ -4,6 +4,8 @@ from eventyay.api.urls import event_router
 from eventyay.common.urls import OrganizerSlugConverter  # noqa: F401
 
 from .api import (
+    ExhibitionProductCategoryViewSet,
+    ExhibitionProductViewSet,
     ExhibitorAuthView,
     ExhibitorInfoViewSet,
     LeadCreateView,
@@ -17,6 +19,14 @@ from .dashboard import (
     MyExhibitionInvitationView,
     MyExhibitionsView,
     MyExhibitionVouchersView,
+)
+from .shop import (
+    ShopConfirmView,
+    ShopDetailsView,
+    ShopIndexView,
+    ShopOrderPayChangeView,
+    ShopOrderView,
+    ShopPaymentView,
 )
 from .views import (
     CustomEmailTemplateCreateView,
@@ -35,10 +45,34 @@ from .views import (
     EmailTemplatesView,
     ExhibitionDefaultFieldEditView,
     ExhibitionDefaultFieldResetView,
+    ExhibitionOrderCancelView,
+    ExhibitionOrderCreateView,
+    ExhibitionOrderDetailView,
+    ExhibitionOrderFormView,
+    ExhibitionOrderListView,
+    ExhibitionOrderMarkPaidView,
+    ExhibitionOrderQuestionCreateView,
+    ExhibitionOrderQuestionDeleteView,
+    ExhibitionOrderQuestionEditView,
+    ExhibitionOrderResendView,
+    ExhibitionProductCategoryCreateView,
+    ExhibitionProductCategoryDeleteView,
+    ExhibitionProductCategoryEditView,
+    ExhibitionProductCategoryListView,
+    ExhibitionProductCategoryReorderView,
+    ExhibitionProductCreateView,
+    ExhibitionProductDeleteView,
+    ExhibitionProductEditView,
+    ExhibitionProductListView,
+    ExhibitionProductReorderView,
     ExhibitionQuestionCreateView,
     ExhibitionQuestionDeleteView,
     ExhibitionQuestionEditView,
     ExhibitionQuestionListView,
+    ExhibitionQuotaCreateView,
+    ExhibitionQuotaDeleteView,
+    ExhibitionQuotaEditView,
+    ExhibitionQuotaListView,
     ExhibitorCopyKeyView,
     ExhibitorCreateView,
     ExhibitorDeleteView,
@@ -147,6 +181,36 @@ urlpatterns = [
         name="request.user_reinstate.legacy",
     ),
     path(
+        "<str:organizer>/<str:event>/exhibition/packages/",
+        ShopIndexView.as_view(),
+        name="shop",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/packages/checkout/details/",
+        ShopDetailsView.as_view(),
+        name="shop.checkout.details",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/packages/checkout/payment/",
+        ShopPaymentView.as_view(),
+        name="shop.checkout.payment",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/packages/checkout/confirm/",
+        ShopConfirmView.as_view(),
+        name="shop.checkout.confirm",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/packages/order/<str:code>/<str:secret>/",
+        ShopOrderView.as_view(),
+        name="shop.order",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/packages/order/<str:code>/<str:secret>/pay/change/",
+        ShopOrderPayChangeView.as_view(),
+        name="shop.order.pay_change",
+    ),
+    path(
         "<str:organizer>/<str:event>/exhibition/<int:pk>/",
         PublicExhibitorDetailView.as_view(),
         name="public_detail",
@@ -200,6 +264,126 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>",
         DashboardView.as_view(),
         name="dashboard",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders",
+        ExhibitionOrderListView.as_view(),
+        name="orders",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/add",
+        ExhibitionOrderCreateView.as_view(),
+        name="orders.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>",
+        ExhibitionOrderDetailView.as_view(),
+        name="orders.detail",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/mark_paid",
+        ExhibitionOrderMarkPaidView.as_view(),
+        name="orders.mark_paid",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/resend",
+        ExhibitionOrderResendView.as_view(),
+        name="orders.resend",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/cancel",
+        ExhibitionOrderCancelView.as_view(),
+        name="orders.cancel",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products",
+        ExhibitionProductListView.as_view(),
+        name="products",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/add",
+        ExhibitionProductCreateView.as_view(),
+        name="products.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/reorder",
+        ExhibitionProductReorderView.as_view(),
+        name="products.reorder",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/<int:pk>/edit",
+        ExhibitionProductEditView.as_view(),
+        name="products.edit",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/<int:pk>/delete",
+        ExhibitionProductDeleteView.as_view(),
+        name="products.delete",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/quotas",
+        ExhibitionQuotaListView.as_view(),
+        name="products.quotas",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/quotas/add",
+        ExhibitionQuotaCreateView.as_view(),
+        name="products.quotas.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/quotas/<int:pk>/edit",
+        ExhibitionQuotaEditView.as_view(),
+        name="products.quotas.edit",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/quotas/<int:pk>/delete",
+        ExhibitionQuotaDeleteView.as_view(),
+        name="products.quotas.delete",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/order-form",
+        ExhibitionOrderFormView.as_view(),
+        name="products.order_form",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/order-form/fields/add",
+        ExhibitionOrderQuestionCreateView.as_view(),
+        name="products.order_form.fields.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/order-form/fields/<int:pk>/edit",
+        ExhibitionOrderQuestionEditView.as_view(),
+        name="products.order_form.fields.edit",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/order-form/fields/<int:pk>/delete",
+        ExhibitionOrderQuestionDeleteView.as_view(),
+        name="products.order_form.fields.delete",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/categories",
+        ExhibitionProductCategoryListView.as_view(),
+        name="products.categories",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/categories/add",
+        ExhibitionProductCategoryCreateView.as_view(),
+        name="products.categories.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/categories/reorder",
+        ExhibitionProductCategoryReorderView.as_view(),
+        name="products.categories.reorder",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/categories/<int:pk>/edit",
+        ExhibitionProductCategoryEditView.as_view(),
+        name="products.categories.edit",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/categories/<int:pk>/delete",
+        ExhibitionProductCategoryDeleteView.as_view(),
+        name="products.categories.delete",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/exhibitors",
@@ -434,3 +618,7 @@ urlpatterns = [
 ]
 
 event_router.register("exhibitors", ExhibitorInfoViewSet, basename="exhibitorinfo")
+event_router.register("exhibition-products", ExhibitionProductViewSet, basename="exhibitionproduct")
+event_router.register(
+    "exhibition-product-categories", ExhibitionProductCategoryViewSet, basename="exhibitionproductcategory"
+)

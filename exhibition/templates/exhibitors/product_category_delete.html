@@ -1,0 +1,34 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Delete category" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Delete category" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        <p>
+            {% blocktrans trimmed with name=object.backend_name %}
+                Are you sure you want to delete the category <strong>{{ name }}</strong>?
+            {% endblocktrans %}
+        </p>
+        {% if product_count %}
+            <p>
+                {% blocktrans trimmed count count=product_count %}
+                    The product in this category will not be deleted. It will be left without a category.
+                {% plural %}
+                    The {{ count }} products in this category will not be deleted. They will be left without a category.
+                {% endblocktrans %}
+            </p>
+        {% endif %}
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products.categories' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}
