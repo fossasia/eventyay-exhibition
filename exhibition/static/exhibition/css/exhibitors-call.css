@@ -17,3 +17,18 @@
     margin: 0;
     white-space: normal;
 }
+.exhibition-discount {
+    margin-bottom: 30px;
+}
+
+.exhibition-discount .row-voucher .form-control,
+.exhibition-discount .row-voucher .input-group-addon,
+.exhibition-discount .row-voucher .btn {
+    height: 46px;
+}
+
+.exhibition-discount .row-voucher .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
