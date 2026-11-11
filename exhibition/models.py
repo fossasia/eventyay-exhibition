@@ -2088,6 +2088,8 @@ class ExhibitionEmailQueue(LoggedModel):
         state = "sent" if self.sent_at else "pending"
         return f"{self.to_email} · {state} · {self.subject}"
 
+    DELIVERY_FIELDS = ("to_email", "subject", "body", "reply_to", "locale", "attachment_id")
+
     def send(self, requestor=None):
         """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
         from eventyay.base.services.mail import mail
@@ -2100,12 +2102,13 @@ class ExhibitionEmailQueue(LoggedModel):
                 type(self)
                 .objects.select_for_update()
                 .filter(pk=self.pk, sent_at__isnull=True)
-                .values("attachment_id")
+                .values(*self.DELIVERY_FIELDS)
                 .first()
             )
             if current is None:
                 return
-            self.attachment_id = current["attachment_id"]
+            for name, value in current.items():
+                setattr(self, name, value)
             mail(
                 email=self.to_email,
                 subject=self.subject,
