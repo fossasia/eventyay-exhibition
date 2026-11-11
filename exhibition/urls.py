@@ -32,6 +32,11 @@ from .views import (
     CustomEmailTemplateCreateView,
     CustomEmailTemplateDeleteView,
     DashboardView,
+    ExhibitionDiscountBulkCreateView,
+    ExhibitionDiscountCreateView,
+    ExhibitionDiscountDeleteView,
+    ExhibitionDiscountEditView,
+    ExhibitionDiscountListView,
     EmailBulkActionView,
     EmailComposeView,
     EmailDeleteView,
@@ -339,6 +344,31 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/products/quotas/<int:pk>/delete",
         ExhibitionQuotaDeleteView.as_view(),
         name="products.quotas.delete",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/discounts",
+        ExhibitionDiscountListView.as_view(),
+        name="products.discounts",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/discounts/add",
+        ExhibitionDiscountCreateView.as_view(),
+        name="products.discounts.add",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/discounts/bulk",
+        ExhibitionDiscountBulkCreateView.as_view(),
+        name="products.discounts.bulk",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/discounts/<int:pk>/edit",
+        ExhibitionDiscountEditView.as_view(),
+        name="products.discounts.edit",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/products/discounts/<int:pk>/delete",
+        ExhibitionDiscountDeleteView.as_view(),
+        name="products.discounts.delete",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/products/order-form",

@@ -100,6 +100,10 @@
                                 </strong>
                             </td>
                             <td class="list-indicators" data-label="{% trans 'Availability' %}">
+                                {% if product.hide_without_discount %}
+                                    <span class="fa fa-tags fa-fw text-muted" data-toggle="tooltip"
+                                          title="{% trans "Only sold with a discount code" %}"></span>
+                                {% endif %}
                                 {% if product.available_from or product.available_until %}
                                     {% if not product.is_available_by_time %}
                                         <span class="label label-danger" data-toggle="tooltip"

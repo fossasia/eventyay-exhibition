@@ -81,6 +81,11 @@
             <span class="sidebar-text">{% trans "Order form" %}</span>
           </a>
         </li>
+        <li>
+          <a href="{% url 'plugins:exhibition:products.discounts' organizer=request.event.organizer.slug event=request.event.slug %}" {% if 'products.discounts' in url_name %}class="active"{% endif %}>
+            <span class="sidebar-text">{% trans "Discounts" %}</span>
+          </a>
+        </li>
       </ul>
     </li>
     <li>

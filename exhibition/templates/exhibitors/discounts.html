@@ -1,0 +1,119 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load money %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% trans "Discounts" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'pretixcontrol/css/tickets-mobile.css' %}">
+    <link rel="stylesheet" href="{% static 'exhibition/css/list-controls.css' %}">
+    <script defer src="{% static 'exhibition/js/list-filters.js' %}"></script>
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Discounts" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <p>
+        {% blocktrans trimmed %}
+            Discount codes lower the price of the products they cover. Buyers enter them on the call for exhibitors
+            page or open a code's redeem link. Pending and paid orders use up a code; cancelled and expired orders
+            give their uses back.
+        {% endblocktrans %}
+    </p>
+    <p class="list-toolbar">
+        <a href="{% url 'plugins:exhibition:products.discounts.add' organizer=request.event.organizer.slug event=request.event.slug %}"
+           class="btn btn-default"><i class="fa fa-plus"></i> {% trans "Create discount code" %}</a>
+        <a href="{% url 'plugins:exhibition:products.discounts.bulk' organizer=request.event.organizer.slug event=request.event.slug %}"
+           class="btn btn-default"><i class="fa fa-files-o"></i> {% trans "Create multiple codes" %}</a>
+    </p>
+    {% trans "Discount code" as label_code %}
+    {% trans "Tag" as label_tag %}
+    {% trans "Uses" as label_used %}
+    {% trans "Valid until" as label_valid_until %}
+    {% include "exhibitors/_filter_form.html" %}
+    <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    {% if discounts %}
+        <div class="table-responsive">
+            <table class="table table-hover table-flip tickets-table">
+                <thead>
+                <tr>
+                    <th>{% include "exhibitors/_sort_header.html" with field="code" label=label_code %}</th>
+                    <th>{% trans "Products" %}</th>
+                    <th>{% trans "Discount" %}</th>
+                    <th>{% include "exhibitors/_sort_header.html" with field="used" label=label_used %}</th>
+                    <th>{% include "exhibitors/_sort_header.html" with field="valid_until" label=label_valid_until %}</th>
+                    <th>{% include "exhibitors/_sort_header.html" with field="tag" label=label_tag %}</th>
+                    <th class="action-col-2"></th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for discount in discounts %}
+                    <tr>
+                        <td class="list-name-cell">
+                            <strong>
+                                <a href="{% url 'plugins:exhibition:products.discounts.edit' organizer=request.event.organizer.slug event=request.event.slug pk=discount.pk %}"><code>{{ discount.code }}</code></a>
+                            </strong>
+                            {% if discount.show_hidden_products %}
+                                <span class="fa fa-eye text-muted" data-toggle="tooltip" title="{% trans 'Shows hidden products' %}" aria-hidden="true"></span>
+                            {% endif %}
+                        </td>
+                        <td class="list-stack" data-label="{% trans 'Products' %}">
+                            <ul>
+                                {% for product in discount.products.all %}
+                                    <li>{{ product }}</li>
+                                {% empty %}
+                                    <li class="text-muted">{% trans "All products" %}</li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                        <td data-label="{% trans 'Discount' %}">
+                            {% if discount.price_mode == "percent" %}
+                                {% blocktrans trimmed with value=discount.value|floatformat:"-2" %}{{ value }}% off{% endblocktrans %}
+                            {% elif discount.price_mode == "subtract" %}
+                                {% blocktrans trimmed with value=discount.value|money:request.event.currency %}{{ value }} off{% endblocktrans %}
+                            {% else %}
+                                {% blocktrans trimmed with value=discount.value|money:request.event.currency %}Set to {{ value }}{% endblocktrans %}
+                            {% endif %}
+                        </td>
+                        <td data-label="{% trans 'Uses' %}">
+                            {% blocktrans trimmed with used=discount.used total=discount.max_usages %}{{ used }} of {{ total }}{% endblocktrans %}
+                        </td>
+                        <td class="list-meta" data-label="{% trans 'Valid until' %}">
+                            {% if discount.valid_until and discount.valid_until < now %}
+                                <span class="label label-danger">{% trans "Expired" %}</span>
+                            {% elif discount.used >= discount.max_usages %}
+                                <span class="label label-default">{% trans "Used up" %}</span>
+                            {% elif discount.valid_until %}
+                                {{ discount.valid_until|date:"SHORT_DATETIME_FORMAT" }}
+                            {% else %}
+                                <span class="text-muted">{% trans "No expiry" %}</span>
+                            {% endif %}
+                        </td>
+                        <td data-label="{% trans 'Tag' %}">{{ discount.tag|default:"—" }}</td>
+                        <td class="list-actions text-right flip" data-label="{% trans 'Actions' %}">
+                            <a href="{% url 'plugins:exhibition:products.discounts.edit' organizer=request.event.organizer.slug event=request.event.slug pk=discount.pk %}"
+                               class="btn btn-default btn-sm" title="{% trans 'Edit' %}" data-toggle="tooltip"><i class="fa fa-edit"></i></a>
+                            <a href="{% url 'plugins:exhibition:products.discounts.delete' organizer=request.event.organizer.slug event=request.event.slug pk=discount.pk %}"
+                               class="btn btn-delete btn-danger btn-sm" title="{% trans 'Delete' %}" data-toggle="tooltip"><i class="fa fa-trash"></i></a>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-collection">
+            {% if filter_form.filtered %}
+                <p>{% trans "No discount codes match your filters." %}</p>
+            {% else %}
+                <p>{% trans "You haven't created any discount codes yet." %}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+    {% include "pretixcontrol/pagination.html" %}
+    </div>
+{% endblock %}
