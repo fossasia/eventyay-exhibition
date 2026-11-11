@@ -123,6 +123,45 @@ and a buyer ordering on the public page gets the **Order confirmed** email
 (see `Emails`_ for orders you create yourself). Use free products for
 community booths.
 
+Discounts
+---------
+
+Discount codes lower the price of exhibition products, for example for early
+birds, partners or negotiated sponsorships. Go to **Exhibition → Products →
+Discounts** and click **Create discount code**, or **Create multiple codes**
+to generate a batch with the same settings and an optional prefix. Each code
+has:
+
+- **Discount code**: typed, or generated for you. Buyers can type it in any
+  case;
+- **Maximum uses**: how many products in total can be bought with it;
+- **Valid until**: an optional expiry date;
+- **Price effect** and **Value**: set the price to a fixed amount, subtract an
+  amount, or reduce it by a percentage. A discounted price is never below zero
+  or above the product's own price;
+- **Products**: the products it covers. Leave all unchecked to cover every
+  product;
+- **Show hidden products**: lets the code reveal products that are only sold
+  with a discount code;
+- **Tag** and **Comment**: for your own use, never shown to buyers.
+
+Buyers enter a code in **Have a discount code?** on the **Call for
+Exhibitors** page, or open the code's redeem link, which applies it directly.
+You find the link on the code's page, together with the orders that used it
+and its history. Covered products then show the old price struck through and
+the new one, and the discount carries through the checkout, the order page and
+the order emails. A discount that brings the total to zero makes the order
+free.
+
+Pending and paid orders use up a code; cancelled and expired orders give their
+uses back. A code that has been used in an order cannot be deleted. Lower its
+maximum uses or set an expiry date instead.
+
+To sell a product only to people with a code, for example a negotiated
+sponsorship package, tick **Only sold with a discount code** on the product.
+It stays hidden from the public list until a buyer applies a code that covers
+it and has **Show hidden products** ticked.
+
 Creating orders yourself
 ------------------------
 
@@ -133,7 +172,7 @@ offline agreements, go to **Exhibition → Orders** and click **Create order**:
    window can be booked here too;
 2. fill in the order form. Custom fields are optional here;
 3. set the payment status to *paid* or *pending*, with an optional payment
-   method and reference;
+   method and reference, and optionally a discount code;
 4. choose whether the buyer gets the order email.
 
 The order then behaves like one placed on the public page: it takes up quota
