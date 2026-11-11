@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 from django.test import RequestFactory
+from django.urls import reverse
 from django.utils import timezone
 from django_scopes import scopes_disabled
 from eventyay.base.models import Event, Order, OrderPosition, Product, Team, User
 from rest_framework.test import APIRequestFactory
-from django.urls import reverse
 
 pytestmark = pytest.mark.django_db
 from exhibition.api import (
