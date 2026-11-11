@@ -46,10 +46,17 @@
                     </div>
                 </div>
                 <div class="col-md-2 col-xs-6 price">
-                    {% if product.price %}
-                        {{ product.price|money:event.currency }}
+                    {% if product.discount %}
+                        <del>{{ product.price|money:event.currency }}</del>
+                        <ins>
+                    {% endif %}
+                    {% if product.discounted_price %}
+                        {{ product.discounted_price|money:event.currency }}
                     {% else %}
                         {% trans "FREE" context "price" %}
+                    {% endif %}
+                    {% if product.discount %}
+                        </ins>
                     {% endif %}
                 </div>
                 {% if product.sold_out %}

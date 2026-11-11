@@ -67,9 +67,32 @@
             </div>
         {% endif %}
     {% endif %}
-    {% if products_by_category %}
+    {% if products_by_category or offers_discounts %}
         <div id="exhibition-packages">
             <h2 class="content-header" id="{% if show_call %}exhibition-packages-heading{% else %}exhibition-call-heading{% endif %}">{% trans "Sponsorship and exhibition packages" %}</h2>
+            {% if discount %}
+                <div class="alert alert-success">
+                    {% blocktrans trimmed with code=discount.code %}
+                        The discount code <strong>{{ code }}</strong> is applied.
+                    {% endblocktrans %}
+                    <a href="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}?discount=">{% trans "Remove" %}</a>
+                </div>
+            {% elif offers_discounts %}
+                <section class="front-page exhibition-discount" aria-labelledby="exhibition-discount-heading">
+                    <h3 id="exhibition-discount-heading">{% trans "Have a discount code?" %}</h3>
+                    <form method="get" action="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}">
+                        <div class="input-group">
+                            <label class="sr-only" for="exhibition-discount-code">{% trans "Discount code" %}</label>
+                            <input type="text" class="form-control" name="discount" id="exhibition-discount-code"
+                                   placeholder="{% trans 'Discount code' %}" required>
+                            <span class="input-group-btn">
+                                <button class="btn btn-primary" type="submit">{% trans "Apply" %}</button>
+                            </span>
+                        </div>
+                    </form>
+                </section>
+            {% endif %}
+            {% if products_by_category %}
             <form method="post" action="{% url 'plugins:exhibition:shop' organizer=request.event.organizer.slug event=request.event.slug %}">
                 {% csrf_token %}
                 {% include "exhibitors/_shop_product_list.html" %}
@@ -84,6 +107,7 @@
                     </div>
                 </section>
             </form>
+            {% endif %}
         </div>
     {% endif %}
 {% endblock %}

@@ -76,7 +76,13 @@
                             <tr>
                                 <td>{{ position.name|event_localize }}</td>
                                 <td>{% if position.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                                <td class="text-right">{{ position.price|money:order.currency }}</td>
+                                <td class="text-right">
+                                    {% if position.discount_id %}<del>{{ position.original_price|money:order.currency }}</del>{% endif %}
+                                    {{ position.price|money:order.currency }}
+                                    {% if position.discount_id %}
+                                        <br><small class="text-muted">{% blocktrans trimmed with code=position.discount.code %}Discount code {{ code }}{% endblocktrans %}</small>
+                                    {% endif %}
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>

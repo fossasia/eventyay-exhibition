@@ -14,11 +14,23 @@
             <tr>
                 <td>{{ product.name|event_localize }}</td>
                 <td>{% if product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                <td class="text-right">{{ product.price|money:event.currency }}</td>
+                <td class="text-right">
+                    {% if product.discount %}<del>{{ product.price|money:event.currency }}</del>{% endif %}
+                    {{ product.discounted_price|money:event.currency }}
+                </td>
             </tr>
         {% endfor %}
     </tbody>
     <tfoot>
+        {% if discount %}
+            <tr>
+                <td colspan="3">
+                    {% blocktrans trimmed with code=discount.code %}
+                        Discount code {{ code }} applied.
+                    {% endblocktrans %}
+                </td>
+            </tr>
+        {% endif %}
         <tr>
             <th scope="row" colspan="2">{% trans "Total" %}</th>
             <th class="text-right">{{ total|money:event.currency }}</th>

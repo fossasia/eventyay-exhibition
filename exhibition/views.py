@@ -137,7 +137,14 @@ from .orders import (
     place_exhibition_order,
     send_order_email,
 )
-from .shop import checkout_session_key, group_by_category, shop_products
+from .shop import (
+    apply_discount_code,
+    checkout_session_key,
+    group_by_category,
+    packages_url,
+    session_discount,
+    shop_products,
+)
 from .social_links import serialize_social_link
 from .utils import (
     VOUCHER_CSV_FILENAME,
@@ -917,11 +924,21 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
     enforce_private = True
 
     @cached_property
+    def discount(self):
+        return session_discount(self.request)
+
+    @cached_property
     def packages(self):
-        return shop_products(self.request.event)
+        return shop_products(self.request.event, self.discount)
 
     def page_is_visible(self, settings):
         return bool(self.packages) or self.call_is_visible(settings)
+
+    def dispatch(self, request, *args, **kwargs):
+        if "discount" in request.GET:
+            apply_discount_code(request, request.GET["discount"])
+            return redirect(packages_url(request.event))
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -934,6 +951,8 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         cart = self.request.session.get(checkout_session_key(self.request.event), {})
         context["products_by_category"] = group_by_category(self.packages)
         context["selected"] = {str(pk) for pk in cart.get("products", [])}
+        context["discount"] = self.discount
+        context["offers_discounts"] = ExhibitionDiscount.objects.filter(event=self.request.event).exists()
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -2197,7 +2216,7 @@ class ExhibitionOrderMixin(EventPermissionRequiredMixin):
 
     def get_queryset(self):
         return ExhibitionOrder.objects.filter(event=self.request.event).prefetch_related(
-            Prefetch("positions", queryset=ExhibitionOrderPosition.objects.select_related("product"))
+            Prefetch("positions", queryset=ExhibitionOrderPosition.objects.select_related("product", "discount"))
         )
 
     @cached_property
