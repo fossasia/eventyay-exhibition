@@ -790,10 +790,13 @@ def compose_recipient_emails(exhibition_requests, exhibitors=()):
 
 
 def keep_attachment(cached_file):
-    """Stop an uploaded attachment from expiring while a draft or queued email uses it."""
-    if cached_file is not None and cached_file.expires is not None:
-        cached_file.expires = None
-        cached_file.save(update_fields=["expires"])
+    """Stop an uploaded attachment from expiring, holding its row until the referencing transaction commits."""
+    from eventyay.base.models import CachedFile
+
+    if cached_file is None:
+        return
+    CachedFile.objects.filter(pk=cached_file.pk).update(expires=None)
+    cached_file.expires = None
 
 
 def release_attachment(cached_file_id):
@@ -804,11 +807,15 @@ def release_attachment(cached_file_id):
 
     if not cached_file_id:
         return
-    if ExhibitionEmailQueue.objects.filter(attachment_id=cached_file_id).exists():
-        return
-    if ExhibitionEmailDraft.objects.filter(attachment_id=cached_file_id).exists():
-        return
-    CachedFile.objects.filter(pk=cached_file_id, expires__isnull=True).update(expires=timezone.now())
+    with transaction.atomic():
+        kept = CachedFile.objects.select_for_update().filter(pk=cached_file_id, expires__isnull=True)
+        if not list(kept.values_list("pk", flat=True)):
+            return
+        if ExhibitionEmailQueue.objects.filter(attachment_id=cached_file_id).exists():
+            return
+        if ExhibitionEmailDraft.objects.filter(attachment_id=cached_file_id).exists():
+            return
+        kept.update(expires=timezone.now())
 
 
 def queue_compose_emails(
@@ -826,7 +833,6 @@ def queue_compose_emails(
     """Fan a composed message out into per-recipient queued rows sharing a batch."""
     from .models import ExhibitionEmailQueue
 
-    keep_attachment(attachment)
     batch = uuid.uuid4()
     created = []
     seen_emails = set()
@@ -836,6 +842,8 @@ def queue_compose_emails(
         if not to_email or to_email.lower() in seen_emails:
             return
         seen_emails.add(to_email.lower())
+        if not created:
+            keep_attachment(attachment)
         locale = recipient_locale(event, user)
         queued = ExhibitionEmailQueue.objects.create(
             event=event,
