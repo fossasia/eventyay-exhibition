@@ -223,6 +223,10 @@ dialog.exhibition-image-dialog .exhibition-image-dialog-close:focus-visible {
     padding-top: 0;
 }
 
+.exhibition-orders {
+    margin-top: 30px;
+}
+
 .exhibition-order-detail {
     margin-bottom: 20px;
 }
