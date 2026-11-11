@@ -55,13 +55,14 @@
     }
 }
 
-.exhibition-composer .card-header .custom-template-picker {
-    flex-wrap: nowrap;
+.exhibition-composer .custom-template-picker {
     gap: 8px;
-    margin-bottom: 0;
+    margin-bottom: 16px;
+    padding: 0 2px;
 }
 
-.exhibition-composer .card-header .custom-template-picker select {
+.exhibition-composer .custom-template-picker select {
+    max-width: 100%;
     min-height: 0;
     width: auto;
 }
