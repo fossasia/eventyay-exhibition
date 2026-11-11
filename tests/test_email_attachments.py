@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
@@ -207,3 +208,62 @@ def test_lists_mark_emails_with_an_attachment(mail_event):
 
     assert entries[with_file.pk]["has_attachment"] is True
     assert entries[without_file.pk]["has_attachment"] is False
+
+
+@pytest.mark.django_db
+def test_upload_without_recipients_keeps_its_expiry(mail_event):
+    with scopes_disabled():
+        expires = timezone.now() + timedelta(days=1)
+        upload = CachedFile.objects.create(filename="guide.pdf", expires=expires)
+
+        created = mail_helpers.queue_compose_emails(mail_event, [], "Hi", "<p>Hi</p>", attachment=upload)
+
+    assert created == []
+    assert CachedFile.objects.get(pk=upload.pk).expires == expires
+
+
+@pytest.mark.django_db
+def test_editing_a_voucher_email_keeps_the_csv_expiry(mail_event):
+    with scopes_disabled():
+        expires = timezone.now() + timedelta(days=30)
+        csv = CachedFile.objects.create(filename="vouchers.csv", expires=expires)
+        email = ExhibitionEmailQueue.objects.create(
+            event=mail_event,
+            role=mail_helpers.VOUCHERS,
+            to_email="a@example.com",
+            subject="Vouchers",
+            body="<p>Codes</p>",
+            attachment=csv,
+        )
+        form = ExhibitionEmailQueueForm(
+            data={"to_email": "a@example.com", "subject": "Your vouchers", "body": "<p>Codes</p>"},
+            instance=email,
+            event=mail_event,
+        )
+        assert form.is_valid(), form.errors
+        view = EmailEditView()
+        view.request = _http_request(mail_event, post={"_save": "save"})
+        view.kwargs = {"pk": email.pk}
+        view.object = email
+        view.form_valid(form)
+        email.refresh_from_db()
+
+    assert email.attachment_id == csv.pk
+    assert CachedFile.objects.get(pk=csv.pk).expires == expires
+
+
+@pytest.mark.django_db
+def test_sending_uses_the_attachment_saved_on_the_row(mail_event):
+    with scopes_disabled():
+        old = CachedFile.objects.create(filename="old.pdf", expires=None)
+        new = CachedFile.objects.create(filename="new.pdf", expires=None)
+        email = ExhibitionEmailQueue.objects.create(
+            event=mail_event, to_email="a@example.com", subject="Hi", body="<p>Hi</p>", attachment=old
+        )
+        stale = ExhibitionEmailQueue.objects.get(pk=email.pk)
+        ExhibitionEmailQueue.objects.filter(pk=email.pk).update(attachment=new)
+
+        with patch("eventyay.base.services.mail.mail") as mocked_mail:
+            stale.send()
+
+    assert mocked_mail.call_args.kwargs["attach_cached_files"] == [new.pk]
