@@ -320,7 +320,7 @@ def test_queue_voucher_email_resolves_placeholders_with_the_vouchers_role(vouche
     assert queued.role == mail_helpers.VOUCHERS
     assert queued.to_email == "acme@example.com"
     assert queued.sent_at is None
-    assert "{voucher_list}" not in queued.body
+    assert "{voucher_details}" not in queued.body
     assert "{exhibitor_name}" not in queued.body
     assert vouchers[0].code in queued.body
 
