@@ -23,12 +23,12 @@
 }
 
 .exhibition-discount .row-voucher .form-control,
-.exhibition-discount .row-voucher .input-group-addon,
-.exhibition-discount .row-voucher .btn {
+.exhibition-discount .row-voucher .input-group-addon {
     height: 46px;
 }
 
 .exhibition-discount .row-voucher .btn {
+    min-height: 46px;
     display: flex;
     align-items: center;
     justify-content: center;
