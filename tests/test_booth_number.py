@@ -12,7 +12,7 @@ from exhibition import mail as mail_helpers
 from exhibition.api import ExhibitorAuthView, ExhibitorInfoSerializer, LeadCreateView, LeadRetrieveView
 from exhibition.filters import ExhibitorFilterForm
 from exhibition.forms import ExhibitorInfoForm
-from exhibition.models import ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo, Lead
+from exhibition.models import ExhibitionRequest, ExhibitionRequestState, ExhibitorGroup, ExhibitorInfo, Lead
 from exhibition.utils import create_exhibitor_from_request
 
 
@@ -50,7 +50,7 @@ def test_blank_booth_numbers_written_in_bulk_do_not_clash(event):
 @pytest.mark.django_db
 def test_exhibitor_form_saves_the_booth_number_as_typed(event, image_uploads):
     form = ExhibitorInfoForm(
-        data={"name_0": "Acme", "booth_number": "Hall 1-04"},
+        data={"name_0": "Acme", "booth_number": "Hall 1-04", "exhibitor_group": ExhibitorGroup.PAID},
         files=image_uploads(),
         event=event,
         organization_type="exhibitor",
@@ -68,7 +68,7 @@ def test_exhibitor_form_saves_the_booth_number_as_typed(event, image_uploads):
 @pytest.mark.django_db
 def test_exhibitor_form_leaves_a_blank_booth_unassigned(event, image_uploads):
     form = ExhibitorInfoForm(
-        data={"name_0": "Acme", "booth_number": ""},
+        data={"name_0": "Acme", "booth_number": "", "exhibitor_group": ExhibitorGroup.PAID},
         files=image_uploads(),
         event=event,
         organization_type="exhibitor",

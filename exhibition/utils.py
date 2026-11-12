@@ -202,6 +202,7 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
         LOG_ORGANIZATION_REACTIVATED,
         ExhibitionRequestState,
         ExhibitorExtraLink,
+        ExhibitorGroup,
         ExhibitorInfo,
         ExhibitorSocialLink,
         normalize_booth_number,
@@ -211,15 +212,18 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
 
     if exhibition_request.approved_exhibitor_id:
         exhibitor = exhibition_request.approved_exhibitor
+        becomes_exhibitor = exhibition_request.is_exhibitor and not exhibitor.is_exhibitor
         exhibitor.active = True
         exhibitor.is_exhibitor = exhibition_request.is_exhibitor
         exhibitor.is_sponsor = exhibition_request.is_sponsor
         exhibitor.sponsor_group = exhibition_request.sponsor_group if exhibition_request.is_sponsor else None
         exhibitor.booth_number = (booth_number or exhibitor.booth_number) if exhibition_request.is_exhibitor else None
         exhibitor.booth_name = exhibition_request.booth_name if exhibition_request.is_exhibitor else ""
-        exhibitor.save(
-            update_fields=["active", "is_exhibitor", "is_sponsor", "sponsor_group", "booth_number", "booth_name"]
-        )
+        update_fields = ["active", "is_exhibitor", "is_sponsor", "sponsor_group", "booth_number", "booth_name"]
+        if becomes_exhibitor:
+            exhibitor.exhibitor_group = ExhibitorGroup.NON_PAID
+            update_fields.append("exhibitor_group")
+        exhibitor.save(update_fields=update_fields)
         exhibition_request.state = ExhibitionRequestState.ACCEPTED
         exhibition_request.submitted = exhibition_request.submitted or timezone.now()
         exhibition_request.profile_edited_at = None
@@ -249,6 +253,7 @@ def create_exhibitor_from_request(exhibition_request, requestor=None):
         is_sponsor=exhibition_request.is_sponsor,
         sponsor_group=exhibition_request.sponsor_group if exhibition_request.is_sponsor else None,
         is_exhibitor=exhibition_request.is_exhibitor,
+        exhibitor_group=ExhibitorGroup.NON_PAID if exhibition_request.is_exhibitor else "",
         booth_number=booth_number if exhibition_request.is_exhibitor else None,
         booth_name=exhibition_request.booth_name if exhibition_request.is_exhibitor else "",
     )
@@ -313,13 +318,23 @@ def resolve_voucher_pool_tag(exhibitor, *, event_settings=None):
 def resolve_voucher_defaults(exhibitor, *, event_settings=None):
     """How many pool vouchers this exhibitor gets, and which pool they come from.
 
-    The count is their sponsor group's when they have one, otherwise the event-wide default.
-    Pass ``event_settings`` when resolving for many exhibitors to avoid a query per row.
+    The count is their sponsor group's when they have one, then their exhibitor group's, otherwise the
+    event-wide default that exhibitors without a group keep. Pass ``event_settings`` when resolving for
+    many exhibitors to avoid a query per row.
     """
+    from .models import ExhibitorGroup
+
     settings = event_settings or event_exhibitor_settings(exhibitor.event)
-    source = exhibitor.sponsor_group if exhibitor.sponsor_group_id else settings
+    if exhibitor.sponsor_group_id:
+        count = exhibitor.sponsor_group.voucher_default_count
+    elif exhibitor.is_exhibitor and exhibitor.exhibitor_group == ExhibitorGroup.PAID:
+        count = settings.paid_voucher_default_count
+    elif exhibitor.is_exhibitor and exhibitor.exhibitor_group == ExhibitorGroup.NON_PAID:
+        count = settings.non_paid_voucher_default_count
+    else:
+        count = settings.voucher_default_count
     return {
-        "count": source.voucher_default_count,
+        "count": count,
         "pool_tag": resolve_voucher_pool_tag(exhibitor, event_settings=settings),
     }
 
