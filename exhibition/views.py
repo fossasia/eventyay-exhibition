@@ -939,8 +939,16 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
     def packages(self):
         return shop_products(self.request.event, self.discount)
 
+    @cached_property
+    def offers_discounts(self):
+        return ExhibitionDiscount.objects.filter(event=self.request.event).exists()
+
     def page_is_visible(self, settings):
-        return bool(self.packages) or self.call_is_visible(settings)
+        """Shown with packages on sale, an open call, or code-only packages a buyer can unlock with a code."""
+        if self.packages or self.call_is_visible(settings):
+            return True
+        code_only = ExhibitionProduct.objects.filter(event=self.request.event, hide_without_discount=True).available()
+        return self.offers_discounts and code_only.exists()
 
     def dispatch(self, request, *args, **kwargs):
         if "discount" in request.GET:
@@ -960,7 +968,7 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         context["products_by_category"] = group_by_category(self.packages)
         context["selected"] = {str(pk) for pk in cart.get("products", [])}
         context["discount"] = self.discount
-        context["offers_discounts"] = ExhibitionDiscount.objects.filter(event=self.request.event).exists()
+        context["offers_discounts"] = self.offers_discounts
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -2046,9 +2054,19 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
     model = ExhibitionProduct
     template_name = "exhibitors/product_delete.html"
 
+    def only_product_of_codes(self):
+        """Codes covering only this product, which would start covering every product without it."""
+        return list(
+            ExhibitionDiscount.objects.filter(pk__in=self.object.discounts.values("pk"))
+            .annotate(product_count=Count("products"))
+            .filter(product_count=1)
+            .order_by("code")
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["has_orders"] = self.object.order_positions.exists()
+        context["only_product_of_codes"] = self.only_product_of_codes()
         return context
 
     def form_valid(self, form):
@@ -2056,6 +2074,12 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
             messages.error(
                 self.request,
                 _("This product has been ordered, so it cannot be deleted. You can deactivate it instead."),
+            )
+            return redirect(self.get_success_url())
+        if self.only_product_of_codes():
+            messages.error(
+                self.request,
+                _("This product is the only product of a discount code. Change or delete that code first."),
             )
             return redirect(self.get_success_url())
         self.object.log_action(
@@ -2256,10 +2280,20 @@ class ExhibitionDiscountListView(ExhibitionDiscountMixin, FilteredListMixin, Lis
         if not self.grouped:
             return self.filtered_queryset
         first_of_tag = {}
-        for pk, tag in self.filtered_queryset.order_by("pk").values_list("pk", "tag"):
+        group_used = {}
+        for pk, tag, used in self.filtered_queryset.order_by("pk").values_list("pk", "tag", "used"):
             if tag:
                 first_of_tag.setdefault(tag, pk)
-        return self.filtered_queryset.filter(Q(tag="") | Q(pk__in=first_of_tag.values()))
+                group_used[tag] = group_used.get(tag, 0) + used
+        rows = self.filtered_queryset.filter(Q(tag="") | Q(pk__in=first_of_tag.values()))
+        ordering = self.filter_form.cleaned_data.get("ordering") if self.filter_form.is_valid() else ""
+        if ordering not in ("used", "-used"):
+            return rows
+        return sorted(
+            rows,
+            key=lambda row: (group_used[row.tag] if row.tag else row.used, row.code),
+            reverse=ordering == "-used",
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -2371,16 +2405,18 @@ class ExhibitionDiscountDeleteView(ExhibitionDiscountMixin, DeleteView):
         return context
 
     def form_valid(self, form):
-        if self.object.order_positions.exists():
-            messages.error(
-                self.request,
-                _("This code has been used in orders, so it cannot be deleted. Lower its maximum uses instead."),
-            )
-            return redirect(
-                "plugins:exhibition:products.discounts.edit", **event_kwargs(self.request.event), pk=self.object.pk
-            )
-        self.object.log_action(LOG_DISCOUNT_DELETED, data={"code": self.object.code}, user=self.request.user)
-        return super().form_valid(form)
+        with transaction.atomic():
+            self.object = ExhibitionDiscount.objects.select_for_update().get(pk=self.object.pk)
+            if self.object.order_positions.exists():
+                messages.error(
+                    self.request,
+                    _("This code has been used in orders, so it cannot be deleted. Lower its maximum uses instead."),
+                )
+                return redirect(
+                    "plugins:exhibition:products.discounts.edit", **event_kwargs(self.request.event), pk=self.object.pk
+                )
+            self.object.log_action(LOG_DISCOUNT_DELETED, data={"code": self.object.code}, user=self.request.user)
+            return super().form_valid(form)
 
 
 class ExhibitionOrderMixin(EventPermissionRequiredMixin):
