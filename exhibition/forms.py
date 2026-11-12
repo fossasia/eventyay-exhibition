@@ -2671,6 +2671,9 @@ class ExhibitionDiscountForm(I18nModelForm):
         ).format(currency=self.event.currency)
         if "code" in self.fields and not self.instance.pk and not self.is_bound:
             self.initial["code"] = generate_discount_code(self.event)
+        if "code" in self.fields and self.instance.pk and self.instance.order_positions.exists():
+            self.fields["code"].disabled = True
+            self.fields["code"].help_text = _("The code has been used in orders, so it can no longer be changed.")
 
     def clean_code(self):
         code = normalize_discount_code(self.cleaned_data.get("code"))
