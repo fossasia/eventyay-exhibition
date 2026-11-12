@@ -36,7 +36,12 @@ class Migration(migrations.Migration):
                 'verbose_name': 'Exhibition discount',
                 'verbose_name_plural': 'Exhibition discounts',
                 'ordering': ('code', 'id'),
-                'constraints': [models.UniqueConstraint(fields=('event', 'code'), name='exhibition_discount_code_unique_per_event')],
+                'constraints': [
+                    models.UniqueConstraint(fields=('event', 'code'), name='exhibition_discount_code_unique_per_event'),
+                    models.CheckConstraint(condition=models.Q(('price_mode__in', ['set', 'subtract', 'percent'])), name='exhibition_discount_price_mode_known'),
+                    models.CheckConstraint(condition=models.Q(('value__gte', 0)), name='exhibition_discount_value_not_negative'),
+                    models.CheckConstraint(condition=models.Q(models.Q(('price_mode', 'percent'), _negated=True), ('value__lte', 100), _connector='OR'), name='exhibition_discount_percent_at_most_100'),
+                ],
             },
             bases=(models.Model, eventyay.base.models.base.LoggingMixin),
         ),

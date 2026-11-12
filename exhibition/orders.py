@@ -19,6 +19,7 @@ from .models import (
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    lock_discount,
     reserve_discount_usage,
     reserve_quota_capacity,
 )
@@ -124,16 +125,18 @@ def place_exhibition_order(
     for product in products:
         if product.event_id != event.pk or (check_availability and not product.is_available(now)):
             raise ExhibitionOrderError(f"{product} is not on sale.")
-        if check_availability and product.hide_without_discount and not (discount and discount.reveals(product)):
-            raise ExhibitionOrderError(f"{product} is only sold with a discount code.")
-
-    positions = [ExhibitionOrderPosition.for_product(None, product, discount) for product in products]
-    discounted = sum(1 for position in positions if position.discount_id)
-    total = sum((position.price for position in positions), Decimal("0.00"))
-    if check_availability and total and payment_provider not in usable_payment_providers(event):
-        raise ExhibitionOrderError("The payment method is not available for this event.")
 
     with transaction.atomic():
+        if discount is not None:
+            discount = lock_discount(discount)
+        for product in products:
+            if check_availability and product.hide_without_discount and not (discount and discount.reveals(product)):
+                raise ExhibitionOrderError(f"{product} is only sold with a discount code.")
+        positions = [ExhibitionOrderPosition.for_product(None, product, discount) for product in products]
+        discounted = sum(1 for position in positions if position.discount_id)
+        total = sum((position.price for position in positions), Decimal("0.00"))
+        if check_availability and total and payment_provider not in usable_payment_providers(event):
+            raise ExhibitionOrderError("The payment method is not available for this event.")
         reserve_quota_capacity(products)
         if discounted:
             reserve_discount_usage(discount, discounted)

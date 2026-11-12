@@ -1686,6 +1686,15 @@ class ExhibitionDiscount(LoggedModel):
         ordering = ("code", "id")
         constraints = [
             models.UniqueConstraint(fields=["event", "code"], name="exhibition_discount_code_unique_per_event"),
+            models.CheckConstraint(
+                condition=Q(price_mode__in=ExhibitionDiscountPriceMode.values),
+                name="exhibition_discount_price_mode_known",
+            ),
+            models.CheckConstraint(condition=Q(value__gte=0), name="exhibition_discount_value_not_negative"),
+            models.CheckConstraint(
+                condition=~Q(price_mode=ExhibitionDiscountPriceMode.PERCENT) | Q(value__lte=100),
+                name="exhibition_discount_percent_at_most_100",
+            ),
         ]
 
     def save(self, *args, **kwargs):
@@ -1753,9 +1762,17 @@ def find_discount(event, code):
     return ExhibitionDiscount.objects.filter(event=event, code=code).prefetch_related("products").first()
 
 
+def lock_discount(discount):
+    """Lock the code inside the caller's transaction and reload it, raising if it has been deleted meanwhile."""
+    try:
+        return ExhibitionDiscount.objects.select_for_update().prefetch_related("products").get(pk=discount.pk)
+    except ExhibitionDiscount.DoesNotExist as error:
+        raise ExhibitionDiscountError(f"The discount code {discount.code} no longer exists.") from error
+
+
 def reserve_discount_usage(discount, needed, *, check_expiry=True):
     """Lock the code inside the caller's transaction and raise if it has expired or lacks uses for ``needed``."""
-    locked = ExhibitionDiscount.objects.select_for_update().get(pk=discount.pk)
+    locked = lock_discount(discount)
     if check_expiry and locked.is_expired():
         raise ExhibitionDiscountError(f"The discount code {locked.code} has expired.")
     if locked.count_used() + needed > locked.max_usages:
