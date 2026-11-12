@@ -3685,6 +3685,27 @@ EMAIL_MANAGE_PERMISSION = (
 )
 
 
+class EmailComposeRecipientsView(EventPermissionRequiredMixin, View):
+    """The organizations the compose filters in the query string reach, resolved as sending would."""
+
+    permission = EMAIL_MANAGE_PERMISSION
+
+    def get(self, request, *args, **kwargs):
+        show_emails = not should_hide_applicant_emails(request.user, request.event, request=request)
+        form = ExhibitionComposeForm(data=request.GET, event=request.event, show_emails=show_emails, saving_draft=True)
+        if not form.is_valid():
+            return JsonResponse({"error": str(_("These filters are not valid."))}, status=400)
+        exhibition_requests, profiles = form.recipients()
+        entries = [
+            (localize_event_text(item.name) or str(item.name), mail_helpers.request_recipient(item))
+            for item in exhibition_requests
+        ]
+        entries += [(localize_event_text(item.name) or str(item.name), item.recipient_email) for item in profiles]
+        entries.sort(key=lambda entry: entry[0].lower())
+        recipients = [{"name": name, "email": email if show_emails else ""} for name, email in entries]
+        return JsonResponse({"count": len(recipients), "recipients": recipients})
+
+
 class EmailComposeView(EventPermissionRequiredMixin, FormView):
     """Compose a broadcast email to a filtered group of applicants, or to one applicant via ``?request=<code>``.
 

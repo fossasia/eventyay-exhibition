@@ -1,3 +1,25 @@
 .compose-recipient-filters.is-overridden {
     opacity: 0.5;
 }
+
+.compose-recipient-preview {
+    margin-top: 12px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.compose-recipient-preview-count {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.compose-recipient-preview-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.compose-recipient-preview-list li {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--color-grey-light, #e5e5e5);
+}
