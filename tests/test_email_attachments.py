@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -270,3 +271,59 @@ def test_sending_uses_the_content_saved_on_the_row(mail_event):
     assert sent["attach_cached_files"] == [new.pk]
     assert sent["subject"] == "Updated"
     assert str(sent["template"]) == "<p>New</p>"
+
+
+def _edit(event, email, data, files=None, post=None):
+    form = ExhibitionEmailQueueForm(data=data, files=files or {}, instance=email, event=event)
+    assert form.is_valid(), form.errors
+    view = EmailEditView()
+    view.request = _http_request(event, post=post or {"_save": "save"})
+    view.kwargs = {"pk": email.pk}
+    view.object = email
+    return view.form_valid(form), view
+
+
+@pytest.mark.django_db
+def test_editing_an_email_sent_meanwhile_keeps_it_sent(mail_event):
+    with scopes_disabled():
+        email = ExhibitionEmailQueue.objects.create(
+            event=mail_event, to_email="a@example.com", subject="Hi", body="<p>Hi</p>"
+        )
+        stale = ExhibitionEmailQueue.objects.get(pk=email.pk)
+        sent_at = timezone.now()
+        ExhibitionEmailQueue.objects.filter(pk=email.pk).update(sent_at=sent_at)
+
+        with patch("eventyay.base.services.mail.mail") as mocked_mail:
+            _response, view = _edit(
+                mail_event,
+                stale,
+                {"to_email": "a@example.com", "subject": "Changed", "body": "<p>Changed</p>"},
+                post={"_send": "send"},
+            )
+        email.refresh_from_db()
+
+    assert not mocked_mail.called
+    assert email.sent_at == sent_at
+    assert email.subject == "Hi"
+    assert [str(message) for message in view.request._messages] == [
+        "This email was already sent or discarded, so your changes were not saved."
+    ]
+
+
+@pytest.mark.django_db
+def test_editing_a_batch_discarded_meanwhile_leaves_the_upload_to_expire(mail_event):
+    with scopes_disabled():
+        email = ExhibitionEmailQueue.objects.create(
+            event=mail_event, batch=uuid.uuid4(), to_email="a@example.com", subject="Hi", body="<p>Hi</p>"
+        )
+        stale = ExhibitionEmailQueue.objects.get(pk=email.pk)
+        ExhibitionEmailQueue.objects.filter(pk=email.pk).delete()
+
+        _edit(
+            mail_event,
+            stale,
+            {"to_email": "a@example.com", "subject": "Hi", "body": "<p>Hi</p>"},
+            files={"attachment": _upload()},
+        )
+
+        assert CachedFile.objects.get(filename="guide.pdf").expires is not None
