@@ -1,7 +1,9 @@
 import datetime as dt
+import re
 from decimal import Decimal
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils.timezone import now
@@ -23,6 +25,8 @@ from exhibition.models import (
     find_discount,
 )
 from exhibition.orders import place_exhibition_order
+
+EIGHT_HUNDRED = re.compile(r"(?<![\d,.])800\.00")
 
 CUSTOMER_DATA = {"organization_name": "Acme Inc", "name": "Ada Lovelace", "email": "ada@example.com"}
 
@@ -253,7 +257,7 @@ def test_the_order_email_lists_the_discount(event):
 
     assert "Gold" in listed
     assert "PARTNER20" in listed
-    assert "800" in listed
+    assert EIGHT_HUNDRED.search(listed)
 
 
 # Buyers
@@ -276,7 +280,7 @@ def test_buyers_apply_a_code_and_see_the_discounted_price(event):
     content = client.get(_url(event, "public_call")).content.decode()
     assert "PARTNER20" in content
     assert "<del>" in content
-    assert "800" in content
+    assert EIGHT_HUNDRED.search(content)
 
 
 @pytest.mark.django_db
@@ -324,7 +328,7 @@ def test_the_redeem_link_reveals_a_hidden_product_and_the_checkout_uses_the_code
 
 @pytest.mark.django_db
 @override_settings(SITE_URL="https://testserver")
-def test_a_code_that_runs_out_during_checkout_sends_the_buyer_back(event):
+def test_a_code_used_up_before_confirming_sends_the_buyer_back(event):
     _enable_plugin(event)
     with scopes_disabled():
         product = _product(event, "Gold Sponsor", price="0.00")
@@ -507,3 +511,106 @@ def test_codes_sharing_a_tag_are_listed_in_one_row(event):
 
     filtered = client.get(_url(event, "products.discounts"), {"tag": "partners"})
     assert sorted(str(row) for row in filtered.context["discounts"]) == ["PARTNER-A", "PARTNER-B"]
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_a_code_that_runs_out_while_the_order_is_placed_sends_the_buyer_back(event, monkeypatch):
+    _enable_plugin(event)
+    with scopes_disabled():
+        product = _product(event, "Gold Sponsor", price="0.00")
+        _discount(event, max_usages=1)
+    client = Client()
+    client.get(_url(event, "public_call"), {"discount": "PARTNER20"})
+    client.post(_url(event, "shop"), {"product": [product.pk]})
+    client.post(_url(event, "shop.checkout.details"), CUSTOMER_DATA)
+
+    def used_up(discount, needed, **kwargs):
+        raise ExhibitionDiscountError("used up")
+
+    monkeypatch.setattr("exhibition.orders.reserve_discount_usage", used_up)
+    response = client.post(_url(event, "shop.checkout.confirm"))
+
+    assert response.url == _packages_url(event)
+    with scopes_disabled():
+        assert not ExhibitionOrder.objects.filter(event=event).exists()
+
+
+@pytest.mark.django_db
+def test_the_database_refuses_malformed_discounts(event):
+    with scopes_disabled():
+        for settings in (
+            {"price_mode": "free", "value": Decimal("10")},
+            {"price_mode": ExhibitionDiscountPriceMode.SUBTRACT, "value": Decimal("-1")},
+            {"price_mode": ExhibitionDiscountPriceMode.PERCENT, "value": Decimal("150")},
+        ):
+            with pytest.raises(IntegrityError), transaction.atomic():
+                ExhibitionDiscount.objects.create(event=event, code="BROKEN", **settings)
+
+
+@pytest.mark.django_db
+def test_a_used_code_can_no_longer_be_renamed(event):
+    with scopes_disabled():
+        used = _discount(event, code="USED", max_usages=5)
+        unused = _discount(event, code="UNUSED")
+        _order(event, [_product(event, "Gold")], discount=used)
+
+        assert ExhibitionDiscountForm(instance=used, event=event).fields["code"].disabled
+        assert not ExhibitionDiscountForm(instance=unused, event=event).fields["code"].disabled
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_a_product_cannot_be_deleted_while_it_is_a_codes_only_product(event):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        gold = _product(event, "Gold")
+        silver = _product(event, "Silver")
+        _discount(event, code="GOLD", products=[gold])
+        _discount(event, code="BOTH", products=[gold, silver])
+
+    client.post(_url(event, "products.delete", pk=gold.pk))
+    client.post(_url(event, "products.delete", pk=silver.pk))
+
+    with scopes_disabled():
+        assert list(ExhibitionProduct.objects.filter(event=event)) == [gold]
+        assert list(ExhibitionDiscount.objects.get(code="BOTH").products.all()) == [gold]
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_the_call_page_offers_the_code_field_when_every_product_needs_a_code(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        _product(event, "Negotiated Gold", hide_without_discount=True)
+
+    assert Client().get(_url(event, "public_call")).status_code == 404
+
+    with scopes_disabled():
+        _discount(event, show_hidden_products=True)
+
+    content = Client().get(_url(event, "public_call")).content.decode()
+    assert "Have a discount code?" in content
+    assert "Negotiated Gold" not in content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_grouped_rows_sort_by_their_combined_uses(event):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        product = _product(event, "Gold", price="0.00")
+        group_a = _discount(event, code="A1", tag="alpha", max_usages=10)
+        _discount(event, code="A2", tag="alpha", max_usages=10)
+        single = _discount(event, code="SINGLE", max_usages=10)
+        group_b = _discount(event, code="B1", tag="beta", max_usages=10)
+        _discount(event, code="B2", tag="beta", max_usages=10)
+        for discount, count in ((group_a, 1), (single, 2), (group_b, 3)):
+            for _round in range(count):
+                place_exhibition_order(event, [product], **CUSTOMER_DATA, discount=discount)
+        for _round in range(3):
+            _order(event, [product], discount=ExhibitionDiscount.objects.get(code="A2"))
+
+    response = client.get(_url(event, "products.discounts"), {"ordering": "used"})
+
+    assert [str(row) for row in response.context["discounts"]] == ["SINGLE", "B1", "A1"]
