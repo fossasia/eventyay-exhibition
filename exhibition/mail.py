@@ -868,8 +868,12 @@ def queue_compose_emails(
     send_now=False,
     requestor=None,
     role="",
+    dropped=None,
 ):
-    """Fan a composed message out into per-recipient queued rows sharing a batch."""
+    """Fan a composed message out into per-recipient queued rows sharing a batch.
+
+    With ``send_now``, rows removed at send time for leaving their group are collected in ``dropped``.
+    """
     from .models import ExhibitionEmailQueue
 
     batch = uuid.uuid4()
@@ -894,6 +898,8 @@ def queue_compose_emails(
             **link,
         )
         if send_now and not queued.send(requestor=requestor):
+            if queued.pk is None and dropped is not None:
+                dropped.append(queued)
             return
         created.append(queued)
 

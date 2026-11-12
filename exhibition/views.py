@@ -3789,6 +3789,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             exhibition_requests, profiles = [self.single_request], []
         else:
             exhibition_requests, profiles = form.recipients()
+        self.dropped = []
         with transaction.atomic():
             draft = None
             if self.draft is not None:
@@ -3806,8 +3807,9 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 send_now=send_now,
                 requestor=self.request.user,
                 role=self.compose_role(form),
+                dropped=self.dropped,
             )
-            if created and draft is not None:
+            if (created or self.dropped) and draft is not None:
                 draft.delete()
         return created
 
@@ -3834,7 +3836,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         created = self.queue_emails(form, scheduled_at, send_now)
         if created is None:
             return self.draft_already_queued()
-        if not created:
+        if not created and not self.dropped:
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)
 
@@ -3852,7 +3854,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             )
             return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
         if send_now:
-            messages.success(self.request, _("%(count)d emails have been sent.") % {"count": len(created)})
+            report_sent_emails(self.request, len(created), len(self.dropped), _("No emails were sent."))
             return redirect("plugins:exhibition:email.sent", **event_kwargs(event))
         messages.success(
             self.request,
