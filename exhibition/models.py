@@ -2088,6 +2088,8 @@ class ExhibitionEmailQueue(LoggedModel):
         state = "sent" if self.sent_at else "pending"
         return f"{self.to_email} · {state} · {self.subject}"
 
+    DELIVERY_FIELDS = ("to_email", "subject", "body", "reply_to", "locale", "attachment_id")
+
     def send(self, requestor=None):
         """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
         from eventyay.base.services.mail import mail
@@ -2096,8 +2098,17 @@ class ExhibitionEmailQueue(LoggedModel):
             return
 
         with transaction.atomic():
-            if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
+            current = (
+                type(self)
+                .objects.select_for_update()
+                .filter(pk=self.pk, sent_at__isnull=True)
+                .values(*self.DELIVERY_FIELDS)
+                .first()
+            )
+            if current is None:
                 return
+            for name, value in current.items():
+                setattr(self, name, value)
             mail(
                 email=self.to_email,
                 subject=self.subject,
@@ -2154,10 +2165,26 @@ class ExhibitionEmailDraft(models.Model):
     subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
     body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    attachment = models.ForeignKey(
+        "base.CachedFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
-    FORM_FIELDS = ("state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at")
+    FORM_FIELDS = (
+        "state",
+        "organization_type",
+        "sponsor_group",
+        "organizations",
+        "subject",
+        "body",
+        "scheduled_at",
+        "attachment",
+    )
 
     class Meta:
         verbose_name = _("Email draft")
@@ -2174,8 +2201,10 @@ class ExhibitionEmailDraft(models.Model):
     def fill_from_form(self, cleaned_data):
         """Copy the compose form's values onto the draft; fields the form leaves out keep their defaults."""
         for name in self.FORM_FIELDS:
-            if name in cleaned_data:
+            if name in cleaned_data and name != "attachment":
                 setattr(self, name, cleaned_data[name])
+        if "attachment" in cleaned_data:
+            self.attachment = cleaned_data["attachment"] or None
         self.organizations = list(self.organizations or [])
 
     def recipient_count(self):

@@ -43,7 +43,7 @@ from eventyay.common.templatetags.filesize import filesize
 from eventyay.common.urls import normalize_url_scheme
 from eventyay.common.utils.language import localize_event_text
 from eventyay.consts import SizeKey
-from eventyay.control.forms import ExtFileField, SplitDateTimeField
+from eventyay.control.forms import CachedFileField, ExtFileField, SplitDateTimeField
 from eventyay.helpers.countries import CachedCountries
 from eventyay.helpers.i18n import get_format_without_seconds, is_rtl
 from eventyay.helpers.money import change_decimal_field
@@ -2235,13 +2235,54 @@ def _is_html_empty(html: str) -> bool:
     return True
 
 
+EMAIL_ATTACHMENT_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".jfif",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".heic",
+    ".heif",
+    ".pdf",
+    ".txt",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".pages",
+)
+
+
+def email_attachment_field():
+    """Optional file upload for composed emails, matching the Tickets composer's rules."""
+    return CachedFileField(
+        label=_("Attachment"),
+        required=False,
+        ext_whitelist=EMAIL_ATTACHMENT_EXTENSIONS,
+        help_text=_(
+            "Sending an attachment increases the chance of your email not arriving or being sorted into spam "
+            "folders. We recommend only using PDFs of no more than 2 MB in size."
+        ),
+        max_size=django_settings.MAX_SIZE_CONFIG[SizeKey.UPLOAD_SIZE_OTHER],
+    )
+
+
 class ExhibitionEmailQueueForm(forms.ModelForm):
-    """Edit a queued email's recipient / subject / body / schedule before sending."""
+    """Edit a queued email's recipient / subject / body / schedule / attachment before sending."""
 
     def __init__(self, *args, **kwargs):
         self.event = kwargs.pop("event", None)
         hide_recipient = kwargs.pop("hide_recipient", False)
         super().__init__(*args, **kwargs)
+        self.fields["attachment"] = email_attachment_field()
+        self.initial.setdefault("attachment", self.instance.attachment)
         if hide_recipient:
             del self.fields["to_email"]
         if self.event:
@@ -2318,6 +2359,7 @@ class ExhibitionComposeForm(forms.Form):
         help_text=_("When you select organizations here, the filters above are ignored."),
     )
     subject = I18nFormField(label=_("Subject"), widget=I18nTextInput, max_length=255)
+    attachment = email_attachment_field()
     scheduled_at = forms.DateTimeField(
         label=_("Send at"),
         required=False,
@@ -2347,7 +2389,16 @@ class ExhibitionComposeForm(forms.Form):
                 # I18nFormField checks ``one_required``, captured from ``required`` at construction.
                 self.fields[name].required = self.fields[name].one_required = False
         self.order_fields(
-            ["state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at"]
+            [
+                "state",
+                "organization_type",
+                "sponsor_group",
+                "organizations",
+                "subject",
+                "body",
+                "attachment",
+                "scheduled_at",
+            ]
         )
         locales = self.event.settings.get("locales")
         self.fields["subject"].widget.enabled_locales = locales
