@@ -127,7 +127,13 @@
                         <td>{{ position }}</td>
                         <td>{{ position.get_purpose_display }}</td>
                         <td>{% if position.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                        <td class="text-right">{{ position.price|money:order.currency }}</td>
+                        <td class="text-right">
+                            {% if position.discount_id %}<del>{{ position.original_price|money:order.currency }}</del>{% endif %}
+                            {{ position.price|money:order.currency }}
+                            {% if position.discount_id %}
+                                <br><small><a href="{% url 'plugins:exhibition:products.discounts.edit' organizer=request.event.organizer.slug event=request.event.slug pk=position.discount_id %}">{% blocktrans trimmed with code=position.discount.code %}Discount code {{ code }}{% endblocktrans %}</a></small>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
                 </tbody>

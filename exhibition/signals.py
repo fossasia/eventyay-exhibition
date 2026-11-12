@@ -43,6 +43,10 @@ from .mail import (
 from .models import (
     LOG_CALL_SECRET_REGENERATED,
     LOG_CALL_SETTINGS_CHANGED,
+    LOG_DISCOUNT_ADDED,
+    LOG_DISCOUNT_CHANGED,
+    LOG_DISCOUNT_DELETED,
+    LOG_DISCOUNT_REDEEMED,
     LOG_EMAIL_SENT,
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
@@ -83,6 +87,7 @@ from .models import (
     LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
+    ExhibitionDiscount,
     ExhibitionEmailQueue,
     ExhibitionOrder,
     ExhibitionOrderQuestion,
@@ -442,7 +447,7 @@ def exhibition_mail_placeholders(sender, **kwargs):
             "order_products",
             ["exhibition_order"],
             order_product_list,
-            _("- Gold sponsorship"),
+            _("- Gold sponsorship: €4,000.00 instead of €5,000.00, with discount code PARTNER20"),
         ),
         SimpleFunctionalMailTextPlaceholder(
             "order_total",
@@ -578,6 +583,10 @@ LOG_ENTRY_LABELS = {
     LOG_QUOTA_ADDED: _("Exhibition quota created."),
     LOG_QUOTA_CHANGED: _("Exhibition quota changed."),
     LOG_QUOTA_DELETED: _("Exhibition quota deleted."),
+    LOG_DISCOUNT_ADDED: _("Discount code created."),
+    LOG_DISCOUNT_CHANGED: _("Discount code changed."),
+    LOG_DISCOUNT_DELETED: _("Discount code deleted."),
+    LOG_DISCOUNT_REDEEMED: _("Discount code used in an order."),
     LOG_ORDER_FORM_CHANGED: _("Exhibition order form changed."),
     LOG_ORDER_QUESTION_ADDED: _("Exhibition order form field created."),
     LOG_ORDER_QUESTION_CHANGED: _("Exhibition order form field changed."),
@@ -641,6 +650,10 @@ def exhibition_logentry_display(sender, logentry, **kwargs):
 
     if logentry.action_type == LOG_ORGANIZATION_ORDERED and logentry.parsed_data.get("created"):
         return _("Organization profile created from paid exhibition order {code}.").format(
+            code=logentry.parsed_data.get("exhibition_order", "")
+        )
+    if logentry.action_type == LOG_DISCOUNT_REDEEMED:
+        return _("Discount code used in exhibition order {code}.").format(
             code=logentry.parsed_data.get("exhibition_order", "")
         )
     if logentry.action_type == LOG_ORGANIZATION_ORDER_CANCELLED:
@@ -725,6 +738,15 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
                 kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
             ),
             "val": escape(target.name),
+        }
+    elif isinstance(target, ExhibitionDiscount):
+        a_text = _("Discount code {val}")
+        a_map = {
+            "href": reverse(
+                "plugins:exhibition:products.discounts.edit",
+                kwargs={"organizer": sender.organizer.slug, "event": sender.slug, "pk": target.pk},
+            ),
+            "val": escape(target.code),
         }
     elif isinstance(target, SponsorGroup):
         return _("Sponsor group {val}").format(val=escape(target.localized_name))

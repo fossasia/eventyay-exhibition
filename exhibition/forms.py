@@ -7,6 +7,7 @@ from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+from django.core.validators import RegexValidator
 from django.db import transaction
 from django.db.models import Max
 from django.forms import inlineformset_factory
@@ -54,6 +55,7 @@ from phonenumber_field.formfields import PhoneNumberField
 from . import mail as mail_helpers
 from .models import (
     DEPENDENCY_PARENT_VARIANTS,
+    DISCOUNT_CODE_PATTERN,
     LAYOUT_IMAGE_EXTENSIONS,
     LAYOUT_IMAGE_FORMATS,
     ORDER_DEFAULT_FIELD_KEYS,
@@ -62,6 +64,8 @@ from .models import (
     REQUEST_FORMSET_FIELD_KEYS,
     ExhibitionAnswer,
     ExhibitionCustomEmailTemplate,
+    ExhibitionDiscount,
+    ExhibitionDiscountPriceMode,
     ExhibitionEmailQueue,
     ExhibitionOrderAnswer,
     ExhibitionOrderQuestion,
@@ -82,7 +86,10 @@ from .models import (
     ExhibitorSettings,
     ExhibitorSocialLink,
     SponsorGroup,
+    find_discount,
+    generate_discount_code,
     get_next_sponsor_group_level,
+    normalize_discount_code,
     order_questions_for,
 )
 from .orders import usable_payment_providers
@@ -2496,6 +2503,7 @@ class ExhibitionProductForm(I18nModelForm):
             "active",
             "available_from",
             "available_until",
+            "hide_without_discount",
         ]
         field_classes = {
             "available_from": SplitDateTimeField,
@@ -2594,6 +2602,12 @@ class ExhibitionOrderBookingForm(forms.Form):
         max_length=255,
         required=False,
     )
+    discount_code = forms.CharField(
+        label=_("Discount code"),
+        help_text=_("Optional. Prices the products the code covers with its discount."),
+        max_length=255,
+        required=False,
+    )
     send_email = forms.BooleanField(
         label=_("Send the order email to the buyer"),
         help_text=_("The confirmation for a paid order, or the order with payment details for a pending one."),
@@ -2602,14 +2616,132 @@ class ExhibitionOrderBookingForm(forms.Form):
     )
 
     def __init__(self, *args, event, **kwargs):
+        self.event = event
         super().__init__(*args, **kwargs)
         self.fields["payment_provider"].choices = [("", "—")] + [
             (identifier, provider.public_name) for identifier, provider in usable_payment_providers(event).items()
         ]
 
+    def clean_discount_code(self):
+        code = self.cleaned_data.get("discount_code")
+        if not normalize_discount_code(code):
+            self.discount = None
+            return ""
+        self.discount = find_discount(self.event, code)
+        if self.discount is None:
+            raise ValidationError(_("No discount uses this code."))
+        if self.discount.unusable_reason():
+            raise ValidationError(self.discount.unusable_reason())
+        return self.discount.code
+
     @property
     def paid(self):
         return self.cleaned_data["payment_status"] == self.PAID
+
+
+class ExhibitionDiscountForm(I18nModelForm):
+    """A discount code, laid out like the Tickets voucher form."""
+
+    class Meta:
+        model = ExhibitionDiscount
+        fields = [
+            "code",
+            "products",
+            "price_mode",
+            "value",
+            "max_usages",
+            "valid_until",
+            "show_hidden_products",
+            "tag",
+            "comment",
+        ]
+        field_classes = {"valid_until": SplitDateTimeField}
+        widgets = {
+            "products": forms.CheckboxSelectMultiple,
+            "valid_until": SplitDateTimePickerWidget(),
+            "comment": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=self.event).in_sales_order()
+        self.fields["value"].help_text = _(
+            "An amount in {currency}, or a percentage when the price is reduced by a percentage. A discounted price "
+            "is never below zero or above the product's own price."
+        ).format(currency=self.event.currency)
+        if "code" in self.fields and not self.instance.pk and not self.is_bound:
+            self.initial["code"] = generate_discount_code(self.event)
+        if "code" in self.fields and self.instance.pk and self.instance.order_positions.exists():
+            self.fields["code"].disabled = True
+            self.fields["code"].help_text = _("The code has been used in orders, so it can no longer be changed.")
+
+    def clean_code(self):
+        code = normalize_discount_code(self.cleaned_data.get("code"))
+        taken = ExhibitionDiscount.objects.filter(event=self.event, code=code).exclude(pk=self.instance.pk)
+        if taken.exists():
+            raise ValidationError(_("Another discount already uses this code."))
+        return code
+
+    def clean(self):
+        cleaned_data = super().clean()
+        value = cleaned_data.get("value")
+        if value is not None and value < 0:
+            self.add_error("value", _("The value must not be negative."))
+        elif (
+            value is not None and cleaned_data.get("price_mode") == ExhibitionDiscountPriceMode.PERCENT and value > 100
+        ):
+            self.add_error("value", _("A percentage cannot be more than 100."))
+        return cleaned_data
+
+
+class ExhibitionDiscountBulkForm(ExhibitionDiscountForm):
+    """The settings shared by a batch of generated discount codes."""
+
+    count = forms.IntegerField(
+        label=_("Number of codes"),
+        min_value=1,
+        max_value=500,
+        initial=10,
+    )
+    prefix = forms.CharField(
+        label=_("Code prefix"),
+        help_text=_("Optional. Every generated code starts with it, for example SPONSOR-."),
+        max_length=20,
+        required=False,
+        validators=[
+            RegexValidator(
+                DISCOUNT_CODE_PATTERN,
+                _("Use only letters, numbers, dots, dashes and underscores."),
+            )
+        ],
+    )
+
+    class Meta(ExhibitionDiscountForm.Meta):
+        fields = [field for field in ExhibitionDiscountForm.Meta.fields if field != "code"]
+
+    field_order = ["count", "prefix"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tag"].required = True
+        self.fields["tag"].help_text = _(
+            "The codes are listed together in one row under this tag. Never shown to buyers."
+        )
+
+    def create_discounts(self):
+        """Create the requested number of codes with these settings and return them."""
+        products = list(self.cleaned_data["products"])
+        settings = {name: self.cleaned_data[name] for name in self.Meta.fields if name != "products"}
+        discounts = []
+        for _index in range(self.cleaned_data["count"]):
+            discount = ExhibitionDiscount.objects.create(
+                event=self.event,
+                code=generate_discount_code(self.event, self.cleaned_data["prefix"]),
+                **settings,
+            )
+            discount.products.set(products)
+            discounts.append(discount)
+        return discounts
 
 
 class ExhibitionQuotaForm(I18nModelForm):

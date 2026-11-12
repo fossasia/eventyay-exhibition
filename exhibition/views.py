@@ -1,6 +1,6 @@
 import json
 import logging
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urljoin
 
 from django.conf import settings as django_settings
 from django.contrib import messages
@@ -29,6 +29,7 @@ from eventyay.control.views import CreateView, PaginationMixin, UpdateView
 from . import mail as mail_helpers
 from .exports import EXPORT_FORMAT_XLSX, EXPORT_FORMATS, OrganizationsExporter
 from .filters import (
+    DiscountFilterForm,
     EmailFilterForm,
     ExhibitorFilterForm,
     OrderFilterForm,
@@ -40,6 +41,8 @@ from .forms import (
     ExhibitionComposeForm,
     ExhibitionCustomEmailTemplateForm,
     ExhibitionDefaultFieldForm,
+    ExhibitionDiscountBulkForm,
+    ExhibitionDiscountForm,
     ExhibitionEmailQueueForm,
     ExhibitionLayoutForm,
     ExhibitionMailTemplatesForm,
@@ -72,6 +75,9 @@ from .forms import (
 from .mail import order_public_url
 from .models import (
     LOG_CALL_SETTINGS_CHANGED,
+    LOG_DISCOUNT_ADDED,
+    LOG_DISCOUNT_CHANGED,
+    LOG_DISCOUNT_DELETED,
     LOG_GROUP_ADDED,
     LOG_GROUP_CHANGED,
     LOG_GROUP_DELETED,
@@ -105,6 +111,8 @@ from .models import (
     REQUEST_DEFAULT_FIELDS,
     REQUEST_REVIEW_ACTIONS,
     ExhibitionCustomEmailTemplate,
+    ExhibitionDiscount,
+    ExhibitionDiscountError,
     ExhibitionEmailDraft,
     ExhibitionEmailQueue,
     ExhibitionOrder,
@@ -137,7 +145,14 @@ from .orders import (
     place_exhibition_order,
     send_order_email,
 )
-from .shop import checkout_session_key, group_by_category, shop_products
+from .shop import (
+    apply_discount_code,
+    checkout_session_key,
+    group_by_category,
+    packages_url,
+    session_discount,
+    shop_products,
+)
 from .social_links import serialize_social_link
 from .utils import (
     VOUCHER_CSV_FILENAME,
@@ -917,11 +932,29 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
     enforce_private = True
 
     @cached_property
+    def discount(self):
+        return session_discount(self.request)
+
+    @cached_property
     def packages(self):
-        return shop_products(self.request.event)
+        return shop_products(self.request.event, self.discount)
+
+    @cached_property
+    def offers_discounts(self):
+        return ExhibitionDiscount.objects.filter(event=self.request.event).exists()
 
     def page_is_visible(self, settings):
-        return bool(self.packages) or self.call_is_visible(settings)
+        """Shown with packages on sale, an open call, or code-only packages a buyer can unlock with a code."""
+        if self.packages or self.call_is_visible(settings):
+            return True
+        code_only = ExhibitionProduct.objects.filter(event=self.request.event, hide_without_discount=True).available()
+        return self.offers_discounts and code_only.exists()
+
+    def dispatch(self, request, *args, **kwargs):
+        if "discount" in request.GET:
+            apply_discount_code(request, request.GET["discount"])
+            return redirect(packages_url(request.event))
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -934,6 +967,8 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         cart = self.request.session.get(checkout_session_key(self.request.event), {})
         context["products_by_category"] = group_by_category(self.packages)
         context["selected"] = {str(pk) for pk in cart.get("products", [])}
+        context["discount"] = self.discount
+        context["offers_discounts"] = self.offers_discounts
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -2019,9 +2054,19 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
     model = ExhibitionProduct
     template_name = "exhibitors/product_delete.html"
 
+    def only_product_of_codes(self):
+        """Codes covering only this product, which would start covering every product without it."""
+        return list(
+            ExhibitionDiscount.objects.filter(pk__in=self.object.discounts.values("pk"))
+            .annotate(product_count=Count("products"))
+            .filter(product_count=1)
+            .order_by("code")
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["has_orders"] = self.object.order_positions.exists()
+        context["only_product_of_codes"] = self.only_product_of_codes()
         return context
 
     def form_valid(self, form):
@@ -2029,6 +2074,12 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
             messages.error(
                 self.request,
                 _("This product has been ordered, so it cannot be deleted. You can deactivate it instead."),
+            )
+            return redirect(self.get_success_url())
+        if self.only_product_of_codes():
+            messages.error(
+                self.request,
+                _("This product is the only product of a discount code. Change or delete that code first."),
             )
             return redirect(self.get_success_url())
         self.object.log_action(
@@ -2190,6 +2241,184 @@ class ExhibitionQuotaDeleteView(ExhibitionQuotaMixin, DeleteView):
         return super().form_valid(form)
 
 
+class ExhibitionDiscountMixin(EventPermissionRequiredMixin):
+    """Discount codes belong to the exhibition setup, like the products they lower the price of."""
+
+    permission = "can_change_event_settings"
+
+    def get_queryset(self):
+        return ExhibitionDiscount.objects.filter(event=self.request.event)
+
+    def get_success_url(self):
+        return reverse("plugins:exhibition:products.discounts", kwargs=event_kwargs(self.request.event))
+
+
+class ExhibitionDiscountListView(ExhibitionDiscountMixin, FilteredListMixin, ListView):
+    template_name = "exhibitors/discounts.html"
+    context_object_name = "discounts"
+
+    def build_filter_form(self):
+        return DiscountFilterForm(data=self.request.GET, event=self.request.event)
+
+    @cached_property
+    def filtered_queryset(self):
+        queryset = (
+            super()
+            .get_queryset()
+            .with_usage()
+            .prefetch_related(Prefetch("products", queryset=ExhibitionProduct.objects.in_sales_order()))
+        )
+        return self.apply_filters(queryset)
+
+    @cached_property
+    def grouped(self):
+        """Codes sharing a tag collapse into one row, unless the list is searched or narrowed to one tag."""
+        form = self.filter_form
+        return not (form.is_valid() and (form.cleaned_data.get("query") or form.cleaned_data.get("tag")))
+
+    def get_queryset(self):
+        if not self.grouped:
+            return self.filtered_queryset
+        first_of_tag = {}
+        group_used = {}
+        for pk, tag, used in self.filtered_queryset.order_by("pk").values_list("pk", "tag", "used"):
+            if tag:
+                first_of_tag.setdefault(tag, pk)
+                group_used[tag] = group_used.get(tag, 0) + used
+        rows = self.filtered_queryset.filter(Q(tag="") | Q(pk__in=first_of_tag.values()))
+        ordering = self.filter_form.cleaned_data.get("ordering") if self.filter_form.is_valid() else ""
+        if ordering not in ("used", "-used"):
+            return rows
+        return sorted(
+            rows,
+            key=lambda row: (group_used[row.tag] if row.tag else row.used, row.code),
+            reverse=ordering == "-used",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["now"] = timezone.now()
+        if self.grouped:
+            self.attach_groups(context["discounts"])
+        return context
+
+    def attach_groups(self, discounts):
+        """Give each tag row on this page the codes behind it and their combined uses."""
+        rows = [discount for discount in discounts if discount.tag]
+        groups = {row.tag: {"members": [], "used": 0, "max_usages": 0} for row in rows}
+        for member in self.filtered_queryset.filter(tag__in=groups).order_by("code", "pk"):
+            group = groups[member.tag]
+            group["members"].append(member)
+            group["used"] += member.used
+            group["max_usages"] += member.max_usages
+        for row in rows:
+            row.group = groups[row.tag]
+
+
+class ExhibitionDiscountFormMixin(ExhibitionDiscountMixin):
+    model = ExhibitionDiscount
+    form_class = ExhibitionDiscountForm
+    template_name = "exhibitors/discount_form.html"
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
+
+class ExhibitionDiscountCreateView(ExhibitionDiscountFormMixin, CreateView):
+    def form_valid(self, form):
+        form.instance.event = self.request.event
+        with transaction.atomic():
+            response = super().form_valid(form)
+            self.object.log_action(LOG_DISCOUNT_ADDED, data={"code": self.object.code}, user=self.request.user)
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionDiscountEditView(ExhibitionDiscountFormMixin, UpdateView):
+    def get_queryset(self):
+        return super().get_queryset().with_usage()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        public_call = reverse("plugins:exhibition:public_call", kwargs=event_kwargs(self.request.event))
+        context["redeem_url"] = urljoin(
+            django_settings.SITE_URL, f"{public_call}?{urlencode({'discount': self.object.code})}"
+        )
+        context["orders"] = (
+            ExhibitionOrder.objects.filter(event=self.request.event, positions__discount=self.object)
+            .distinct()
+            .order_by("-created")
+        )
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if form.has_changed():
+                self.object.log_action(
+                    LOG_DISCOUNT_CHANGED,
+                    data={"changed": form.changed_data},
+                    user=self.request.user,
+                )
+        messages.success(self.request, _("Your changes have been saved."))
+        return response
+
+
+class ExhibitionDiscountBulkCreateView(ExhibitionDiscountMixin, FormView):
+    form_class = ExhibitionDiscountBulkForm
+    template_name = "exhibitors/discount_bulk.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["event"] = self.request.event
+        return kwargs
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("We could not save your changes. See below for details."))
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            discounts = form.create_discounts()
+            for discount in discounts:
+                discount.log_action(LOG_DISCOUNT_ADDED, data={"code": discount.code}, user=self.request.user)
+        messages.success(
+            self.request,
+            ngettext(
+                "%(count)d discount code has been created.",
+                "%(count)d discount codes have been created.",
+                len(discounts),
+            )
+            % {"count": len(discounts)},
+        )
+        return redirect(self.get_success_url())
+
+
+class ExhibitionDiscountDeleteView(ExhibitionDiscountMixin, DeleteView):
+    model = ExhibitionDiscount
+    template_name = "exhibitors/discount_delete.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["used"] = self.object.order_positions.exists()
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            self.object = ExhibitionDiscount.objects.select_for_update().get(pk=self.object.pk)
+            if self.object.order_positions.exists():
+                messages.error(
+                    self.request,
+                    _("This code has been used in orders, so it cannot be deleted. Lower its maximum uses instead."),
+                )
+                return redirect(
+                    "plugins:exhibition:products.discounts.edit", **event_kwargs(self.request.event), pk=self.object.pk
+                )
+            self.object.log_action(LOG_DISCOUNT_DELETED, data={"code": self.object.code}, user=self.request.user)
+            return super().form_valid(form)
+
+
 class ExhibitionOrderMixin(EventPermissionRequiredMixin):
     """Exhibition orders are visible to the same teams that can see the ticket orders."""
 
@@ -2197,7 +2426,7 @@ class ExhibitionOrderMixin(EventPermissionRequiredMixin):
 
     def get_queryset(self):
         return ExhibitionOrder.objects.filter(event=self.request.event).prefetch_related(
-            Prefetch("positions", queryset=ExhibitionOrderPosition.objects.select_related("product"))
+            Prefetch("positions", queryset=ExhibitionOrderPosition.objects.select_related("product", "discount"))
         )
 
     @cached_property
@@ -2312,9 +2541,13 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
                 check_availability=False,
                 paid=booking_form.paid,
                 payment_reference=booking_form.cleaned_data["payment_reference"],
+                discount=booking_form.discount,
             )
         except ExhibitionQuotaExceeded:
             messages.error(request, _("One of the products is sold out. Free up room in its quotas first."))
+            return self.render_to_response(context)
+        except ExhibitionDiscountError:
+            messages.error(request, _("The discount code has no uses left for these products."))
             return self.render_to_response(context)
         except ExhibitionOrderError:
             messages.error(request, _("The order could not be created."))
@@ -2351,6 +2584,14 @@ class ExhibitionOrderMarkPaidView(ExhibitionOrderActionMixin, FormView):
                 _(
                     "This order has expired and its products have sold out since. Free up room in their quotas "
                     "before marking it as paid."
+                ),
+            )
+        except ExhibitionDiscountError:
+            messages.error(
+                self.request,
+                _(
+                    "This order has expired and its discount code has been used up since. Raise the code's "
+                    "maximum uses before marking it as paid."
                 ),
             )
         else:

@@ -1,10 +1,12 @@
 from django import forms
-from django.db.models import Q, Value
+from django.db.models import F, Q, Value
 from django.db.models.functions import NullIf, Trim
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from eventyay.control.forms.filter import FilterForm
 
 from .models import (
+    ExhibitionDiscount,
     ExhibitionOrderPosition,
     ExhibitionOrderStatus,
     ExhibitionProduct,
@@ -355,4 +357,66 @@ class OrderFilterForm(ExhibitionFilterForm):
         if fdata.get("product") or fdata.get("purpose") or fdata.get("includes_booth"):
             queryset = queryset.filter(pk__in=positions.values("order_id"))
 
+        return self.apply_ordering(queryset)
+
+
+class DiscountFilterForm(ExhibitionFilterForm):
+    VALID = "valid"
+    USED_UP = "used_up"
+    EXPIRED = "expired"
+
+    orders = {
+        "code": "code",
+        "tag": "tag",
+        "used": "used",
+        "valid_until": "valid_until",
+    }
+
+    query = forms.CharField(
+        label=_("Search discount codes…"),
+        widget=search_widget(_("Search by code, tag or comment…"), _("Search discount codes")),
+        required=False,
+    )
+    tag = forms.ChoiceField(label=_("Tag"), required=False)
+    status = forms.ChoiceField(
+        label=_("Status"),
+        choices=(
+            ("", _("All codes")),
+            (VALID, _("Valid")),
+            (USED_UP, _("Used up")),
+            (EXPIRED, _("Expired")),
+        ),
+        required=False,
+    )
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        tags = (
+            ExhibitionDiscount.objects.filter(event=event)
+            .exclude(tag="")
+            .order_by("tag")
+            .values_list("tag", flat=True)
+            .distinct()
+        )
+        self.fields["tag"].choices = [("", _("All tags")), *((tag, tag) for tag in tags)]
+
+    def filter_qs(self, queryset):
+        """Expects a queryset annotated by ``with_usage()``."""
+        fdata = self.cleaned_data
+
+        query = (fdata.get("query") or "").strip()
+        if query:
+            queryset = queryset.filter(Q(code__icontains=query) | Q(tag__icontains=query) | Q(comment__icontains=query))
+
+        if fdata.get("tag"):
+            queryset = queryset.filter(tag=fdata["tag"])
+
+        now = timezone.now()
+        status = fdata.get("status")
+        if status == self.EXPIRED:
+            queryset = queryset.filter(valid_until__lt=now)
+        elif status == self.USED_UP:
+            queryset = queryset.filter(used__gte=F("max_usages"))
+        elif status == self.VALID:
+            queryset = queryset.filter(Q(valid_until__isnull=True) | Q(valid_until__gte=now), used__lt=F("max_usages"))
         return self.apply_ordering(queryset)

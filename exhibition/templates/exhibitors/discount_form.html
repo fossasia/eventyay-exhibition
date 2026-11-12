@@ -1,0 +1,97 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load money %}
+{% load static %}
+
+{% block title %}{{ request.event.name }} - {% if object %}{{ object.code }}{% else %}{% trans "Create discount code" %}{% endif %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/history-panel.css' %}">
+{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% if object %}{% blocktrans trimmed with code=object.code %}Discount code: {{ code }}{% endblocktrans %}{% else %}{% trans "Create discount code" %}{% endif %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    {% if object %}
+        <div class="form-horizontal">
+            <div class="form-group">
+                <label class="col-md-3 control-label" for="discount-redeem-url">{% trans "Redeem link" %}</label>
+                <div class="col-md-9">
+                    <input type="text" class="form-control" id="discount-redeem-url" value="{{ redeem_url }}" readonly>
+                    <div class="help-block">
+                        {% blocktrans trimmed with used=object.used total=object.max_usages %}
+                            Opens the call for exhibitors page with the code applied. Used {{ used }} of {{ total }} times.
+                        {% endblocktrans %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+        <fieldset>
+            <legend>{% trans "Discount code" %}</legend>
+            {% bootstrap_field form.code layout="control" %}
+            {% bootstrap_field form.max_usages layout="control" %}
+            {% bootstrap_field form.valid_until layout="control" %}
+        </fieldset>
+        <fieldset>
+            <legend>{% trans "Discount" %}</legend>
+            {% bootstrap_field form.price_mode layout="control" %}
+            {% bootstrap_field form.value layout="control" %}
+            {% bootstrap_field form.products layout="control" %}
+            {% bootstrap_field form.show_hidden_products layout="control" %}
+        </fieldset>
+        <fieldset>
+            <legend>{% trans "Organization" %}</legend>
+            {% bootstrap_field form.tag layout="control" %}
+            {% bootstrap_field form.comment layout="control" %}
+        </fieldset>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products.discounts' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+    {% if object %}
+        <div class="panel panel-default exhibition-related-panel">
+            <div class="panel-heading"><h3 class="panel-title">{% trans "Orders" %}</h3></div>
+            {% if orders %}
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th>{% trans "Order" %}</th>
+                            <th>{% trans "Organization" %}</th>
+                            <th>{% trans "Status" %}</th>
+                            <th class="text-right">{% trans "Total" %}</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for order in orders %}
+                            <tr>
+                                <td><a href="{% url 'plugins:exhibition:orders.detail' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">{{ order.code }}</a></td>
+                                <td>{{ order.organization_name|default:"—" }}</td>
+                                <td>{% include "exhibitors/_order_status.html" with order=order %}</td>
+                                <td class="text-right">{{ order.total|money:order.currency }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="panel-body text-muted">{% trans "No order has used this code yet." %}</div>
+            {% endif %}
+        </div>
+        <div class="panel panel-default exhibition-history">
+            <div class="panel-heading"><h3 class="panel-title">{% trans "History" %}</h3></div>
+            {% include "pretixcontrol/includes/logs.html" with obj=object %}
+        </div>
+    {% endif %}
+{% endblock %}
