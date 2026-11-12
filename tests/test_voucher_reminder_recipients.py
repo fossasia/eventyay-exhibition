@@ -1,4 +1,5 @@
 import itertools
+import json
 from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -6,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.template.loader import render_to_string
 from django.test import RequestFactory
 from django.utils.timezone import now
@@ -25,7 +27,13 @@ from exhibition.models import (
     ExhibitorVoucher,
     SponsorGroup,
 )
-from exhibition.views import EmailOutboxListView, EmailSentListView, group_email_entries, send_queued_emails
+from exhibition.views import (
+    EmailComposeRecipientsView,
+    EmailOutboxListView,
+    EmailSentListView,
+    group_email_entries,
+    send_queued_emails,
+)
 
 _codes = itertools.count(1)
 
@@ -357,3 +365,61 @@ def test_sending_counts_dropped_reminders_apart_from_sent_and_already_handled_ro
             assert send_queued_emails(rows, None) == (1, 1)
             already_sent = ExhibitionEmailQueue.objects.get(to_email=remaining.email, batch=rows[1].batch)
             assert send_queued_emails([already_sent], None) == (0, 0)
+
+
+def _preview(event, params):
+    request = RequestFactory().get("/", params)
+    request.event = event
+    request.user = AnonymousUser()
+    request.session = {}
+    request._messages = FallbackStorage(request)
+    view = EmailComposeRecipientsView()
+    view.request = request
+    view.kwargs = {}
+    return json.loads(view.get(request).content)
+
+
+@pytest.mark.django_db
+def test_recipient_preview_lists_exactly_the_group(mail_event):
+    with scopes_disabled():
+        inside = _organization(mail_event, "Inside")
+        _vouchers(mail_event, inside, 1)
+        outside = _organization(mail_event, "Outside")
+        applicant = User.objects.create_user(email="applicant@example.com", password="pw")
+        ExhibitionRequest.objects.create(
+            event=mail_event, user=applicant, name="Applicant", state=ExhibitionRequestState.ACCEPTED
+        )
+
+        group = _preview(mail_event, {"state": mail_helpers.VOUCHERS_NOT_ALL_USED})
+        picked = _preview(
+            mail_event,
+            {"state": mail_helpers.VOUCHERS_NOT_ALL_USED, "organizations": [f"profile-{outside.pk}"]},
+        )
+
+    assert group == {"count": 1, "recipients": [{"name": "Inside", "email": "inside@example.com"}]}
+    assert picked == {"count": 1, "recipients": [{"name": "Outside", "email": "outside@example.com"}]}
+
+
+@pytest.mark.django_db
+def test_send_now_reports_reminders_dropped_at_send_time(mail_event):
+    with scopes_disabled():
+        organization = _organization(mail_event, "Acme")
+        vouchers = _vouchers(mail_event, organization, 1)
+        _use(vouchers[0])
+        dropped = []
+
+        with patch("eventyay.base.services.mail.mail") as mocked_mail:
+            created = mail_helpers.queue_compose_emails(
+                mail_event,
+                [],
+                "Reminder",
+                "Body",
+                exhibitors=[organization],
+                send_now=True,
+                role=mail_helpers.compose_role(mail_helpers.VOUCHERS_NOT_ALL_USED),
+                dropped=dropped,
+            )
+
+    assert created == []
+    assert len(dropped) == 1
+    assert not mocked_mail.called
