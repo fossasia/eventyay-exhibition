@@ -231,6 +231,7 @@ def test_order_detail_shows_positions_total_and_payment(event, shop):
 
     assert response.status_code == 200
     content = response.content.decode()
+    assert "All orders" not in content
     assert "Gold Sponsor" in content
     assert "Booth" in content
     assert "2,400.00" in content
@@ -264,11 +265,31 @@ def test_view_only_teams_see_the_order_without_actions(event, shop):
     response = client.get(_url(event, "orders.detail", code=order.code))
 
     assert response.status_code == 200
-    assert _url(event, "orders.mark_paid", code=order.code) not in response.content.decode()
+    content = response.content.decode()
+    assert "All orders" not in content
+    assert 'class="list-toolbar"' not in content
+    assert _url(event, "orders.mark_paid", code=order.code) not in content
     assert client.post(_url(event, "orders.mark_paid", code=order.code)).status_code == 403
     assert client.post(_url(event, "orders.cancel", code=order.code)).status_code == 403
     with scopes_disabled():
         assert ExhibitionOrder.objects.get(pk=order.pk).status == ExhibitionOrderStatus.PENDING
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_order_detail_omits_toolbar_when_no_actions_apply(event, shop):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        order = _order(event, shop["gold"])
+        order.status = ExhibitionOrderStatus.CANCELLED
+        order.save()
+
+    response = client.get(_url(event, "orders.detail", code=order.code))
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "All orders" not in content
+    assert 'class="list-toolbar"' not in content
 
 
 # Marking paid and cancelling
