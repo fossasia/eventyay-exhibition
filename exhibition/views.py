@@ -4200,13 +4200,13 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
 
         self.object.save()
         if "_send" in self.request.POST:
-            if self.object.send(requestor=self.request.user):
-                messages.success(self.request, _("The email has been saved and sent."))
-            else:
+            if not self.object.send(requestor=self.request.user) and self.object.pk is None:
                 messages.warning(
                     self.request,
                     _("The email was not sent: its recipient no longer belongs to the group it was written for."),
                 )
+            else:
+                messages.success(self.request, _("The email has been saved and sent."))
         else:
             if reschedule:
                 self.reschedule([self.object], scheduled_at)
