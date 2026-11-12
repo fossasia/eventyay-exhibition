@@ -586,13 +586,15 @@ class ExhibitorInfo(LoggedModel):
         stored = (self.email or "").strip()
         if stored:
             return stored
-        exhibition_requests = sorted(
-            self.source_requests.all(), key=lambda exhibition_request: exhibition_request.pk, reverse=True
-        )
-        if not exhibition_requests:
+        latest = self.latest_source_request
+        if latest is None:
             return ""
-        latest = exhibition_requests[0]
         return (latest.email or "").strip() or (latest.user.email if latest.user_id else "")
+
+    @property
+    def latest_source_request(self):
+        """The newest application behind this profile, read from any prefetched requests."""
+        return max(self.source_requests.all(), key=lambda exhibition_request: exhibition_request.pk, default=None)
 
     @property
     def localized_booth_name(self):
@@ -741,6 +743,7 @@ LOG_QUESTION_ADDED = f"{LOG_PREFIX}.question.added"
 LOG_QUESTION_CHANGED = f"{LOG_PREFIX}.question.changed"
 LOG_QUESTION_DELETED = f"{LOG_PREFIX}.question.deleted"
 LOG_EMAIL_SENT = f"{LOG_PREFIX}.email.sent"
+LOG_EMAIL_SKIPPED = f"{LOG_PREFIX}.email.skipped"
 LOG_PRODUCT_ADDED = f"{LOG_PREFIX}.product.added"
 LOG_PRODUCT_CHANGED = f"{LOG_PREFIX}.product.changed"
 LOG_PRODUCT_DELETED = f"{LOG_PREFIX}.product.deleted"
@@ -2089,15 +2092,29 @@ class ExhibitionEmailQueue(LoggedModel):
         return f"{self.to_email} · {state} · {self.subject}"
 
     def send(self, requestor=None):
-        """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
+        """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits.
+
+        A composed email whose recipient has left its group since it was queued is dropped instead of sent.
+        Returns whether this call delivered the email.
+        """
         from eventyay.base.services.mail import mail
 
+        from .mail import still_in_compose_group
+
         if self.sent_at:
-            return
+            return False
 
         with transaction.atomic():
             if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
-                return
+                return False
+            if not still_in_compose_group(self):
+                self.log_action(
+                    LOG_EMAIL_SKIPPED,
+                    user=requestor,
+                    data={"to": self.to_email, "subject": self.subject},
+                )
+                self.delete()
+                return False
             mail(
                 email=self.to_email,
                 subject=self.subject,
@@ -2117,6 +2134,7 @@ class ExhibitionEmailQueue(LoggedModel):
                 user=requestor,
                 data={"to": self.to_email, "subject": self.subject},
             )
+        return True
 
     send.alters_data = True
 

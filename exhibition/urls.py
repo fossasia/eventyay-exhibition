@@ -33,6 +33,7 @@ from .views import (
     CustomEmailTemplateDeleteView,
     DashboardView,
     EmailBulkActionView,
+    EmailComposeRecipientsView,
     EmailComposeView,
     EmailDeleteView,
     EmailDraftDeleteView,
@@ -519,6 +520,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/compose",
         EmailComposeView.as_view(),
         name="email.compose",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/compose/recipients",
+        EmailComposeRecipientsView.as_view(),
+        name="email.compose.recipients",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/emails/drafts",

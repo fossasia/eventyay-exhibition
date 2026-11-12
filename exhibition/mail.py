@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
+from django.db.models.functions import Lower, Trim
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
@@ -31,6 +32,7 @@ VOUCHERS = "vouchers"
 EXHIBITOR_PROFILE = "exhibitor_profile"
 EXHIBITOR_PROFILE_NEW_ACCOUNT = "exhibitor_profile_new_account"
 REQUEST_MESSAGE = "request_message"
+VOUCHERS_NOT_ALL_USED = "vouchers_not_all_used"
 ORDER_PLACED = "order_placed"
 ORDER_PAID = "order_paid"
 
@@ -757,6 +759,67 @@ def organizer_created_profiles(event):
     )
 
 
+def event_uses_vouchers(event):
+    """Whether exhibition vouchers are in play: a pool is set up or a voucher email has gone out."""
+    from .models import ExhibitionEmailQueue, ExhibitorSettings
+
+    settings = ExhibitorSettings.objects.filter(event=event).first()
+    if settings is not None and (settings.voucher_pool_tag or settings.sponsor_voucher_pool_tag):
+        return True
+    return ExhibitionEmailQueue.objects.filter(event=event, role=VOUCHERS, sent_at__isnull=False).exists()
+
+
+def organizations_with_unused_vouchers(event, organization_type="", sponsor_group=None):
+    """Active profiles that were sent a voucher email and still hold a code nobody has used for a ticket."""
+    from .models import ExhibitorInfo
+    from .utils import with_voucher_state
+
+    queryset = ExhibitorInfo.objects.filter(event=event, active=True)
+    if organization_type == "exhibitor":
+        queryset = queryset.filter(is_exhibitor=True)
+    elif organization_type == "sponsor":
+        queryset = queryset.filter(is_sponsor=True)
+    if sponsor_group:
+        queryset = queryset.filter(sponsor_group=sponsor_group)
+    return with_voucher_state(queryset, event).filter(
+        voucher_pending=False,
+        voucher_sent_at__isnull=False,
+        voucher_total__gt=F("voucher_claimed"),
+    )
+
+
+def compose_role(state, organization_type="", sponsor_group=None):
+    """Queue role for composed emails that are checked again when sent, carrying the filters they were sent with."""
+    if state != VOUCHERS_NOT_ALL_USED:
+        return ""
+    group_pk = getattr(sponsor_group, "pk", sponsor_group) or ""
+    return f"{VOUCHERS_NOT_ALL_USED}:{organization_type or ''}:{group_pk}"
+
+
+def is_voucher_reminder(role):
+    return (role or "").split(":", 1)[0] == VOUCHERS_NOT_ALL_USED
+
+
+def still_in_compose_group(queued):
+    """Whether some organization in the group the email was written for still uses its recipient address."""
+    if not is_voucher_reminder(queued.role):
+        return True
+    _role, organization_type, sponsor_group = (queued.role.split(":") + ["", ""])[:3]
+    to_email = queued.to_email.strip().lower()
+    candidates = (
+        organizations_with_unused_vouchers(queued.event, organization_type, sponsor_group or None)
+        .alias(
+            own_email=Lower(Trim("email")),
+            applied_email=Lower(Trim("source_requests__email")),
+            account_email=Lower(Trim("source_requests__user__email")),
+        )
+        .filter(Q(own_email=to_email) | Q(applied_email=to_email) | Q(account_email=to_email))
+        .distinct()
+        .prefetch_related("source_requests__user")
+    )
+    return any((organization.recipient_email or "").strip().lower() == to_email for organization in candidates)
+
+
 def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
     """Applications and profiles a composed email goes to: the chosen organizations, else everyone matching the filters.
 
@@ -772,6 +835,11 @@ def resolve_compose_recipients(event, *, organizations=(), state="", organizatio
         exhibition_requests = compose_recipients(event).filter(pk__in=chosen(REQUEST_CHOICE_PREFIX))
         profiles = organizer_created_profiles(event).filter(pk__in=chosen(PROFILE_CHOICE_PREFIX))
         return exhibition_requests, profiles
+    if state == VOUCHERS_NOT_ALL_USED:
+        profiles = organizations_with_unused_vouchers(
+            event, organization_type=organization_type, sponsor_group=sponsor_group
+        ).prefetch_related("source_requests__user")
+        return compose_recipients(event).none(), profiles
     exhibition_requests = compose_recipients(
         event,
         states=[state] if state else None,
@@ -790,9 +858,22 @@ def compose_recipient_emails(exhibition_requests, exhibitors=()):
 
 
 def queue_compose_emails(
-    event, exhibition_requests, subject, body, *, exhibitors=(), scheduled_at=None, send_now=False, requestor=None
+    event,
+    exhibition_requests,
+    subject,
+    body,
+    *,
+    exhibitors=(),
+    scheduled_at=None,
+    send_now=False,
+    requestor=None,
+    role="",
+    dropped=None,
 ):
-    """Fan a composed message out into per-recipient queued rows sharing a batch."""
+    """Fan a composed message out into per-recipient queued rows sharing a batch.
+
+    With ``send_now``, rows removed at send time for leaving their group are collected in ``dropped``.
+    """
     from .models import ExhibitionEmailQueue
 
     batch = uuid.uuid4()
@@ -808,6 +889,7 @@ def queue_compose_emails(
         queued = ExhibitionEmailQueue.objects.create(
             event=event,
             batch=batch,
+            role=role,
             to_email=to_email,
             subject=_render(subject, context, locale),
             body=_render(body, context, locale),
@@ -815,8 +897,10 @@ def queue_compose_emails(
             scheduled_at=scheduled_at,
             **link,
         )
-        if send_now:
-            queued.send(requestor=requestor)
+        if send_now and not queued.send(requestor=requestor):
+            if queued.pk is None and dropped is not None:
+                dropped.append(queued)
+            return
         created.append(queued)
 
     for exhibition_request in exhibition_requests:
@@ -827,10 +911,15 @@ def queue_compose_emails(
             exhibition_request=exhibition_request,
         )
     for exhibitor in exhibitors:
-        context = build_exhibitor_context(event, exhibitor)
-        if not context.get("request_name"):
-            context["request_name"] = context.get("exhibitor_name") or str(exhibitor.name)
-        queue(exhibitor.recipient_email, None, context, exhibitor=exhibitor)
+        source_request = exhibitor.latest_source_request
+        if source_request is not None:
+            context = build_request_context(event, source_request)
+        else:
+            context = build_exhibitor_context(event, exhibitor)
+            if not context.get("request_name"):
+                context["request_name"] = context.get("exhibitor_name") or str(exhibitor.name)
+        user = source_request.user if source_request is not None and source_request.user_id else None
+        queue(exhibitor.recipient_email, user, context, exhibitor=exhibitor)
     return created
 
 
