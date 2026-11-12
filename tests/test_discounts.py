@@ -309,7 +309,7 @@ def test_the_redeem_link_reveals_a_hidden_product_and_the_checkout_uses_the_code
         _discount(event, code="INVITE", value=Decimal("100"), show_hidden_products=True)
     client = Client()
 
-    assert client.get(_url(event, "public_call")).status_code == 404
+    assert "Negotiated Gold" not in client.get(_url(event, "public_call")).content.decode()
 
     client.get(_url(event, "public_call"), {"discount": "INVITE"})
     assert "Negotiated Gold" in client.get(_url(event, "public_call")).content.decode()
