@@ -15,6 +15,7 @@ from exhibition.models import (
     ExhibitionQuestion,
     ExhibitionQuestionVariant,
     ExhibitionRequest,
+    ExhibitorGroup,
     ExhibitorInfo,
     ExhibitorSettings,
 )
@@ -32,7 +33,12 @@ def stored_format(field_file):
 
 
 def exhibitor_form(files, **kwargs):
-    return ExhibitorInfoForm(data={"name_0": "Acme"}, files=files, organization_type="exhibitor", **kwargs)
+    return ExhibitorInfoForm(
+        data={"name_0": "Acme", "exhibitor_group": ExhibitorGroup.PAID},
+        files=files,
+        organization_type="exhibitor",
+        **kwargs,
+    )
 
 
 @pytest.mark.django_db
