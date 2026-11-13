@@ -19,13 +19,13 @@ dependencies = []
 test = [
     "pytest>=9.2.0",
     "pytest-django>=4.14.0",
-    "pytest-env>=1.8.4",
+    "pytest-env>=1.8.5",
     "pytest-rerunfailures>=16.7",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.17.3",
+    "ruff>=0.17.4",
 ]
 
 [project.entry-points."pretix.plugin"]
