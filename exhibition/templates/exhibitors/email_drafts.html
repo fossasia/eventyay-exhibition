@@ -17,11 +17,6 @@
     <p class="text-muted">
         {% trans "Emails you saved while composing. Drafts are never sent: open one to finish it, then send it or place it in the outbox." %}
     </p>
-    <p>
-        <a class="btn btn-default" href="{% url 'plugins:exhibition:email.compose' organizer=request.event.organizer.slug event=request.event.slug %}">
-            <i class="fa fa-pencil"></i> {% trans "Compose email" %}
-        </a>
-    </p>
     <div class="table-responsive">
         <table class="table table-hover">
             <thead>
