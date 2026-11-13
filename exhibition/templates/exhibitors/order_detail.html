@@ -12,23 +12,22 @@
 {% endblock %}
 
 {% block exhibitors_content %}
-    <p class="list-toolbar">
-        <a href="{% url 'plugins:exhibition:orders' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default">
-            <i class="fa fa-arrow-left"></i> {% trans "All orders" %}
-        </a>
-        {% if can_change_orders %}
-            {% if order.can_be_marked_paid %}
-                <a href="{% url 'plugins:exhibition:orders.mark_paid' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" class="btn btn-success">
-                    <i class="fa fa-check"></i> {% trans "Mark as paid" %}
-                </a>
-            {% endif %}
-            {% if order.can_be_cancelled %}
-                <a href="{% url 'plugins:exhibition:orders.cancel' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" class="btn btn-danger">
-                    <i class="fa fa-ban"></i> {% trans "Cancel order" %}
-                </a>
-            {% endif %}
+    {% if can_change_orders %}
+        {% if order.can_be_marked_paid or order.can_be_cancelled %}
+            <p class="list-toolbar">
+                {% if order.can_be_marked_paid %}
+                    <a href="{% url 'plugins:exhibition:orders.mark_paid' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" class="btn btn-success">
+                        <i class="fa fa-check"></i> {% trans "Mark as paid" %}
+                    </a>
+                {% endif %}
+                {% if order.can_be_cancelled %}
+                    <a href="{% url 'plugins:exhibition:orders.cancel' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" class="btn btn-danger">
+                        <i class="fa fa-ban"></i> {% trans "Cancel order" %}
+                    </a>
+                {% endif %}
+            </p>
         {% endif %}
-    </p>
+    {% endif %}
     <div class="row">
         <div class="col-md-6">
             <div class="panel panel-default">
