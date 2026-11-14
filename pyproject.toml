@@ -13,7 +13,9 @@ maintainers = [
     {name = "eventyay team", email = "support@eventyay.com"},
 ]
 
-dependencies = []
+dependencies = [
+    "reportlab>=4.0.0",
+]
 
 [project.optional-dependencies]
 test = [

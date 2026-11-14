@@ -1,4 +1,5 @@
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
 from django.db import connection
@@ -9,6 +10,7 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from eventyay.base.models import Event, LogEntry
 from eventyay.base.models.auth import User
+from pypdf import PdfReader
 
 from exhibition.models import (
     LOG_ORDER_CANCELLED,
@@ -304,6 +306,11 @@ def test_organizer_can_download_invoice(event, shop):
     assert response.status_code == 200
     assert response["Content-Type"] == "application/pdf"
     assert response.content.startswith(b"%PDF")
+
+    reader = PdfReader(BytesIO(response.content))
+    text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert order.code in text
+    assert "Gold Sponsor" in text
 
 
 # Marking paid and cancelling

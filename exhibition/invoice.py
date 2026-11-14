@@ -1,3 +1,4 @@
+from functools import cache
 from io import BytesIO
 from xml.sax.saxutils import escape
 
@@ -8,10 +9,47 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import ExhibitionOrder, ExhibitionOrderStatus
 from .orders import payment_instructions
+
+
+@cache
+def _register_invoice_fonts() -> tuple[str, str]:
+    """Register and return Unicode-capable TrueType fonts for invoice rendering."""
+    if "OpenSans" in pdfmetrics.getRegisteredFontNames() and "OpenSansBd" in pdfmetrics.getRegisteredFontNames():
+        return "OpenSans", "OpenSansBd"
+
+    try:
+        from django.contrib.staticfiles import finders
+
+        regular_path = finders.find("fonts/OpenSans-Regular.ttf")
+        bold_path = finders.find("fonts/OpenSans-Bold.ttf")
+        italic_path = finders.find("fonts/OpenSans-Italic.ttf")
+        bold_italic_path = finders.find("fonts/OpenSans-BoldItalic.ttf")
+
+        if regular_path and bold_path:
+            pdfmetrics.registerFont(TTFont("OpenSans", regular_path))
+            pdfmetrics.registerFont(TTFont("OpenSansBd", bold_path))
+            if italic_path:
+                pdfmetrics.registerFont(TTFont("OpenSansIt", italic_path))
+            if bold_italic_path:
+                pdfmetrics.registerFont(TTFont("OpenSansBI", bold_italic_path))
+            pdfmetrics.registerFontFamily(
+                "OpenSans",
+                normal="OpenSans",
+                bold="OpenSansBd",
+                italic="OpenSansIt" if italic_path else "OpenSans",
+                boldItalic="OpenSansBI" if bold_italic_path else "OpenSansBd",
+            )
+            return "OpenSans", "OpenSansBd"
+    except Exception:
+        pass
+
+    return "Helvetica", "Helvetica-Bold"
 
 
 def _format_address_block(order: ExhibitionOrder) -> str:
@@ -25,7 +63,8 @@ def _format_address_block(order: ExhibitionOrder) -> str:
     if order.phone:
         parts.append(escape(order.phone))
     if order.billing_address:
-        parts.extend(escape(line.strip()) for line in order.billing_address.splitlines() if line.strip())
+        lines = [line.strip() for line in order.billing_address.splitlines() if line.strip()]
+        parts.extend(escape(line) for line in lines[:10])
     if order.vat_id:
         parts.append(f"{_('VAT ID')}: {escape(order.vat_id)}")
     return "<br/>".join(parts)
@@ -66,10 +105,12 @@ def render_order_invoice_pdf(order: ExhibitionOrder) -> bytes:
         author="eventyay",
     )
 
+    font_regular, font_bold = _register_invoice_fonts()
     base_styles = getSampleStyleSheet()
     heading_style = ParagraphStyle(
         "InvoiceHeading",
         parent=base_styles["Heading2"],
+        fontName=font_bold,
         fontSize=12,
         leading=16,
         textColor=colors.HexColor("#374151"),
@@ -79,6 +120,7 @@ def render_order_invoice_pdf(order: ExhibitionOrder) -> bytes:
     body_style = ParagraphStyle(
         "InvoiceBody",
         parent=base_styles["BodyText"],
+        fontName=font_regular,
         fontSize=9,
         leading=13,
         textColor=colors.HexColor("#4b5563"),
@@ -86,7 +128,7 @@ def render_order_invoice_pdf(order: ExhibitionOrder) -> bytes:
     bold_body_style = ParagraphStyle(
         "InvoiceBodyBold",
         parent=body_style,
-        fontName="Helvetica-Bold",
+        fontName=font_bold,
         textColor=colors.HexColor("#111827"),
     )
 

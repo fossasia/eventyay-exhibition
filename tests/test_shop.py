@@ -1,5 +1,6 @@
 import datetime as dt
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
 from django.test import Client, RequestFactory, override_settings
@@ -7,6 +8,7 @@ from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from eventyay.base.models import LogEntry
+from pypdf import PdfReader
 
 from exhibition import mail as mail_helpers
 from exhibition.models import (
@@ -283,4 +285,54 @@ def test_buyer_can_download_invoice(event):
     assert invoice_response["Content-Type"] == "application/pdf"
     assert invoice_response.content.startswith(b"%PDF")
 
+    reader = PdfReader(BytesIO(invoice_response.content))
+    text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert order.code in text
+    assert "Community Booth" in text
+
     assert client.get(_url(event, "shop.order.invoice", code=order.code, secret="wrong")).status_code == 404
+
+    # Cancelled orders cannot be downloaded
+    with scopes_disabled():
+        order.status = ExhibitionOrderStatus.CANCELLED
+        order.save()
+    cancelled_resp = client.get(invoice_url)
+    assert cancelled_resp.status_code == 302
+    assert cancelled_resp.url == order_url
+
+    # Zero-total pending orders cannot be downloaded
+    with scopes_disabled():
+        order.status = ExhibitionOrderStatus.PENDING
+        order.total = Decimal("0.00")
+        order.save()
+    zero_resp = client.get(invoice_url)
+    assert zero_resp.status_code == 302
+    assert zero_resp.url == order_url
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_invoice_renders_unicode_text(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        product = _product(event, "Booth & Café")
+        order = place_exhibition_order(
+            event,
+            [product],
+            organization_name="München GmbH & Co. KG",
+            name="René Müller",
+            email="rene@example.com",
+            billing_address="10 Avenue des Champs-Élysées\n80331 München\nDeutschland",
+        )
+    client = Client()
+    invoice_url = _url(event, "shop.order.invoice", code=order.code, secret=order.secret)
+    response = client.get(invoice_url)
+    assert response.status_code == 200
+    assert response["Content-Type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+    reader = PdfReader(BytesIO(response.content))
+    text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert order.code in text
+    assert "René Müller" in text
+    assert "Booth & Café" in text

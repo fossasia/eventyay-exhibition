@@ -421,10 +421,23 @@ class ShopOrderInvoiceView(ShopOrderMixin, View):
     """Where a buyer downloads their invoice PDF."""
 
     def get(self, request, *args, **kwargs):
-        if self.order.status == ExhibitionOrderStatus.CANCELLED:
-            messages.error(request, _("An invoice is not available for cancelled orders."))
-            return redirect(self.order_url())
-        pdf = render_order_invoice_pdf(self.order)
+        with transaction.atomic():
+            order = ExhibitionOrder.objects.select_for_update().filter(pk=self.order.pk).first()
+            if not order:
+                raise Http404(_("Order not found."))
+
+            is_paid = order.status == ExhibitionOrderStatus.PAID
+            is_pending = order.status == ExhibitionOrderStatus.PENDING
+            can_download = is_paid or (is_pending and order.total > 0)
+            if not can_download:
+                if order.status == ExhibitionOrderStatus.CANCELLED:
+                    messages.error(request, _("An invoice is not available for cancelled orders."))
+                else:
+                    messages.error(request, _("An invoice is not available for this order."))
+                return redirect(self.order_url())
+
+            pdf = render_order_invoice_pdf(order)
+
         response = HttpResponse(pdf, content_type="application/pdf")
-        response["Content-Disposition"] = f'inline; filename="invoice-{self.order.code}.pdf"'
+        response["Content-Disposition"] = f'inline; filename="invoice-{order.code}.pdf"'
         return response
