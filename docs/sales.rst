@@ -109,6 +109,15 @@ payment method** once a method exists, the same as for tickets. If the buyer
 has lost the email, click **Resend link** next to their email address on the
 order page.
 
+Once an order is paid, the buyer's order page shows an **Invoice** panel with a
+**Download invoice** button, and you find a **Download** link next to
+**Invoice** on the order page. The invoice is a PDF with the order code as its
+reference, the buyer's billing details, the products and the total. It takes
+your address, VAT ID and footer text from the event's invoice settings. Orders
+that are pending, expired or cancelled have no invoice. The **Order confirmed**
+email links to it with the ``{order_invoice_url}`` placeholder; events that
+already edited that template need to add the placeholder themselves.
+
 The public page and checkout
 ----------------------------
 
