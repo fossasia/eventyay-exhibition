@@ -40,6 +40,14 @@
                         <dd>{{ order.created|date:"SHORT_DATETIME_FORMAT" }}</dd>
                         <dt>{% trans "Buyer's order page" %}</dt>
                         <dd><a href="{{ buyer_url }}" target="_blank" rel="noopener">{% trans "Open" %}</a></dd>
+                        {% if order.can_download_invoice %}
+                            <dt>{% trans "Invoice" %}</dt>
+                            <dd>
+                                <a href="{% url 'plugins:exhibition:orders.invoice' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}">
+                                    <i class="fa fa-download" aria-hidden="true"></i> {% trans "Download" %}
+                                </a>
+                            </dd>
+                        {% endif %}
                         {% if order.status == "pending" or order.status == "expired" %}
                             {% if order.expires %}
                                 <dt>{% trans "Expiration date" %}</dt>
