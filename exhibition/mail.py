@@ -235,6 +235,7 @@ DEFAULT_TEMPLATE_SOURCES = {
             "Total: {order_total}\n\n"
             "{order_products}\n\n"
             "We will be in touch with the next steps. You can view your order here:\n{order_url}\n\n"
+            "You can download your invoice here:\n{order_invoice_url}\n\n"
             "Best regards,\n"
             "The {event_name} team"
         ),
