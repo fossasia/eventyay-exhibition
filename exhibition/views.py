@@ -69,6 +69,7 @@ from .forms import (
     SponsorGroupForm,
     social_link_prefixes,
 )
+from .invoice import invoice_response
 from .mail import order_public_url
 from .models import (
     LOG_CALL_SETTINGS_CHANGED,
@@ -2255,6 +2256,16 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
         )
         context["buyer_url"] = order_public_url(self.order)
         return context
+
+
+class ExhibitionOrderInvoiceView(ExhibitionOrderMixin, View):
+    """Where an organizer downloads the invoice of a paid order."""
+
+    def get(self, request, *args, **kwargs):
+        if not self.order.can_download_invoice:
+            messages.error(request, _("An invoice is available once the order has been paid."))
+            return redirect(self.get_order_url())
+        return invoice_response(self.order)
 
 
 class ExhibitionOrderActionMixin(ExhibitionOrderMixin):

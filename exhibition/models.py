@@ -1680,6 +1680,11 @@ class ExhibitionOrder(LoggedModel):
     def can_be_cancelled(self):
         return self.status != ExhibitionOrderStatus.CANCELLED
 
+    @property
+    def can_download_invoice(self):
+        """An invoice is only issued once the order has been paid."""
+        return self.status == ExhibitionOrderStatus.PAID
+
     def mark_paid(self, *, provider="", reference="", user=None):
         """Record a received payment and link the organisation; an expired order needs its quota room back."""
         with transaction.atomic():
