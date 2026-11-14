@@ -29,6 +29,7 @@ from .dashboard import user_has_exhibitions
 from .mail import (
     invitation_url,
     my_exhibitions_url,
+    order_invoice_url,
     order_product_list,
     order_public_url,
     render_device_tokens,
@@ -437,6 +438,12 @@ def exhibition_mail_placeholders(sender, **kwargs):
             ["exhibition_order"],
             order_public_url,
             "https://example.com/orga/event/exhibition/packages/order/ABC12/secret/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "order_invoice_url",
+            ["exhibition_order"],
+            order_invoice_url,
+            "https://example.com/orga/event/exhibition/packages/order/ABC12/secret/invoice/",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "order_products",

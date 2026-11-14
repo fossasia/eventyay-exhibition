@@ -85,6 +85,7 @@ PLACEHOLDER_DOCS = (
     ),
     ("{order_code}", _lazy("The exhibition order's code (order emails only)")),
     ("{order_url}", _lazy("Link for the buyer to view the order (order emails only)")),
+    ("{order_invoice_url}", _lazy("Link for the buyer to download their invoice (order emails only)")),
     ("{order_products}", _lazy("The products in the order (order emails only)")),
     ("{order_total}", _lazy("The order total with currency (order emails only)")),
     ("{order_contact_name}", _lazy("The contact person given in the order (order emails only)")),
@@ -408,6 +409,19 @@ def build_order_context(event, order):
 def order_public_url(exhibition_order):
     path = reverse(
         "plugins:exhibition:shop.order",
+        kwargs={
+            "organizer": exhibition_order.event.organizer.slug,
+            "event": exhibition_order.event.slug,
+            "code": exhibition_order.code,
+            "secret": exhibition_order.secret,
+        },
+    )
+    return urljoin(django_settings.SITE_URL, path)
+
+
+def order_invoice_url(exhibition_order):
+    path = reverse(
+        "plugins:exhibition:shop.order.invoice",
         kwargs={
             "organizer": exhibition_order.event.organizer.slug,
             "event": exhibition_order.event.slug,

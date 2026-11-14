@@ -262,3 +262,25 @@ def test_a_paid_order_cannot_switch_its_payment_method(event):
         order.refresh_from_db()
         assert order.payment_provider == "free"
     assert client.get(_url(event, "shop.order.pay_change", code=order.code, secret="wrong")).status_code == 404
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_buyer_can_download_invoice(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        order = place_exhibition_order(event, [_product(event, "Community Booth")], **CUSTOMER_DATA)
+    client = Client()
+    order_url = _url(event, "shop.order", code=order.code, secret=order.secret)
+    invoice_url = _url(event, "shop.order.invoice", code=order.code, secret=order.secret)
+
+    response = client.get(order_url)
+    assert response.status_code == 200
+    assert invoice_url in response.content.decode()
+
+    invoice_response = client.get(invoice_url)
+    assert invoice_response.status_code == 200
+    assert invoice_response["Content-Type"] == "application/pdf"
+    assert invoice_response.content.startswith(b"%PDF")
+
+    assert client.get(_url(event, "shop.order.invoice", code=order.code, secret="wrong")).status_code == 404

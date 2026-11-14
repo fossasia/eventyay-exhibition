@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.datastructures import MultiValueDict
@@ -16,6 +16,7 @@ from django.views.generic import TemplateView
 from eventyay.control.forms import ExtFileField
 
 from .forms import ExhibitionOrderForm
+from .invoice import render_order_invoice_pdf
 from .models import (
     ExhibitionOrder,
     ExhibitionOrderError,
@@ -373,6 +374,7 @@ class ShopOrderView(ShopOrderMixin, TemplateView):
         provider = self.request.event.get_payment_providers().get(order.payment_provider)
         context["payment_method"] = provider.public_name if provider else ""
         context["can_change_payment"] = context["is_pending"] and bool(usable_payment_providers(self.request.event))
+        context["can_download_invoice"] = context["is_paid"] or (context["is_pending"] and order.total > 0)
         return context
 
 
@@ -413,3 +415,16 @@ class ShopOrderPayChangeView(ShopOrderMixin, TemplateView):
         except ExhibitionOrderStateError:
             messages.error(request, _("This order is not awaiting a payment."))
         return redirect(self.order_url())
+
+
+class ShopOrderInvoiceView(ShopOrderMixin, View):
+    """Where a buyer downloads their invoice PDF."""
+
+    def get(self, request, *args, **kwargs):
+        if self.order.status == ExhibitionOrderStatus.CANCELLED:
+            messages.error(request, _("An invoice is not available for cancelled orders."))
+            return redirect(self.order_url())
+        pdf = render_order_invoice_pdf(self.order)
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="invoice-{self.order.code}.pdf"'
+        return response
