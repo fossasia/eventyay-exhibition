@@ -1,4 +1,5 @@
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
 from django.db import connection
@@ -9,6 +10,7 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from eventyay.base.models import Event, LogEntry
 from eventyay.base.models.auth import User
+from pypdf import PdfReader
 
 from exhibition.models import (
     LOG_ORDER_CANCELLED,
@@ -239,6 +241,7 @@ def test_order_detail_shows_positions_total_and_payment(event, shop):
     assert response.context["payment_method_name"] != "manual"
     assert _url(event, "orders.mark_paid", code=order.code) in content
     assert _url(event, "orders.cancel", code=order.code) in content
+    assert _url(event, "orders.invoice", code=order.code) in content
 
 
 @pytest.mark.django_db
@@ -290,6 +293,24 @@ def test_order_detail_omits_toolbar_when_no_actions_apply(event, shop):
     content = response.content.decode()
     assert "All orders" not in content
     assert 'class="list-toolbar"' not in content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_organizer_can_download_invoice(event, shop):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        order = _order(event, shop["gold"])
+
+    response = client.get(_url(event, "orders.invoice", code=order.code))
+    assert response.status_code == 200
+    assert response["Content-Type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+    reader = PdfReader(BytesIO(response.content))
+    text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert order.code in text
+    assert "Gold Sponsor" in text
 
 
 # Marking paid and cancelling

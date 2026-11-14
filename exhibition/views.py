@@ -69,6 +69,7 @@ from .forms import (
     SponsorGroupForm,
     social_link_prefixes,
 )
+from .invoice import render_order_invoice_pdf
 from .mail import order_public_url
 from .models import (
     LOG_CALL_SETTINGS_CHANGED,
@@ -2255,6 +2256,16 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
         )
         context["buyer_url"] = order_public_url(self.order)
         return context
+
+
+class ExhibitionOrderInvoiceView(ExhibitionOrderMixin, View):
+    """Organisers download an exhibition order invoice PDF."""
+
+    def get(self, request, *args, **kwargs):
+        pdf = render_order_invoice_pdf(self.order)
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="invoice-{self.order.code}.pdf"'
+        return response
 
 
 class ExhibitionOrderActionMixin(ExhibitionOrderMixin):
