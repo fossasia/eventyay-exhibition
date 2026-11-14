@@ -17,6 +17,7 @@ from django.views.generic import TemplateView
 from eventyay.control.forms import ExtFileField
 
 from .forms import ExhibitionOrderForm
+from .invoice import invoice_response
 from .models import (
     ExhibitionOrder,
     ExhibitionOrderError,
@@ -708,6 +709,9 @@ class ShopOrderView(ShopOrderMixin, TemplateView):
         context["can_change_payment"] = (
             context["is_pending"] and not order.can_be_approved and bool(usable_payment_providers(self.request.event))
         )
+        context["invoice_url"] = shop_url(
+            self.request.event, "shop.order.invoice", code=order.code, secret=order.secret
+        )
         return context
 
 
@@ -748,3 +752,13 @@ class ShopOrderPayChangeView(ShopOrderMixin, TemplateView):
         except ExhibitionOrderStateError:
             messages.error(request, _("This order is not awaiting a payment."))
         return redirect(self.order_url())
+
+
+class ShopOrderInvoiceView(ShopOrderMixin, View):
+    """Where a buyer downloads the invoice of a paid order."""
+
+    def get(self, request, *args, **kwargs):
+        if not self.order.can_download_invoice:
+            messages.error(request, _("An invoice is available once the order has been paid."))
+            return redirect(self.order_url())
+        return invoice_response(self.order)
