@@ -43,6 +43,27 @@
     padding-top: 0;
 }
 
+.exhibition-composer select.form-control {
+    height: var(--composer-control-height);
+    line-height: 1.5;
+    padding: 6px 12px;
+}
+
+.exhibition-composer .exhibition-session-field {
+    font-size: var(--composer-font-size);
+    min-height: var(--composer-control-height);
+    padding: 6px 32px 6px 12px;
+}
+
+.exhibition-composer .exhibition-session-caret {
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.exhibition-composer .exhibition-session-select.is-open .exhibition-session-caret {
+    transform: translateY(-50%) rotate(180deg);
+}
+
 .exhibition-composer .composer-organizations {
     margin-top: 16px;
 }
