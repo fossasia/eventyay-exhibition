@@ -14,7 +14,7 @@
             <strong>{{ e.name }}</strong>
         {% endif %}
     </td>
-    {% if organization_type != 'exhibitor' %}
+    {% if organization_type == 'sponsor' %}
         <td>
             {% if e.sponsor_group %}
                 {{ e.sponsor_group.localized_name }}
@@ -22,6 +22,8 @@
                 -
             {% endif %}
         </td>
+    {% else %}
+        <td class="organization-group-col">{% include "exhibitors/_organization_group.html" with e=e %}</td>
     {% endif %}
     {% if organization_type != 'sponsor' %}
         <td>
