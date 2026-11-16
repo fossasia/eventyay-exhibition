@@ -4457,7 +4457,7 @@ class EmailTemplatePreviewView(EventPermissionRequiredMixin, View):
     per rendered locale.
     """
 
-    permission = "can_change_event_settings"
+    permission = EMAIL_MANAGE_PERMISSION
 
     def post(self, request, *args, **kwargs):
         role = request.GET.get("role", "")

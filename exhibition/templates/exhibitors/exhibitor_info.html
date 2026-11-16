@@ -131,6 +131,7 @@
 
         {% trans "Name" as label_name %}
         {% trans "Booth number" as label_booth %}
+        {% trans "Group" as label_group %}
         {% trans "Vouchers" as label_vouchers %}
         {% if organization_type == 'sponsor' %}
             <div class="table-responsive">
@@ -174,7 +175,7 @@
                             </th>
                         {% endif %}
                         <th>{% include "exhibitors/_sort_header.html" with field="name" label=label_name %}</th>
-                        {% if not organization_type %}<th>{% trans "Group" %}</th>{% endif %}
+                        <th>{% include "exhibitors/_sort_header.html" with field="group" label=label_group %}</th>
                         <th>{% include "exhibitors/_sort_header.html" with field="booth" label=label_booth %}</th>
                         {% if "can_change_event_settings" in request.eventpermset %}<th>{% trans "Published" %}</th><th>{% include "exhibitors/_sort_header.html" with field="vouchers" label=label_vouchers %}</th>{% endif %}
                         <th class="action-col-2"></th>
