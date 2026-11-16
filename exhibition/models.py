@@ -357,6 +357,11 @@ class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     )
     allowed_fields = models.JSONField(default=default_allowed_fields)
     call_enabled = models.BooleanField(default=False)
+    shop_enabled = models.BooleanField(
+        default=False,
+        verbose_name=_("Enable commercial booth shop"),
+        help_text=_("Allow companies to purchase booth packages"),
+    )
     call_headline = I18nCharField(
         max_length=200,
         blank=True,

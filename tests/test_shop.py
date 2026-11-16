@@ -17,6 +17,7 @@ from exhibition.models import (
     ExhibitionProduct,
     ExhibitionProductPurpose,
     ExhibitionQuota,
+    ExhibitorSettings,
 )
 from exhibition.orders import place_exhibition_order
 from exhibition.signals import exhibition_presale_nav_tab
@@ -39,10 +40,14 @@ def _packages_url(event):
     return _url(event, "public_call") + "#exhibition-packages"
 
 
-def _enable_plugin(event):
+def _enable_plugin(event, call_enabled=True, shop_enabled=True):
     with scopes_disabled():
         event.plugins = "exhibition"
         event.save()
+        settings, _ = ExhibitorSettings.objects.get_or_create(event=event)
+        settings.call_enabled = call_enabled
+        settings.shop_enabled = shop_enabled
+        settings.save()
 
 
 def _checkout(client, event, *products):
@@ -192,19 +197,20 @@ def test_the_order_page_needs_the_secret(event):
 
 
 @pytest.mark.django_db
-def test_packages_on_sale_open_the_call_page_without_a_call(event):
-    _enable_plugin(event)
+def test_packages_on_sale_without_a_call_shows_packages_page(event):
+    _enable_plugin(event, call_enabled=False, shop_enabled=True)
     with scopes_disabled():
         html = exhibition_presale_nav_tab(sender=event, request=RequestFactory().get("/x/"))
-        assert "/exhibition/call/" not in str(html)
+        assert "/exhibition/packages/" not in str(html)
     assert Client().get(_url(event, "public_call")).status_code == 404
 
     with scopes_disabled():
         _product(event, "Gold Sponsor")
         html = exhibition_presale_nav_tab(sender=event, request=RequestFactory().get("/x/"))
-        assert "/exhibition/call/" in str(html)
-        assert "/exhibition/packages/" not in str(html)
-    content = Client().get(_url(event, "public_call")).content.decode()
+        assert "/exhibition/packages/" in str(html)
+        assert "/exhibition/call/" not in str(html)
+    assert Client().get(_url(event, "public_call")).status_code == 404
+    content = Client().get(_url(event, "shop")).content.decode()
     assert "Gold Sponsor" in content
     assert "Submit a request" not in content
 

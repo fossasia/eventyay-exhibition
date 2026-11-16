@@ -1023,6 +1023,22 @@ class ExhibitorVoucherDefaultsForm(forms.ModelForm):
             self.fields[name].choices = [("", empty_label), *((tag, tag) for tag in known)]
 
 
+class PublicParticipationForm(forms.ModelForm):
+    """Controls whether community call and commercial shop flows are open to the public."""
+
+    class Meta:
+        model = ExhibitorSettings
+        fields = ["call_enabled", "shop_enabled"]
+        labels = {
+            "call_enabled": _("Enable community call"),
+            "shop_enabled": _("Enable commercial booth shop"),
+        }
+        help_texts = {
+            "call_enabled": _("Allow open source projects to apply for a complimentary booth"),
+            "shop_enabled": _("Allow companies to purchase booth packages"),
+        }
+
+
 class ExhibitionLayoutForm(I18nModelForm):
     """The floor plan shown to visitors of the public Exhibition page."""
 
@@ -1069,7 +1085,7 @@ class CallSettingsForm(I18nModelForm):
             "call_private",
         ]
         labels = {
-            "call_enabled": _("Enable call"),
+            "call_enabled": _("Enable community call"),
             "call_hide_after_deadline": _("Hide call page after the deadline"),
             "call_private": _("Make this call private (accessible only via a secret link)"),
         }

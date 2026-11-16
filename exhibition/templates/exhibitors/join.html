@@ -1,0 +1,71 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{% trans "Join the Exhibition" %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'exhibition/css/exhibitors-join.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="container" aria-label="{% trans 'Join the Exhibition' %}">
+    <div class="page-header">
+        <h1>{% trans "Join the Exhibition" %}</h1>
+        <p class="lead text-muted">{% trans "Choose how you would like to participate in this event." %}</p>
+    </div>
+
+    <div class="row exhibition-join-cards">
+        <div class="col-md-6 col-sm-12">
+            <div class="panel panel-default exhibition-join-card community-card">
+                <div class="panel-heading">
+                    <span class="label label-success pull-right">{% trans "Free · Application" %}</span>
+                    <h3 class="panel-title">{% trans "Community & open source projects" %}</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="card-description">
+                        {% trans "Running an open source project, research initiative, or community effort? Apply for a complimentary booth. Applications are reviewed by the organizing team." %}
+                    </p>
+                    <ul class="card-features">
+                        <li><i class="fa fa-check text-success" aria-hidden="true"></i> {% trans "No cost" %}</li>
+                        <li><i class="fa fa-check text-success" aria-hidden="true"></i> {% trans "Short application form" %}</li>
+                        <li><i class="fa fa-check text-success" aria-hidden="true"></i> {% trans "Decision within 2 weeks" %}</li>
+                        <li><i class="fa fa-check text-success" aria-hidden="true"></i> {% trans "For non-commercial projects" %}</li>
+                    </ul>
+                </div>
+                <div class="panel-footer">
+                    <a href="{{ call_url }}" class="btn btn-success btn-block btn-lg">
+                        {% trans "Apply for a booth" %} &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-sm-12">
+            <div class="panel panel-default exhibition-join-card commercial-card">
+                <div class="panel-heading">
+                    <span class="label label-primary pull-right">{% trans "Paid · Instant" %}</span>
+                    <h3 class="panel-title">{% trans "Companies & sponsors" %}</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="card-description">
+                        {% trans "Looking to showcase your products or recruit? Browse available packages and purchase directly. No waiting — confirmed immediately on payment." %}
+                    </p>
+                    <ul class="card-features">
+                        <li><i class="fa fa-check text-primary" aria-hidden="true"></i> {% trans "Multiple package tiers" %}</li>
+                        <li><i class="fa fa-check text-primary" aria-hidden="true"></i> {% trans "Confirmed on payment" %}</li>
+                        <li><i class="fa fa-check text-primary" aria-hidden="true"></i> {% trans "Invoice provided" %}</li>
+                        <li><i class="fa fa-check text-primary" aria-hidden="true"></i> {% trans "Add-ons available" %}</li>
+                    </ul>
+                </div>
+                <div class="panel-footer">
+                    <a href="{{ packages_url }}" class="btn btn-primary btn-block btn-lg">
+                        {% trans "View packages & pricing" %} &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}

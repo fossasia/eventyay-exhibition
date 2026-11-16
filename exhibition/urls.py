@@ -87,6 +87,7 @@ from .views import (
     PublicCallView,
     PublicExhibitorDetailView,
     PublicExhibitorListView,
+    PublicJoinView,
     RequestActionView,
     RequestDetailView,
     RequestListView,
@@ -120,6 +121,16 @@ urlpatterns = [
         "<str:organizer>/<str:event>/exhibition/",
         PublicExhibitorListView.as_view(),
         name="public_list",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/join/",
+        PublicJoinView.as_view(),
+        name="public_join",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/join/",
+        PublicJoinView.as_view(),
+        name="join",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/call/",

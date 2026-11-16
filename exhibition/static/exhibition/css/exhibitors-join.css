@@ -1,0 +1,69 @@
+.exhibition-join-cards {
+    margin-top: 30px;
+    margin-bottom: 40px;
+}
+
+.exhibition-join-card {
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    min-height: 380px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.exhibition-join-card:hover {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+.exhibition-join-card .panel-heading {
+    padding: 20px 24px;
+    background-color: transparent;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.exhibition-join-card.community-card {
+    border-top: 4px solid #28a745;
+}
+
+.exhibition-join-card.commercial-card {
+    border-top: 4px solid #007bff;
+}
+
+.exhibition-join-card .panel-title {
+    font-size: 1.35em;
+    font-weight: 600;
+}
+
+.exhibition-join-card .panel-body {
+    padding: 24px;
+    flex: 1 1 auto;
+}
+
+.exhibition-join-card .card-description {
+    font-size: 1.05em;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    color: #4a4a4a;
+}
+
+.exhibition-join-card .card-features {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 0;
+}
+
+.exhibition-join-card .card-features li {
+    padding: 6px 0;
+    font-size: 0.95em;
+}
+
+.exhibition-join-card .card-features li i {
+    margin-right: 8px;
+}
+
+.exhibition-join-card .panel-footer {
+    background-color: transparent;
+    border-top: 1px solid #e5e5e5;
+    padding: 20px 24px;
+}

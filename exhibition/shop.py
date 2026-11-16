@@ -11,7 +11,6 @@ from django.urls import reverse
 from django.utils.datastructures import MultiValueDict
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from django.views import View
 from django.views.generic import TemplateView
 from eventyay.control.forms import ExtFileField
 
@@ -23,6 +22,7 @@ from .models import (
     ExhibitionOrderStatus,
     ExhibitionProduct,
     ExhibitionQuotaExceeded,
+    ExhibitorSettings,
 )
 from .orders import payment_instructions, place_exhibition_order, send_order_email, usable_payment_providers
 
@@ -71,8 +71,11 @@ def answer_text(value):
 
 
 def packages_url(event):
-    """Where buyers pick packages: the call for exhibitors page, at its package list."""
-    return shop_url(event, "public_call") + "#exhibition-packages"
+    """Where buyers pick packages."""
+    settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
+    if settings.call_enabled:
+        return shop_url(event, "public_call") + "#exhibition-packages"
+    return shop_url(event, "shop")
 
 
 def delete_checkout_files(files):
@@ -80,15 +83,32 @@ def delete_checkout_files(files):
         default_storage.delete(info["path"])
 
 
-class ShopIndexView(View):
+class ShopIndexView(TemplateView):
     """Starts the checkout with the packages picked on the call for exhibitors page."""
+
+    template_name = "exhibitors/packages.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
+        if not settings.shop_enabled:
+            raise Http404()
+        return super().dispatch(request, *args, **kwargs)
 
     @cached_property
     def products(self):
         return shop_products(self.request.event)
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["event"] = self.request.event
+        context["products_by_category"] = group_by_category(self.products)
+        return context
+
     def get(self, request, *args, **kwargs):
-        return redirect(packages_url(request.event))
+        settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
+        if settings.call_enabled:
+            return redirect(packages_url(request.event))
+        return self.render_to_response(self.get_context_data())
 
     def post(self, request, *args, **kwargs):
         on_sale = {str(product.pk): product for product in self.products}
@@ -138,6 +158,9 @@ class ShopCheckoutMixin:
         return sum((product.price for product in self.products), Decimal("0.00"))
 
     def dispatch(self, request, *args, **kwargs):
+        settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
+        if not settings.shop_enabled:
+            raise Http404()
         if not self.cart.get("products"):
             messages.info(request, _("Please select the products you want to order."))
             return redirect(packages_url(request.event))

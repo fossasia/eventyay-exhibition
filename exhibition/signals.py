@@ -240,6 +240,7 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
                 if "/exhibition/" in request.path_info
                 and "/exhibition/call/" not in request.path_info
                 and "/exhibition/packages/" not in request.path_info
+                and "/exhibition/join/" not in request.path_info
                 else "",
                 _("Exhibition"),
             )
@@ -247,25 +248,44 @@ def exhibition_presale_nav_tab(sender, request=None, **kwargs):
 
     settings = ExhibitorSettings.objects.filter(
         event=sender,
-        call_enabled=True,
     ).first()
     call_is_public = bool(
-        settings and not settings.call_private and (settings.call_is_open or not settings.call_hide_after_deadline)
+        settings
+        and settings.call_enabled
+        and not settings.call_private
+        and (settings.call_is_open or not settings.call_hide_after_deadline)
     )
-    if call_is_public or ExhibitionProduct.objects.filter(event=sender).available().exists():
-        call_label = (localize_event_text(settings.call_headline) if settings else "") or _("Call for Exhibitors")
+    shop_is_public = bool(
+        settings and settings.shop_enabled and ExhibitionProduct.objects.filter(event=sender).available().exists()
+    )
+
+    if call_is_public or shop_is_public:
+        if call_is_public and shop_is_public:
+            target_route = "plugins:exhibition:public_join"
+            call_label = _("Call for Exhibitors")
+        elif call_is_public:
+            target_route = "plugins:exhibition:public_call"
+            call_label = (localize_event_text(settings.call_headline) if settings else "") or _("Call for Exhibitors")
+        else:
+            target_route = "plugins:exhibition:shop"
+            call_label = _("Exhibition Packages")
+
         links.append(
             format_html(
                 '<a href="{}" class="header-tab {}"><i class="fa fa-handshake-o"></i> {}</a>',
                 reverse(
-                    "plugins:exhibition:public_call",
+                    target_route,
                     kwargs={
                         "organizer": sender.organizer.slug,
                         "event": sender.slug,
                     },
                 ),
                 "active"
-                if "/exhibition/call/" in request.path_info or "/exhibition/packages/" in request.path_info
+                if (
+                    "/exhibition/call/" in request.path_info
+                    or "/exhibition/packages/" in request.path_info
+                    or "/exhibition/join/" in request.path_info
+                )
                 else "",
                 call_label,
             )

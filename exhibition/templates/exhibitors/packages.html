@@ -1,0 +1,18 @@
+{% extends "exhibitors/call_base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block pagetitle %}{% trans "Commercial Booth Packages" %}{% endblock %}
+
+{% block call_content %}
+    <h2 id="exhibition-packages-heading">{% trans "Commercial Booth Packages" %}</h2>
+    <form method="post" action="{% url 'plugins:exhibition:shop' organizer=event.organizer.slug event=event.slug %}">
+        {% csrf_token %}
+        {% include "exhibitors/_shop_product_list.html" %}
+        <p class="text-right">
+            <button class="btn btn-primary btn-lg" type="submit">
+                {% trans "Continue to checkout" %}
+            </button>
+        </p>
+    </form>
+{% endblock %}

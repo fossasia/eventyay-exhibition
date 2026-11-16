@@ -66,6 +66,7 @@ from .forms import (
     ExhibitorSocialLinkFormSet,
     ExhibitorVoucherBatchForm,
     ExhibitorVoucherDefaultsForm,
+    PublicParticipationForm,
     SponsorGroupForm,
     social_link_prefixes,
 )
@@ -460,6 +461,9 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         ctx["device_defaults_form"] = kwargs.get("device_defaults_form") or ExhibitorDeviceDefaultsForm(
             instance=settings
         )
+        ctx["public_participation_form"] = kwargs.get("public_participation_form") or PublicParticipationForm(
+            instance=settings
+        )
         ctx["layout_form"] = kwargs.get("layout_form") or ExhibitionLayoutForm(
             instance=settings,
             event=self.request.event,
@@ -553,25 +557,45 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
 
         if action == "save_exhibitor_settings":
             allowed_fields = request.POST.getlist("exhibitors_access_voucher")
+            public_participation_form = PublicParticipationForm(
+                request.POST,
+                instance=settings,
+            )
             layout_form = ExhibitionLayoutForm(
                 request.POST,
                 request.FILES,
                 instance=settings,
                 event=self.request.event,
             )
-            if not layout_form.is_valid():
+            if not public_participation_form.is_valid() or not layout_form.is_valid():
                 settings.allowed_fields = allowed_fields
                 messages.error(self.request, _("We could not save your changes. See below for details."))
                 return self.render_to_response(
-                    self.get_context_data(layout_form=layout_form, data_access_settings=settings)
+                    self.get_context_data(
+                        public_participation_form=public_participation_form,
+                        layout_form=layout_form,
+                        data_access_settings=settings,
+                    )
                 )
+            public_participation_form.save()
             layout_form.instance.allowed_fields = allowed_fields
             layout_form.save()
             settings.log_action(
                 LOG_SETTINGS_CHANGED,
-                data={"allowed_fields": settings.allowed_fields, "changed": layout_form.changed_data},
+                data={
+                    "allowed_fields": settings.allowed_fields,
+                    "changed": [*public_participation_form.changed_data, *layout_form.changed_data],
+                },
                 user=request.user,
             )
+            if not settings.call_enabled and not settings.shop_enabled:
+                messages.warning(
+                    self.request,
+                    _(
+                        "Both community call and commercial booth shop are disabled. "
+                        "Public participation is currently closed."
+                    ),
+                )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("exhibitors"))
 
@@ -618,6 +642,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     data={"changed": form.changed_data},
                     user=request.user,
                 )
+                if not settings.call_enabled and not settings.shop_enabled:
+                    messages.warning(
+                        self.request,
+                        _(
+                            "Both community call and commercial booth shop are disabled. "
+                            "Public participation is currently closed."
+                        ),
+                    )
                 messages.success(self.request, _("Call settings have been saved."))
                 return redirect(self.get_settings_url("call"))
             return self.render_to_response(self.get_context_data(call_settings_form=form))
@@ -909,6 +941,57 @@ class PublicExhibitorDetailView(PublicExhibitorBrowsingMixin, DetailView):
         return context
 
 
+class PublicJoinView(TemplateView):
+    """The hub page routing potential exhibitors to either community call or commercial booth shop."""
+
+    template_name = "exhibitors/join.html"
+
+    def get_exhibition_settings(self):
+        return ExhibitorSettings.objects.get_or_create(event=self.request.event)[0]
+
+    def get(self, request, *args, **kwargs):
+        settings = self.get_exhibition_settings()
+        call_on = settings.call_enabled
+        shop_on = settings.shop_enabled
+
+        if call_on and not shop_on:
+            return redirect(
+                reverse(
+                    "plugins:exhibition:public_call",
+                    kwargs=event_kwargs(request.event),
+                )
+            )
+        if not call_on and shop_on:
+            return redirect(
+                reverse(
+                    "plugins:exhibition:shop",
+                    kwargs=event_kwargs(request.event),
+                )
+            )
+        if not call_on and not shop_on:
+            raise Http404()
+
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        settings = self.get_exhibition_settings()
+        context["event"] = self.request.event
+        context["settings"] = settings
+        context["call_url"] = reverse(
+            "plugins:exhibition:public_call",
+            kwargs=event_kwargs(self.request.event),
+        )
+        context["packages_url"] = reverse(
+            "plugins:exhibition:shop",
+            kwargs=event_kwargs(self.request.event),
+        )
+        return context
+
+
+ExhibitionJoinView = PublicJoinView
+
+
 class PublicCallView(PublicCallEnabledMixin, TemplateView):
     """The call for exhibitors, and the sponsorship and exhibition packages on sale below it."""
 
@@ -918,10 +1001,15 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
 
     @cached_property
     def packages(self):
+        settings = self.get_exhibition_settings()
+        if not settings.shop_enabled:
+            return []
         return shop_products(self.request.event)
 
     def page_is_visible(self, settings):
-        return bool(self.packages) or self.call_is_visible(settings)
+        if not settings.call_enabled:
+            return False
+        return self.call_is_visible(settings)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
