@@ -19,6 +19,9 @@ Features
   exhibitors.
 - Configure sponsor groups and show selected sponsor groups on the event front
   page.
+- Place exhibitors in the fixed Paid exhibitor and Non-paid exhibitor groups,
+  each with its own number of vouchers. Accepted exhibitor requests become
+  non-paid exhibitors; sponsors keep the vouchers of their sponsor group.
 - Publish public exhibitor lists and exhibitor detail pages for an event.
 - Enable a public call for exhibitor and sponsor applications.
 - Configure proposal fields and custom application questions.
