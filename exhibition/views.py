@@ -3775,8 +3775,13 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
                 if draft is None:
                     return self.draft_already_queued()
+            previous_attachment_id = draft.attachment_id
             draft.fill_from_form(form.cleaned_data)
+            if draft.attachment_id != previous_attachment_id:
+                mail_helpers.keep_attachment(draft.attachment)
             draft.save()
+            if previous_attachment_id != draft.attachment_id:
+                mail_helpers.release_attachment(previous_attachment_id)
         messages.success(self.request, _("The draft has been saved."))
         return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
 
@@ -3805,6 +3810,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 scheduled_at=scheduled_at,
                 send_now=send_now,
                 requestor=self.request.user,
+                attachment=form.cleaned_data.get("attachment") or None,
             )
             if created and draft is not None:
                 draft.delete()
@@ -3909,6 +3915,7 @@ def group_email_entries(emails):
                     "sent_at": email.sent_at,
                     "scheduled_at": email.scheduled_at,
                     "is_batch": False,
+                    "has_attachment": bool(email.attachment_id),
                 }
             )
             continue
@@ -3923,6 +3930,7 @@ def group_email_entries(emails):
                 "sent_at": email.sent_at,
                 "scheduled_at": email.scheduled_at,
                 "is_batch": True,
+                "has_attachment": bool(email.attachment_id),
             }
             by_batch[key] = entry
             entries.append(entry)
@@ -4126,15 +4134,25 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         subject = form.cleaned_data["subject"]
         body = form.cleaned_data["body"]
         scheduled_at = form.cleaned_data["scheduled_at"]
+        attachment = form.cleaned_data.get("attachment") or None
         reschedule = "scheduled_at" in form.changed_data
 
         if self.object.batch:
-            rows = list(self.editable_batch_queryset())
-            self.editable_batch_queryset().update(subject=subject, body=body, scheduled_at=scheduled_at)
+            with transaction.atomic():
+                rows = list(self.editable_batch_queryset().select_for_update())
+                if not rows:
+                    return self.already_handled()
+                previous_ids = {row.attachment_id for row in rows}
+                self.keep_new_attachment(previous_ids, attachment)
+                ExhibitionEmailQueue.objects.filter(pk__in=[row.pk for row in rows]).update(
+                    subject=subject, body=body, scheduled_at=scheduled_at, attachment=attachment
+                )
+                self.release_replaced_attachments(previous_ids, attachment)
             if "_send" in self.request.POST:
                 for row in rows:
                     row.subject = subject
                     row.body = body
+                    row.attachment = attachment
                     row.send(requestor=self.request.user)
                 messages.success(self.request, _("The emails have been saved and sent."))
             else:
@@ -4143,7 +4161,21 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 messages.success(self.request, _("The emails have been saved."))
             return redirect(self.get_success_url())
 
-        self.object.save()
+        with transaction.atomic():
+            locked = (
+                ExhibitionEmailQueue.objects.select_for_update().filter(pk=self.object.pk, sent_at__isnull=True).first()
+            )
+            if locked is None:
+                return self.already_handled()
+            previous_ids = {locked.attachment_id}
+            self.keep_new_attachment(previous_ids, attachment)
+            changed = [name for name in ("to_email", "subject", "body", "scheduled_at") if name in form.cleaned_data]
+            for name in changed:
+                setattr(locked, name, form.cleaned_data[name])
+            locked.attachment = attachment
+            locked.save(update_fields=[*changed, "attachment", "updated"])
+            self.release_replaced_attachments(previous_ids, attachment)
+            self.object = locked
         if "_send" in self.request.POST:
             self.object.send(requestor=self.request.user)
             messages.success(self.request, _("The email has been saved and sent."))
@@ -4153,6 +4185,22 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             messages.success(self.request, _("The email has been saved."))
         return redirect(self.get_success_url())
 
+    def already_handled(self):
+        """Stop an edit whose email was sent or discarded while the organizer was editing it."""
+        messages.warning(self.request, _("This email was already sent or discarded, so your changes were not saved."))
+        return redirect(self.get_success_url())
+
+    @staticmethod
+    def keep_new_attachment(previous_ids, attachment):
+        """Keep a newly chosen file; an unchanged one, such as a voucher CSV, keeps its own expiry."""
+        if attachment is not None and attachment.pk not in previous_ids:
+            mail_helpers.keep_attachment(attachment)
+
+    @staticmethod
+    def release_replaced_attachments(previous_ids, attachment):
+        for previous_id in previous_ids - {getattr(attachment, "pk", None)}:
+            mail_helpers.release_attachment(previous_id)
+
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         if self.object.sent_at is not None:
@@ -4161,8 +4209,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
-        self.object.refresh_from_db()
-        if self.object.sent_at is not None:
+        if ExhibitionEmailQueue.objects.filter(pk=self.object.pk, sent_at__isnull=False).exists():
             return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
         return reverse("plugins:exhibition:email.outbox", kwargs=event_kwargs(self.request.event))
 

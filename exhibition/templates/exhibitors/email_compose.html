@@ -47,7 +47,7 @@
         </form>
     {% endif %}
 
-    <form action="" method="post" class="form-horizontal">
+    <form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
         <fieldset>
@@ -102,6 +102,7 @@
                     </div>
                 </div>
             </div>
+            {% bootstrap_field form.attachment layout="control" %}
             {% bootstrap_field form.scheduled_at layout="control" %}
         </fieldset>
         <div class="form-group submit-group">
