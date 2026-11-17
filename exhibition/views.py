@@ -977,10 +977,17 @@ class PublicJoinView(TemplateView):
         context = super().get_context_data(**kwargs)
         settings = self.get_exhibition_settings()
         context["event"] = self.request.event
-        context["settings"] = settings
-        context["call_url"] = reverse(
-            "plugins:exhibition:public_call",
-            kwargs=event_kwargs(self.request.event),
+        can_access_call = (
+            not settings.call_private
+            or self.request.session.get(f"exhibition_call_secret_{settings.event_id}") == settings.call_secret
+        )
+        context["call_url"] = (
+            reverse(
+                "plugins:exhibition:public_call",
+                kwargs=event_kwargs(self.request.event),
+            )
+            if can_access_call
+            else None
         )
         context["packages_url"] = reverse(
             "plugins:exhibition:shop",

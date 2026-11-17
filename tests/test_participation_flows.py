@@ -93,51 +93,92 @@ class TestParticipationFlowHub:
 class TestGuardedUrls:
     """Tests view-level enforcement on /exhibition/call/ and /exhibition/packages/."""
 
-    def test_call_page_accessible_when_call_enabled(self, event):
+    # /exhibition/call/ - all 4 flag combinations
+    def test_call_page_accessible_when_call_enabled_shop_disabled(self, event):
         _setup_event(event, call_enabled=True, shop_enabled=False)
-        client = Client()
+        assert Client().get(_url(event, "public_call")).status_code == 200
 
-        response = client.get(_url(event, "public_call"))
-        assert response.status_code == 200
+    def test_call_page_accessible_when_both_enabled(self, event):
+        _setup_event(event, call_enabled=True, shop_enabled=True)
+        assert Client().get(_url(event, "public_call")).status_code == 200
 
-    def test_call_page_returns_404_when_call_disabled(self, event):
+    def test_call_page_returns_404_when_call_disabled_shop_enabled(self, event):
         _setup_event(event, call_enabled=False, shop_enabled=True)
-        client = Client()
+        assert Client().get(_url(event, "public_call")).status_code == 404
 
-        response = client.get(_url(event, "public_call"))
-        assert response.status_code == 404
+    def test_call_page_returns_404_when_both_disabled(self, event):
+        _setup_event(event, call_enabled=False, shop_enabled=False)
+        assert Client().get(_url(event, "public_call")).status_code == 404
 
-    def test_shop_page_accessible_when_shop_enabled_and_call_disabled(self, event):
+    # /exhibition/packages/ - all 4 flag combinations
+    def test_shop_page_accessible_when_shop_enabled_call_disabled(self, event):
         _setup_event(event, call_enabled=False, shop_enabled=True)
         with scopes_disabled():
             ExhibitionProduct.objects.create(event=event, name={"en": "Booth Package"}, price=100)
-        client = Client()
-
-        response = client.get(_url(event, "shop"))
+        response = Client().get(_url(event, "shop"))
         assert response.status_code == 200
         assert "Booth Package" in response.content.decode()
 
-    def test_shop_page_redirects_to_call_anchor_when_both_enabled(self, event):
+    def test_shop_page_redirects_to_call_anchor_when_both_enabled_and_call_public(self, event):
         _setup_event(event, call_enabled=True, shop_enabled=True)
-        client = Client()
-
-        response = client.get(_url(event, "shop"))
+        response = Client().get(_url(event, "shop"))
         assert response.status_code == 302
         assert response.url == _url(event, "public_call") + "#exhibition-packages"
 
-    def test_shop_page_returns_404_when_shop_disabled(self, event):
+    def test_shop_page_returns_404_when_call_enabled_shop_disabled(self, event):
         _setup_event(event, call_enabled=True, shop_enabled=False)
-        client = Client()
+        assert Client().get(_url(event, "shop")).status_code == 404
 
-        response = client.get(_url(event, "shop"))
-        assert response.status_code == 404
+    def test_shop_page_returns_404_when_both_disabled(self, event):
+        _setup_event(event, call_enabled=False, shop_enabled=False)
+        assert Client().get(_url(event, "shop")).status_code == 404
 
     def test_shop_checkout_returns_404_when_shop_disabled(self, event):
         _setup_event(event, call_enabled=True, shop_enabled=False)
-        client = Client()
+        assert Client().get(_url(event, "shop.checkout.details")).status_code == 404
 
-        response = client.get(_url(event, "shop.checkout.details"))
-        assert response.status_code == 404
+    # Hidden-call and private-call regressions when shop is enabled
+    def test_shop_remains_accessible_when_call_is_private(self, event):
+        settings = _setup_event(event, call_enabled=True, shop_enabled=True)
+        with scopes_disabled():
+            settings.call_private = True
+            settings.save()
+            ExhibitionProduct.objects.create(event=event, name={"en": "Booth Package"}, price=100)
+        from exhibition.shop import packages_url
+
+        assert packages_url(event) == _url(event, "shop")
+        response = Client().get(_url(event, "shop"))
+        assert response.status_code == 200
+        assert "Booth Package" in response.content.decode()
+
+    def test_shop_remains_accessible_when_call_is_hidden_after_deadline(self, event):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        settings = _setup_event(event, call_enabled=True, shop_enabled=True)
+        with scopes_disabled():
+            settings.call_hide_after_deadline = True
+            settings.call_deadline = timezone.now() - timedelta(days=1)
+            settings.save()
+            ExhibitionProduct.objects.create(event=event, name={"en": "Booth Package"}, price=100)
+        from exhibition.shop import packages_url
+
+        assert packages_url(event) == _url(event, "shop")
+        response = Client().get(_url(event, "shop"))
+        assert response.status_code == 200
+        assert "Booth Package" in response.content.decode()
+
+    def test_join_page_hides_apply_button_when_call_is_private(self, event):
+        settings = _setup_event(event, call_enabled=True, shop_enabled=True)
+        with scopes_disabled():
+            settings.call_private = True
+            settings.save()
+        response = Client().get(_url(event, "join"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Apply for a booth" not in content
+        assert "View packages & pricing" in content
 
 
 @pytest.mark.django_db

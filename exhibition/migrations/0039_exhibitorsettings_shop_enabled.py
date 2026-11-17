@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('exhibition', '0037_exhibitor_groups'),
+        ('exhibition', '0038_exhibitionemaildraft_attachment'),
     ]
 
     operations = [

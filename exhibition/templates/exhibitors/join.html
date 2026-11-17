@@ -35,9 +35,11 @@
                     </ul>
                 </div>
                 <div class="panel-footer">
-                    <a href="{{ call_url }}" class="btn btn-success btn-block btn-lg">
-                        {% trans "Apply for a booth" %} &rarr;
-                    </a>
+                    {% if call_url %}
+                        <a href="{{ call_url }}" class="btn btn-success btn-block btn-lg">
+                            {% trans "Apply for a booth" %} &rarr;
+                        </a>
+                    {% endif %}
                 </div>
             </div>
         </div>

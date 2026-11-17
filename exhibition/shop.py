@@ -73,7 +73,12 @@ def answer_text(value):
 def packages_url(event):
     """Where buyers pick packages."""
     settings = ExhibitorSettings.objects.get_or_create(event=event)[0]
-    if settings.call_enabled:
+    call_is_public = (
+        settings.call_enabled
+        and not settings.call_private
+        and (settings.call_is_open or not settings.call_hide_after_deadline)
+    )
+    if call_is_public:
         return shop_url(event, "public_call") + "#exhibition-packages"
     return shop_url(event, "shop")
 
@@ -106,7 +111,12 @@ class ShopIndexView(TemplateView):
 
     def get(self, request, *args, **kwargs):
         settings = ExhibitorSettings.objects.get_or_create(event=request.event)[0]
-        if settings.call_enabled:
+        call_is_public = (
+            settings.call_enabled
+            and not settings.call_private
+            and (settings.call_is_open or not settings.call_hide_after_deadline)
+        )
+        if call_is_public:
             return redirect(packages_url(request.event))
         return self.render_to_response(self.get_context_data())
 
