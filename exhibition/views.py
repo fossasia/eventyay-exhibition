@@ -196,7 +196,7 @@ def organization_list_url(event, organization_type):
 
 def organization_list_type(request, organization):
     """The list a row action on ``organization`` came from: ``?type=`` first, else its own type."""
-    organization_type = request.GET.get("type")
+    organization_type = request.POST.get("type") or request.GET.get("type")
     if organization_type in ("sponsor", "exhibitor"):
         return organization_type
     return "sponsor" if organization.is_sponsor and not organization.is_exhibitor else "exhibitor"
