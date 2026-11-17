@@ -113,6 +113,7 @@ class OrganizationsExporter(ListExporter):
             _("Related sessions"),
             _("Type"),
             _("Sponsor group"),
+            _("Exhibitor group"),
             _("Published"),
             _("Active"),
             _("Position on the public exhibitor page"),
@@ -154,6 +155,7 @@ class OrganizationsExporter(ListExporter):
             self.lines(self.sessions.get(organization.pk, ())),
             self.type_label(organization),
             self.text(organization.sponsor_group.name) if organization.sponsor_group else "",
+            self.exhibitor_group_label(organization),
             self.yes_no(organization.published),
             self.yes_no(organization.active),
             self.positions.get(organization.pk, ""),
@@ -189,6 +191,12 @@ class OrganizationsExporter(ListExporter):
         if answer.question.variant in QUESTION_OPTION_VARIANTS:
             return self.lines(self.text(option.answer) for option in answer.options.all())
         return str(answer.answer_string)
+
+    @staticmethod
+    def exhibitor_group_label(organization):
+        if not organization.is_exhibitor:
+            return ""
+        return str(organization.get_exhibitor_group_display() or _("No group"))
 
     @staticmethod
     def type_label(organization):

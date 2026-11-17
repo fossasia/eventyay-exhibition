@@ -306,8 +306,25 @@ class VoucherDefaultsMixin(models.Model):
         abstract = True
 
 
+class ExhibitorGroup(models.TextChoices):
+    """The two exhibitor groups every event has; they cannot be renamed, removed or added to."""
+
+    PAID = "paid", _("Paid exhibitor")
+    NON_PAID = "non_paid", _("Non-paid exhibitor")
+
+
 class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     event = models.ForeignKey("base.Event", on_delete=models.CASCADE)
+    paid_voucher_default_count = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        verbose_name=_("Vouchers per paid exhibitor"),
+    )
+    non_paid_voucher_default_count = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        verbose_name=_("Vouchers per non-paid exhibitor"),
+    )
     voucher_pool_tag = models.CharField(
         max_length=255,
         blank=True,
@@ -516,6 +533,14 @@ class ExhibitorInfo(LoggedModel):
         related_name="organizations",
     )
     is_exhibitor = models.BooleanField(default=True)
+    exhibitor_group = models.CharField(
+        max_length=16,
+        choices=ExhibitorGroup.choices,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name=_("Exhibitor group"),
+    )
     active = models.BooleanField(default=True)
     published = models.BooleanField(
         default=False,
@@ -603,6 +628,17 @@ class ExhibitorInfo(LoggedModel):
             locale = getattr(self.event, "locale", None)
             booth_name = booth_name.localize(locale) if locale else str(booth_name)
         return booth_name or ""
+
+    @property
+    def group_label(self):
+        """The group shown for the organization: its sponsor group while it sponsors, else its exhibitor group."""
+        if self.is_sponsor:
+            if self.sponsor_group_id:
+                return _("Sponsor · {group}").format(group=self.sponsor_group.localized_name)
+            return _("Sponsor")
+        if self.exhibitor_group:
+            return self.get_exhibitor_group_display()
+        return _("No group")
 
     @property
     def visible_logo_url(self):
@@ -2091,6 +2127,8 @@ class ExhibitionEmailQueue(LoggedModel):
         state = "sent" if self.sent_at else "pending"
         return f"{self.to_email} · {state} · {self.subject}"
 
+    DELIVERY_FIELDS = ("to_email", "subject", "body", "reply_to", "locale", "attachment_id")
+
     def send(self, requestor=None):
         """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits.
 
@@ -2105,8 +2143,17 @@ class ExhibitionEmailQueue(LoggedModel):
             return False
 
         with transaction.atomic():
-            if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
+            current = (
+                type(self)
+                .objects.select_for_update()
+                .filter(pk=self.pk, sent_at__isnull=True)
+                .values(*self.DELIVERY_FIELDS)
+                .first()
+            )
+            if current is None:
                 return False
+            for name, value in current.items():
+                setattr(self, name, value)
             if not still_in_compose_group(self):
                 self.log_action(
                     LOG_EMAIL_SKIPPED,
@@ -2172,10 +2219,26 @@ class ExhibitionEmailDraft(models.Model):
     subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
     body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    attachment = models.ForeignKey(
+        "base.CachedFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
-    FORM_FIELDS = ("state", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at")
+    FORM_FIELDS = (
+        "state",
+        "organization_type",
+        "sponsor_group",
+        "organizations",
+        "subject",
+        "body",
+        "scheduled_at",
+        "attachment",
+    )
 
     class Meta:
         verbose_name = _("Email draft")
@@ -2192,8 +2255,10 @@ class ExhibitionEmailDraft(models.Model):
     def fill_from_form(self, cleaned_data):
         """Copy the compose form's values onto the draft; fields the form leaves out keep their defaults."""
         for name in self.FORM_FIELDS:
-            if name in cleaned_data:
+            if name in cleaned_data and name != "attachment":
                 setattr(self, name, cleaned_data[name])
+        if "attachment" in cleaned_data:
+            self.attachment = cleaned_data["attachment"] or None
         self.organizations = list(self.organizations or [])
 
     def recipient_count(self):
