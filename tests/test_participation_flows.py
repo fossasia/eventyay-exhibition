@@ -180,6 +180,24 @@ class TestGuardedUrls:
         assert "Apply for a booth" not in content
         assert "View packages & pricing" in content
 
+    def test_join_page_shows_apply_button_when_visitor_has_private_access(self, event):
+        from exhibition.views import call_access_session_key
+
+        settings = _setup_event(event, call_enabled=True, shop_enabled=True)
+        with scopes_disabled():
+            settings.call_private = True
+            settings.save()
+        client = Client()
+        session = client.session
+        session[call_access_session_key(event)] = settings.call_secret
+        session.save()
+
+        response = client.get(_url(event, "join"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Apply for a booth" in content
+        assert "View packages & pricing" in content
+
 
 @pytest.mark.django_db
 class TestPresaleNavTabSignal:

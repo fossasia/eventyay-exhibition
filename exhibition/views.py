@@ -979,7 +979,7 @@ class PublicJoinView(TemplateView):
         context["event"] = self.request.event
         can_access_call = (
             not settings.call_private
-            or self.request.session.get(f"exhibition_call_secret_{settings.event_id}") == settings.call_secret
+            or self.request.session.get(call_access_session_key(self.request.event)) == settings.call_secret
         )
         context["call_url"] = (
             reverse(
