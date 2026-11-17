@@ -9,6 +9,8 @@
         function sync() {
             var chosen = organizations.querySelector('input[type="checkbox"]:checked') !== null
             filters.classList.toggle('is-overridden', chosen)
+            filters.inert = chosen
+            filters.setAttribute('aria-disabled', chosen ? 'true' : 'false')
         }
 
         organizations.addEventListener('change', sync)
