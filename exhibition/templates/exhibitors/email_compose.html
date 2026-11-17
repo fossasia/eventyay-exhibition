@@ -63,7 +63,7 @@
         {% endif %}
     </div>
 
-    <form action="" method="post" class="form-horizontal mail-composer exhibition-composer">
+    <form action="" method="post" class="form-horizontal mail-composer exhibition-composer" enctype="multipart/form-data">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
 
@@ -126,6 +126,7 @@
                             </div>
                         </div>
                     </div>
+                    {% bootstrap_field form.attachment layout="control" %}
                 </fieldset>
             </div>
         </section>
