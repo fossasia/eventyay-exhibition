@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("base", "0001_initial"),
-        ("exhibition", "0036_exhibition_sales"),
+        ("exhibition", "0037_exhibitor_groups"),
     ]
 
     operations = [
