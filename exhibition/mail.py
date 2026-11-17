@@ -789,8 +789,46 @@ def compose_recipient_emails(exhibition_requests, exhibitors=()):
     return emails
 
 
+def keep_attachment(cached_file):
+    """Stop an uploaded attachment from expiring, holding its row until the referencing transaction commits."""
+    from eventyay.base.models import CachedFile
+
+    if cached_file is None:
+        return
+    CachedFile.objects.filter(pk=cached_file.pk).update(expires=None)
+    cached_file.expires = None
+
+
+def release_attachment(cached_file_id):
+    """Let a kept attachment expire once no draft or queued email uses it any more."""
+    from eventyay.base.models import CachedFile
+
+    from .models import ExhibitionEmailDraft, ExhibitionEmailQueue
+
+    if not cached_file_id:
+        return
+    with transaction.atomic():
+        kept = CachedFile.objects.select_for_update().filter(pk=cached_file_id, expires__isnull=True)
+        if not list(kept.values_list("pk", flat=True)):
+            return
+        if ExhibitionEmailQueue.objects.filter(attachment_id=cached_file_id).exists():
+            return
+        if ExhibitionEmailDraft.objects.filter(attachment_id=cached_file_id).exists():
+            return
+        kept.update(expires=timezone.now())
+
+
 def queue_compose_emails(
-    event, exhibition_requests, subject, body, *, exhibitors=(), scheduled_at=None, send_now=False, requestor=None
+    event,
+    exhibition_requests,
+    subject,
+    body,
+    *,
+    exhibitors=(),
+    scheduled_at=None,
+    send_now=False,
+    requestor=None,
+    attachment=None,
 ):
     """Fan a composed message out into per-recipient queued rows sharing a batch."""
     from .models import ExhibitionEmailQueue
@@ -804,6 +842,8 @@ def queue_compose_emails(
         if not to_email or to_email.lower() in seen_emails:
             return
         seen_emails.add(to_email.lower())
+        if not created:
+            keep_attachment(attachment)
         locale = recipient_locale(event, user)
         queued = ExhibitionEmailQueue.objects.create(
             event=event,
@@ -813,6 +853,7 @@ def queue_compose_emails(
             body=_render(body, context, locale),
             locale=locale or "",
             scheduled_at=scheduled_at,
+            attachment=attachment,
             **link,
         )
         if send_now:

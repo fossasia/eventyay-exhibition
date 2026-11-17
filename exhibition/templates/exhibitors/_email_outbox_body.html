@@ -66,7 +66,7 @@
                     <td>
                         <a href="{% url 'plugins:exhibition:email.edit' organizer=request.event.organizer.slug event=request.event.slug pk=entry.pk %}">
                             {{ entry.subject }}
-                        </a>
+                        </a>{% if entry.has_attachment %} <i class="fa fa-paperclip text-muted" title="{% trans 'Has an attachment' %}" aria-label="{% trans 'Has an attachment' %}"></i>{% endif %}
                     </td>
                     <td class="email-created">{{ entry.created }}</td>
                     <td class="email-scheduled">
