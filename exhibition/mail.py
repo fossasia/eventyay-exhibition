@@ -366,6 +366,37 @@ def build_preview_placeholders(event, context=REQUEST_PLACEHOLDER_CONTEXT):
     return _SafeDict(preview_context)
 
 
+def build_sample_context(event, context=REQUEST_PLACEHOLDER_CONTEXT):
+    """Plain sample placeholder values, used to render a test email that has no real recipient."""
+    from eventyay.base.email import get_available_placeholders
+
+    sample = {
+        placeholder.identifier: str(placeholder.render_sample(event))
+        for placeholder in get_available_placeholders(event, list(context)).values()
+    }
+    sample.setdefault("event_name", str(event.name))
+    return sample
+
+
+def send_test_email(event, to_email, subject, body, *, context, locale=None, reply_to="", user=None, attachment=None):
+    """Deliver one rendered copy straight away; nothing is queued and no BCC is added."""
+    from eventyay.base.services.mail import mail
+
+    mail(
+        email=to_email,
+        subject=_render(subject, context, locale),
+        template=LazyI18nString(_render(body, context, locale)),
+        context={},
+        event=event,
+        locale=locale or None,
+        user=user,
+        auto_email=False,
+        sync_send=True,
+        event_reply_to=reply_to or None,
+        attach_cached_files=[attachment.pk] if attachment else None,
+    )
+
+
 def recipient_locale(event, user=None):
     locale = getattr(user, "locale", None) if user else None
     return locale or event.settings.locale
@@ -829,6 +860,8 @@ def queue_compose_emails(
     send_now=False,
     requestor=None,
     attachment=None,
+    reply_to="",
+    bcc="",
 ):
     """Fan a composed message out into per-recipient queued rows sharing a batch."""
     from .models import ExhibitionEmailQueue
@@ -852,6 +885,8 @@ def queue_compose_emails(
             subject=_render(subject, context, locale),
             body=_render(body, context, locale),
             locale=locale or "",
+            reply_to=reply_to,
+            bcc=bcc,
             scheduled_at=scheduled_at,
             attachment=attachment,
             **link,

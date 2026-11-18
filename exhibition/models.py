@@ -2216,6 +2216,7 @@ class ExhibitionEmailQueue(LoggedModel):
     subject = models.CharField(max_length=255, verbose_name=_("Subject"))
     body = models.TextField(verbose_name=_("Body"))
     reply_to = models.CharField(max_length=255, blank=True, default="")
+    bcc = models.TextField(blank=True, default="")
     locale = models.CharField(max_length=32, blank=True, default="")
     attachment = models.ForeignKey(
         "base.CachedFile",
@@ -2238,7 +2239,7 @@ class ExhibitionEmailQueue(LoggedModel):
         state = "sent" if self.sent_at else "pending"
         return f"{self.to_email} · {state} · {self.subject}"
 
-    DELIVERY_FIELDS = ("to_email", "subject", "body", "reply_to", "locale", "attachment_id")
+    DELIVERY_FIELDS = ("to_email", "subject", "body", "reply_to", "bcc", "locale", "attachment_id")
 
     def send(self, requestor=None):
         """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
@@ -2268,6 +2269,7 @@ class ExhibitionEmailQueue(LoggedModel):
                 locale=self.locale or None,
                 auto_email=False,
                 event_reply_to=self.reply_to or None,
+                event_bcc=self.bcc or None,
                 attach_cached_files=[self.attachment_id] if self.attachment_id else None,
             )
             self.sent_at = timezone.now()
@@ -2314,6 +2316,8 @@ class ExhibitionEmailDraft(models.Model):
     organizations = models.JSONField(default=list, blank=True)
     subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
     body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
+    reply_to = models.CharField(max_length=255, blank=True, default="")
+    bcc = models.TextField(blank=True, default="")
     scheduled_at = models.DateTimeField(null=True, blank=True)
     attachment = models.ForeignKey(
         "base.CachedFile",
@@ -2332,6 +2336,8 @@ class ExhibitionEmailDraft(models.Model):
         "organizations",
         "subject",
         "body",
+        "reply_to",
+        "bcc",
         "scheduled_at",
         "attachment",
     )
