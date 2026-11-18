@@ -3348,7 +3348,8 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
         Returns the changed organizations and the exhibitors left unpublished for lack of a logo or banner.
         """
         with transaction.atomic():
-            rows = queryset.select_for_update().filter(published=not published)
+            rows = queryset.select_related("sponsor_group").select_for_update(of=("self",))
+            rows = rows.filter(published=not published)
             if published:
                 rows = rows.filter(active=True)
             changed, blocked = [], []
@@ -3377,7 +3378,7 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_all(self, request):
         if not request.POST.get("confirmed"):
-            waiting = list(self.unpublished_approved())
+            waiting = list(self.unpublished_approved().select_related("sponsor_group"))
             return TemplateResponse(
                 request,
                 "exhibitors/publish_confirm.html",
@@ -3390,18 +3391,27 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
                     "query_string": request.GET.urlencode(),
                 },
             )
-        # Publish only what the confirmation page listed, sent as one field to stay under Django's field limit.
-        # apply() re-checks each row under the lock.
-        ids = [pk for pk in request.POST.get("organizations", "").split(",") if pk.isdigit()]
-        published, blocked = self.apply(self.scoped_queryset().filter(pk__in=ids), True, request.user)
+        # Publish only what the confirmation page listed; apply() re-checks each row under the lock.
+        confirmed = self.scoped_queryset().filter(pk__in=self.confirmed_ids())
+        published, blocked = self.apply(confirmed, True, request.user)
         self.report_blocked(request, blocked)
         if published:
             messages.success(request, self.published_message(len(published)))
         elif not blocked:
             messages.info(
-                request, _("Nothing changed: the confirmed organizations were already published or withdrawn.")
+                request,
+                _(
+                    "None of the confirmed organizations can be published any more. "
+                    "Open the preview again to see the current list."
+                ),
             )
         return redirect(self.list_url())
+
+    def confirmed_ids(self):
+        """IDs the confirmation page listed, sent as one field to stay under Django's POST field limit."""
+        values = self.request.POST.get("organizations", "").split(",")
+        ids = (int(value) for value in values if value.isascii() and value.isdigit() and len(value) <= 19)
+        return [pk for pk in ids if pk < 2**63]
 
     def publish_selected(self, request, *, published):
         changed, blocked = self.apply(self.selected(), published, request.user)

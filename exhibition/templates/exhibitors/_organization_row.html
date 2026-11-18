@@ -38,14 +38,16 @@
     {% endif %}
     {% if "can_change_event_settings" in request.eventpermset %}
         <td class="organization-published-col">
-            {% if e.published and e.missing_public_images %}
+            {% if e.published and e.publish_blocked %}
                 <span class="label label-warning" title="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" data-toggle="tooltip">{% trans "Missing images (not visible publicly)" %}</span>
-            {% elif e.published %}
-                <span class="label label-success">{% trans "Published" %}</span>
             {% else %}
-                <span class="text-muted">{% trans "Not published" %}</span>
+                {% if e.published %}
+                    <span class="label label-success">{% trans "Published" %}</span>
+                {% else %}
+                    <span class="text-muted">{% trans "Not published" %}</span>
+                {% endif %}
                 {% if e.active and e.missing_public_images %}
-                    <i class="fa fa-exclamation-triangle text-warning" title="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" aria-label="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" data-toggle="tooltip"></i>
+                    <i class="fa fa-exclamation-triangle text-warning" role="img" tabindex="0" title="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" aria-label="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" data-toggle="tooltip"></i>
                 {% endif %}
             {% endif %}
         </td>
