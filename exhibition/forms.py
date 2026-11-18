@@ -7,6 +7,7 @@ from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import UploadedFile
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Max
 from django.forms import inlineformset_factory
@@ -2398,6 +2399,24 @@ class ExhibitionComposeForm(forms.Form):
     )
     subject = I18nFormField(label=_("Subject"), widget=I18nTextInput, max_length=255)
     attachment = email_attachment_field()
+    reply_to = forms.CharField(
+        label=_("Reply-To"),
+        required=False,
+        max_length=255,
+        widget=forms.EmailInput,
+        help_text=_("Change the Reply-To address if you do not want to use the default organiser address."),
+    )
+    bcc = forms.CharField(
+        label=_("BCC"),
+        required=False,
+        widget=forms.TextInput,
+        help_text=_("Enter comma-separated BCC addresses."),
+    )
+    test_email = forms.EmailField(
+        label=_("Test email address"),
+        required=False,
+        widget=forms.EmailInput(attrs={"class": "form-control"}),
+    )
     scheduled_at = forms.DateTimeField(
         label=_("Send at"),
         required=False,
@@ -2411,6 +2430,8 @@ class ExhibitionComposeForm(forms.Form):
         show_emails = kwargs.pop("show_emails", True)
         # A draft may be saved half-written: subject, body and send time are only checked once it is queued.
         self.saving_draft = kwargs.pop("saving_draft", False)
+        # A test copy is sent straight away, so a send time that has passed does not matter.
+        self.sending_test = kwargs.pop("sending_test", False)
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
         if single_recipient:
@@ -2432,9 +2453,12 @@ class ExhibitionComposeForm(forms.Form):
                 "organization_type",
                 "sponsor_group",
                 "organizations",
+                "reply_to",
+                "bcc",
                 "subject",
                 "body",
                 "attachment",
+                "test_email",
                 "scheduled_at",
             ]
         )
@@ -2467,9 +2491,34 @@ class ExhibitionComposeForm(forms.Form):
             raise forms.ValidationError(_("This field is required."))
         return body
 
+    def clean_reply_to(self):
+        value = (self.cleaned_data.get("reply_to") or "").strip()
+        if value:
+            validate_email(value)
+        return value
+
+    def clean_bcc(self):
+        if self.sending_test:
+            # A test copy never uses the BCC, so an unfinished list must not block it.
+            return self.cleaned_data.get("bcc") or ""
+        addresses = [part.strip() for part in (self.cleaned_data.get("bcc") or "").split(",") if part.strip()]
+        invalid = []
+        for address in addresses:
+            try:
+                validate_email(address)
+            except forms.ValidationError:
+                invalid.append(address)
+        if invalid:
+            raise forms.ValidationError(
+                _("Please enter valid email addresses separated by commas. Invalid: %(emails)s"),
+                code="invalid",
+                params={"emails": ", ".join(invalid)},
+            )
+        return ", ".join(addresses)
+
     def clean_scheduled_at(self):
         scheduled_at = self.cleaned_data.get("scheduled_at")
-        if scheduled_at and scheduled_at <= timezone.now() and not self.saving_draft:
+        if scheduled_at and scheduled_at <= timezone.now() and not (self.saving_draft or self.sending_test):
             raise forms.ValidationError(_("The scheduled time must be in the future."))
         return scheduled_at
 
