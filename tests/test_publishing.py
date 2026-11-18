@@ -8,6 +8,7 @@ from eventyay.base.models import Team
 from eventyay.base.models.auth import StaffSession, User
 
 from exhibition.filters import ExhibitorFilterForm
+from exhibition.forms import ExhibitorInfoForm
 from exhibition.models import ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo, SponsorGroup
 from exhibition.utils import create_exhibitor_from_request, public_exhibitors_queryset
 from exhibition.views import ExhibitorPublishView
@@ -467,3 +468,94 @@ def test_search_results_come_back_in_the_block_the_page_swaps_in(event):
     assert "public-exhibitor-search.js" in html
     assert _public_url(event, "public_detail", pk=match.pk) in results
     assert _public_url(event, "public_detail", pk=other.pk) not in results
+
+
+def _messages(request):
+    return [str(message) for message in request._messages]
+
+
+@pytest.mark.django_db
+def test_publishing_skips_exhibitors_missing_a_logo_or_banner(event):
+    with scopes_disabled():
+        complete = _exhibitor(event, name="Complete")
+        no_banner = _exhibitor(event, name="No banner", banner="")
+
+        view, request = _publish_view(event, {"action": "publish", "selected": [str(complete.pk), str(no_banner.pk)]})
+        view.post(request)
+
+        complete.refresh_from_db()
+        no_banner.refresh_from_db()
+        assert complete.published is True
+        assert no_banner.published is False
+        assert "1 exhibitor could not be published because it is missing a logo or banner." in _messages(request)
+
+
+@pytest.mark.django_db
+def test_publish_all_leaves_out_exhibitors_missing_images(event):
+    with scopes_disabled():
+        complete = _exhibitor(event, name="Complete")
+        no_logo = _exhibitor(event, name="No logo", logo="")
+        organizer = _organizer(event)
+
+        view, request = _publish_view(event, {"action": "publish_all"}, user=organizer)
+        response = view.post(request)
+        assert response.context_data["waiting"] == [complete]
+        assert response.context_data["missing_images"] == [no_logo]
+
+        view, request = _publish_view(event, {"action": "publish_all", "confirmed": "1"}, user=organizer)
+        view.post(request)
+
+        complete.refresh_from_db()
+        no_logo.refresh_from_db()
+        assert complete.published is True
+        assert no_logo.published is False
+
+
+@pytest.mark.django_db
+def test_sponsors_do_not_need_a_banner_to_be_published(event):
+    with scopes_disabled():
+        sponsor = _exhibitor(event, name="Sponsor", is_exhibitor=False, is_sponsor=True, banner="")
+
+        view, request = _publish_view(event, {"action": "publish", "selected": [str(sponsor.pk)]}, "sponsor")
+        view.post(request)
+
+        sponsor.refresh_from_db()
+        assert sponsor.published is True
+
+
+@pytest.mark.django_db
+def test_form_cannot_publish_an_exhibitor_without_images(event):
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", exhibitor_group="paid")
+        form = ExhibitorInfoForm(
+            data={"name_0": "Acme", "exhibitor_group": "paid", "published": "on"},
+            instance=exhibitor,
+            event=event,
+            organization_type="exhibitor",
+        )
+
+        assert not form.is_valid()
+        assert {"logo", "banner"} <= set(form.errors)
+
+
+@pytest.mark.django_db
+def test_organizer_is_warned_about_exhibitors_missing_images(event, settings):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        exhibitor = _exhibitor(event, name="Acme", published=True, banner="")
+        _exhibitor(event, name="Waiting", logo="")
+        organizer = _organizer_with_settings_access(event)
+    client = _client(organizer)
+
+    list_html = _organization_list(client, event, "exhibitors", settings).content.decode()
+    edit_url = reverse(
+        "plugins:exhibition:edit",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": exhibitor.pk},
+    )
+    edit_html = client.get(edit_url).content.decode()
+
+    assert "Missing images (not visible publicly)" in list_html
+    assert "label label-success" not in list_html
+    assert "so it cannot be published yet" in list_html
+    assert "it does not appear on the public Exhibition page" in edit_html

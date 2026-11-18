@@ -3343,20 +3343,25 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
         return self.scoped_queryset().filter(active=True, published=False)
 
     def apply(self, queryset, published, requestor):
-        """Write the flag against the current database state, so a concurrent withdrawal still wins."""
+        """Write the flag against the current database state, so a concurrent withdrawal still wins.
+
+        Returns the changed organizations and the exhibitors left unpublished for lack of a logo or banner.
+        """
         with transaction.atomic():
             rows = queryset.select_for_update().filter(published=not published)
             if published:
                 rows = rows.filter(active=True)
-            changed = list(rows)
+            candidates = list(rows)
+            blocked = [o for o in candidates if published and o.missing_public_images]
+            changed = [o for o in candidates if o not in blocked]
             if not changed:
-                return []
+                return [], blocked
             ExhibitorInfo.objects.filter(pk__in=[o.pk for o in changed]).update(published=published)
             action = LOG_ORGANIZATION_PUBLISHED if published else LOG_ORGANIZATION_UNPUBLISHED
             for organization in changed:
                 organization.published = published
                 organization.log_action(action, user=requestor)
-        return changed
+        return changed, blocked
 
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
@@ -3369,32 +3374,49 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_all(self, request):
         if not request.POST.get("confirmed"):
+            waiting = list(self.unpublished_approved())
             return TemplateResponse(
                 request,
                 "exhibitors/publish_confirm.html",
                 {
                     "organization_type": self.organization_type,
-                    "waiting": list(self.unpublished_approved()),
+                    "waiting": [o for o in waiting if not o.missing_public_images],
+                    "missing_images": [o for o in waiting if o.missing_public_images],
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
             )
-        published = self.apply(self.unpublished_approved(), True, request.user)
-        if not published:
+        published, blocked = self.apply(self.unpublished_approved(), True, request.user)
+        self.report_blocked(request, blocked)
+        if published:
+            messages.success(request, self.published_message(len(published)))
+        elif not blocked:
             messages.info(request, _("Every approved organization is already published."))
-            return redirect(self.list_url())
-        messages.success(request, self.published_message(len(published)))
         return redirect(self.list_url())
 
     def publish_selected(self, request, *, published):
-        changed = self.apply(self.selected(), published, request.user)
-        if not changed:
+        changed, blocked = self.apply(self.selected(), published, request.user)
+        self.report_blocked(request, blocked)
+        if changed:
+            message = self.published_message if published else self.unpublished_message
+            messages.success(request, message(len(changed)))
+        elif not blocked:
             messages.info(request, _("Nothing changed: the selected organizations already had that status."))
-        elif published:
-            messages.success(request, self.published_message(len(changed)))
-        else:
-            messages.success(request, self.unpublished_message(len(changed)))
         return redirect(self.list_url())
+
+    @staticmethod
+    def report_blocked(request, blocked):
+        if not blocked:
+            return
+        messages.warning(
+            request,
+            ngettext(
+                "%(count)d exhibitor could not be published because it is missing a logo or banner.",
+                "%(count)d exhibitors could not be published because they are missing a logo or banner.",
+                len(blocked),
+            )
+            % {"count": len(blocked)},
+        )
 
     @staticmethod
     def published_message(count):

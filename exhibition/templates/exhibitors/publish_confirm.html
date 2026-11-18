@@ -34,8 +34,24 @@
                 </tbody>
             </table>
         </div>
-    {% else %}
+    {% elif not missing_images %}
         <p>{% trans "Every approved organization is already published." %}</p>
+    {% endif %}
+    {% if missing_images %}
+        <div class="alert alert-warning">
+            <p>
+                {% blocktrans trimmed count count=missing_images|length %}
+                    {{ count }} approved exhibitor stays unpublished because it is missing a logo or banner:
+                {% plural %}
+                    {{ count }} approved exhibitors stay unpublished because they are missing a logo or banner:
+                {% endblocktrans %}
+            </p>
+            <ul>
+                {% for organization in missing_images %}
+                    <li>{{ organization.name }}</li>
+                {% endfor %}
+            </ul>
+        </div>
     {% endif %}
 
     <form action="?{{ query_string }}" method="post">

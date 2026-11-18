@@ -38,10 +38,15 @@
     {% endif %}
     {% if "can_change_event_settings" in request.eventpermset %}
         <td class="organization-published-col">
-            {% if e.published %}
+            {% if e.published and e.missing_public_images %}
+                <span class="label label-warning" title="{% trans "Add a logo and an exhibition banner to show this exhibitor on the public Exhibition page." %}" data-toggle="tooltip">{% trans "Missing images (not visible publicly)" %}</span>
+            {% elif e.published %}
                 <span class="label label-success">{% trans "Published" %}</span>
             {% else %}
                 <span class="text-muted">{% trans "Not published" %}</span>
+                {% if e.active and e.missing_public_images %}
+                    <i class="fa fa-exclamation-triangle text-warning" title="{% trans "Missing a logo or exhibition banner, so it cannot be published yet." %}" aria-label="{% trans "Missing a logo or exhibition banner, so it cannot be published yet." %}" data-toggle="tooltip"></i>
+                {% endif %}
             {% endif %}
         </td>
         <td class="organization-vouchers-col">
