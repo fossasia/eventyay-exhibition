@@ -665,7 +665,7 @@ def test_organizer_is_warned_about_exhibitors_missing_images(event, settings):
     )
     edit_html = client.get(edit_url).content.decode()
 
-    assert "Missing images (not visible publicly)" in list_html
+    assert "Published, missing images" in list_html
     assert "label label-success" not in list_html
     assert "fa fa-exclamation-triangle text-warning" in list_html
     assert "it does not appear on the public Exhibition page" in edit_html
