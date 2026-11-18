@@ -3348,13 +3348,12 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
         Returns the changed organizations and the exhibitors left unpublished for lack of a logo or banner.
         """
         with transaction.atomic():
-            rows = queryset.select_related("sponsor_group").select_for_update(of=("self",))
-            rows = rows.filter(published=not published)
+            rows = queryset.select_for_update().filter(published=not published)
             if published:
                 rows = rows.filter(active=True)
             changed, blocked = [], []
             for organization in rows:
-                if published and organization.publish_blocked:
+                if published and organization.missing_public_images:
                     blocked.append(organization)
                 else:
                     changed.append(organization)
@@ -3378,15 +3377,15 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_all(self, request):
         if not request.POST.get("confirmed"):
-            waiting = list(self.unpublished_approved().select_related("sponsor_group"))
+            waiting = list(self.unpublished_approved())
             return TemplateResponse(
                 request,
                 "exhibitors/publish_confirm.html",
                 {
                     "organization_type": self.organization_type,
-                    "waiting": [o for o in waiting if not o.publish_blocked],
-                    "missing_images": [o for o in waiting if o.publish_blocked],
-                    "waiting_ids": ",".join(str(o.pk) for o in waiting if not o.publish_blocked),
+                    "waiting": [o for o in waiting if not o.missing_public_images],
+                    "missing_images": [o for o in waiting if o.missing_public_images],
+                    "waiting_ids": ",".join(str(o.pk) for o in waiting if not o.missing_public_images),
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },

@@ -38,7 +38,7 @@
     {% endif %}
     {% if "can_change_event_settings" in request.eventpermset %}
         <td class="organization-published-col">
-            {% if e.published and e.publish_blocked %}
+            {% if e.published and e.missing_public_images %}
                 <span class="label label-warning" title="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" data-toggle="tooltip">{% trans "Missing images (not visible publicly)" %}</span>
             {% else %}
                 {% if e.published %}

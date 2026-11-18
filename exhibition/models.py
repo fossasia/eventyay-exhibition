@@ -78,11 +78,6 @@ def get_next_sponsor_position(event, sponsor_group):
     return (max_position if max_position is not None else -1) + 1
 
 
-def shows_as_front_page_sponsor(is_sponsor, logo, sponsor_group):
-    """The event front page lists sponsors that have a logo and belong to a group featured there."""
-    return bool(is_sponsor and logo and sponsor_group and sponsor_group.show_on_front_page)
-
-
 ORGANIZATION_FOLDER_MAX_LENGTH = 40
 
 
@@ -647,13 +642,6 @@ class ExhibitorInfo(LoggedModel):
     def missing_public_images(self):
         """Exhibitors need both a logo and a banner before the public Exhibition page lists them."""
         return self.is_exhibitor and not (self.logo and self.banner)
-
-    @property
-    def publish_blocked(self):
-        """Missing images keep an exhibitor unpublished, unless the front page still shows it as a sponsor."""
-        return self.missing_public_images and not shows_as_front_page_sponsor(
-            self.is_sponsor, self.logo, self.sponsor_group
-        )
 
     @property
     def visible_logo_url(self):

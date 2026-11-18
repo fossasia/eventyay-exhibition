@@ -547,15 +547,10 @@ def test_publish_all_rechecks_images_and_ignores_malformed_ids(event):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("is_exhibitor", "on_front_page", "published"),
-    [(False, False, True), (True, True, True), (True, False, False)],
-)
-def test_sponsors_need_a_banner_only_when_the_front_page_does_not_show_them(
-    event, is_exhibitor, on_front_page, published
-):
+@pytest.mark.parametrize(("is_exhibitor", "published"), [(False, True), (True, False)])
+def test_only_sponsor_only_organizations_publish_without_a_banner(event, is_exhibitor, published):
     with scopes_disabled():
-        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=on_front_page)
+        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=True)
         sponsor = _exhibitor(
             event, name="Sponsor", is_exhibitor=is_exhibitor, is_sponsor=True, sponsor_group=group, banner=""
         )
@@ -598,11 +593,10 @@ def test_form_blocks_publishing_without_images_when_they_are_optional(event, mon
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(("on_front_page", "allowed"), [(True, True), (False, False)])
-def test_form_lets_a_front_page_sponsor_publish_without_a_banner(event, monkeypatch, on_front_page, allowed):
+def test_form_requires_a_banner_for_an_exhibitor_that_also_sponsors(event, monkeypatch):
     monkeypatch.setattr(ExhibitorInfoForm, "profile_key_is_required", lambda form, key: False)
     with scopes_disabled():
-        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=on_front_page)
+        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=True)
         exhibitor = _exhibitor(event, exhibitor_group="paid", is_sponsor=True, sponsor_group=group, banner="")
         form = ExhibitorInfoForm(
             data={
@@ -617,7 +611,7 @@ def test_form_lets_a_front_page_sponsor_publish_without_a_banner(event, monkeypa
             organization_type="sponsor",
         )
 
-        assert form.is_valid() is allowed, form.errors
+        assert "published" in form.errors
 
 
 @pytest.mark.django_db
@@ -675,19 +669,3 @@ def test_organizer_is_warned_about_exhibitors_missing_images(event, settings):
     assert "label label-success" not in list_html
     assert "fa fa-exclamation-triangle text-warning" in list_html
     assert "it does not appear on the public Exhibition page" in edit_html
-
-
-@pytest.mark.django_db
-def test_front_page_sponsor_without_a_banner_stays_marked_published(event, settings):
-    with scopes_disabled():
-        event.plugins = "exhibition"
-        event.save(update_fields=["plugins"])
-        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=True)
-        _exhibitor(event, name="Acme", published=True, is_sponsor=True, sponsor_group=group, banner="")
-        organizer = _organizer_with_settings_access(event)
-
-    list_html = _organization_list(_client(organizer), event, "exhibitors", settings).content.decode()
-
-    assert "label label-success" in list_html
-    assert "Missing images (not visible publicly)" not in list_html
-    assert "fa fa-exclamation-triangle text-warning" in list_html

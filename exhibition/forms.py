@@ -85,7 +85,6 @@ from .models import (
     SponsorGroup,
     get_next_sponsor_group_level,
     order_questions_for,
-    shows_as_front_page_sponsor,
 )
 from .orders import usable_payment_providers
 from .social_links import (
@@ -829,19 +828,13 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         return cleaned_data
 
     def _validate_publish_images(self, cleaned_data):
-        """Publishing an exhibitor needs both images, even where the profile settings leave them optional.
-
-        The exception is an exhibitor that the front page still shows as a sponsor.
-        """
+        """Publishing an exhibitor needs both images, even where the profile settings leave them optional."""
         if not cleaned_data.get("published") or not self._resolved_is_exhibitor:
             return
-        if self.has_error("logo") or self.has_error("banner"):
+        images = ("logo", "banner")
+        if any(self.has_error(name) for name in images):
             return
-        logo = self._image_after_save(cleaned_data, "logo")
-        if logo and self._image_after_save(cleaned_data, "banner"):
-            return
-        sponsor_group = cleaned_data.get("sponsor_group", self.instance.sponsor_group)
-        if shows_as_front_page_sponsor(self._resolved_is_sponsor, logo, sponsor_group):
+        if all(self._image_after_save(cleaned_data, name) for name in images):
             return
         self.add_error(
             "published",
