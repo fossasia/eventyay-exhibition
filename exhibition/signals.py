@@ -83,6 +83,7 @@ from .models import (
     LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
+    ExhibitionEmailDraft,
     ExhibitionEmailQueue,
     ExhibitionOrder,
     ExhibitionOrderQuestion,
@@ -469,6 +470,15 @@ def exhibition_mail_placeholders(sender, **kwargs):
             _("Please transfer the amount to the bank account below."),
         ),
     ]
+
+
+@receiver(post_delete, sender=ExhibitionEmailQueue, dispatch_uid="exhibition_queued_email_attachment_release")
+@receiver(post_delete, sender=ExhibitionEmailDraft, dispatch_uid="exhibition_email_draft_attachment_release")
+def exhibition_email_attachment_release(sender, instance, **kwargs):
+    """Let an uploaded attachment expire once its last draft or queued email is gone."""
+    from .mail import release_attachment
+
+    release_attachment(instance.attachment_id)
 
 
 @receiver(post_delete, sender=ExhibitionQuestionOption, dispatch_uid="exhibition_option_dependency_cleanup")
