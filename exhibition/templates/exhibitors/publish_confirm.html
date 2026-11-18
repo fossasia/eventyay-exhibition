@@ -57,6 +57,7 @@
     <form action="?{{ query_string }}" method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="publish_all">
+        <input type="hidden" name="organizations" value="{{ waiting_ids }}">
         <div class="form-group submit-group">
             <a class="btn btn-default btn-lg" href="{{ list_url }}">{% trans "Cancel" %}</a>
             {% if waiting %}

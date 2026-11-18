@@ -644,6 +644,11 @@ class ExhibitorInfo(LoggedModel):
         return self.is_exhibitor and not (self.logo and self.banner)
 
     @property
+    def publish_blocked(self):
+        """Missing images keep an exhibitor unpublished, unless it also sponsors and shows on the front page."""
+        return self.missing_public_images and not self.is_sponsor
+
+    @property
     def visible_logo_url(self):
         return self.logo.url if self.logo else ""
 

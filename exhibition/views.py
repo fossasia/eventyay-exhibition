@@ -3351,9 +3351,12 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
             rows = queryset.select_for_update().filter(published=not published)
             if published:
                 rows = rows.filter(active=True)
-            candidates = list(rows)
-            blocked = [o for o in candidates if published and o.missing_public_images]
-            changed = [o for o in candidates if o not in blocked]
+            changed, blocked = [], []
+            for organization in rows:
+                if published and organization.publish_blocked:
+                    blocked.append(organization)
+                else:
+                    changed.append(organization)
             if not changed:
                 return [], blocked
             ExhibitorInfo.objects.filter(pk__in=[o.pk for o in changed]).update(published=published)
@@ -3380,18 +3383,24 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
                 "exhibitors/publish_confirm.html",
                 {
                     "organization_type": self.organization_type,
-                    "waiting": [o for o in waiting if not o.missing_public_images],
-                    "missing_images": [o for o in waiting if o.missing_public_images],
+                    "waiting": [o for o in waiting if not o.publish_blocked],
+                    "missing_images": [o for o in waiting if o.publish_blocked],
+                    "waiting_ids": ",".join(str(o.pk) for o in waiting if not o.publish_blocked),
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
             )
-        published, blocked = self.apply(self.unpublished_approved(), True, request.user)
+        # Publish only what the confirmation page listed, sent as one field to stay under Django's field limit.
+        # apply() re-checks each row under the lock.
+        ids = [pk for pk in request.POST.get("organizations", "").split(",") if pk.isdigit()]
+        published, blocked = self.apply(self.scoped_queryset().filter(pk__in=ids), True, request.user)
         self.report_blocked(request, blocked)
         if published:
             messages.success(request, self.published_message(len(published)))
         elif not blocked:
-            messages.info(request, _("Every approved organization is already published."))
+            messages.info(
+                request, _("Nothing changed: the confirmed organizations were already published or withdrawn.")
+            )
         return redirect(self.list_url())
 
     def publish_selected(self, request, *, published):
