@@ -3881,18 +3881,29 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         if self.single_request is not None:
             return self.single_request_done(created[0], scheduled_at)
 
+        count = len(created)
         if scheduled_at:
             messages.success(
                 self.request,
-                _("%(count)d emails have been scheduled.") % {"count": len(created)},
+                ngettext("%(count)d email has been scheduled.", "%(count)d emails have been scheduled.", count)
+                % {"count": count},
             )
             return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
         if send_now:
-            messages.success(self.request, _("%(count)d emails have been sent.") % {"count": len(created)})
+            messages.success(
+                self.request,
+                ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count)
+                % {"count": count},
+            )
             return redirect("plugins:exhibition:email.sent", **event_kwargs(event))
         messages.success(
             self.request,
-            _("%(count)d emails have been placed in the outbox.") % {"count": len(created)},
+            ngettext(
+                "%(count)d email has been placed in the outbox.",
+                "%(count)d emails have been placed in the outbox.",
+                count,
+            )
+            % {"count": count},
         )
         return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
 
