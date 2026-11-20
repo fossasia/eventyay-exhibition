@@ -191,27 +191,23 @@ def place_exhibition_order(
                 else None
             ),
         )
-        for base_idx, product in enumerate(products):
-            base_pos = ExhibitionOrderPosition.objects.create(
-                order=order,
-                product=product,
-                name=product.name,
-                purpose=product.purpose,
-                includes_booth=product.includes_booth,
-                price=product.price,
-                addon_to=None,
+        base_positions = ExhibitionOrderPosition.objects.bulk_create(
+            [ExhibitionOrderPosition.for_product(order, product) for product in products]
+        )
+        addon_positions = []
+        for a_base_idx, addon_product, price in addon_list:
+            if a_base_idx < 0 or a_base_idx >= len(base_positions):
+                raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+            addon_positions.append(
+                ExhibitionOrderPosition.for_product(
+                    order,
+                    addon_product,
+                    addon_to=base_positions[a_base_idx],
+                    price=price,
+                )
             )
-            for a_base_idx, addon_product, price in addon_list:
-                if a_base_idx == base_idx:
-                    ExhibitionOrderPosition.objects.create(
-                        order=order,
-                        product=addon_product,
-                        name=addon_product.name,
-                        purpose=addon_product.purpose,
-                        includes_booth=addon_product.includes_booth,
-                        price=price,
-                        addon_to=base_pos,
-                    )
+        if addon_positions:
+            ExhibitionOrderPosition.objects.bulk_create(addon_positions)
 
         if order_form is not None:
             order_form.save_exhibition_questions(order)

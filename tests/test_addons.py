@@ -252,6 +252,75 @@ def test_addon_product_cannot_have_addons(event):
         assert not ExhibitionProductAddOn.objects.filter(base_product=addon_prod).exists()
 
 
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_moving_product_to_addon_category_without_formset_rejects_orphaned_rules(event):
+    """Category change without addons-TOTAL_FORMS must not leave rules on an add-on product."""
+    client = _organizer_client(event)
+    with scopes_disabled():
+        regular_cat = _category(event, "Packages", is_addon=False)
+        addon_cat = _category(event, "Booth Extras", is_addon=True)
+        product = _product(event, "Base Package", category=regular_cat)
+        ExhibitionProductAddOn.objects.create(
+            base_product=product,
+            addon_category=addon_cat,
+            min_count=0,
+            max_count=1,
+        )
+
+    # Omit the add-ons formset management keys entirely.
+    form_data = _product_form_data(name_0="Base Package", category=str(addon_cat.pk))
+    response = client.post(_url(event, "products.edit", pk=product.pk), form_data)
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "You cannot add add-ons to a product that is only available as an add-on itself." in content
+
+    with scopes_disabled():
+        product.refresh_from_db()
+        assert product.category_id == regular_cat.pk
+        assert product.addons.exists()
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_moving_product_to_addon_category_clears_addons_when_formset_emptied(event):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        regular_cat = _category(event, "Packages", is_addon=False)
+        addon_cat = _category(event, "Booth Extras", is_addon=True)
+        product = _product(event, "Base Package", category=regular_cat)
+        rule = ExhibitionProductAddOn.objects.create(
+            base_product=product,
+            addon_category=addon_cat,
+            min_count=0,
+            max_count=1,
+        )
+
+    form_data = _product_form_data(
+        name_0="Base Package",
+        category=str(addon_cat.pk),
+        **{
+            "addons-TOTAL_FORMS": "1",
+            "addons-INITIAL_FORMS": "1",
+            "addons-MIN_NUM_FORMS": "0",
+            "addons-MAX_NUM_FORMS": "1000",
+            "addons-0-id": str(rule.pk),
+            "addons-0-addon_category": str(addon_cat.pk),
+            "addons-0-min_count": "0",
+            "addons-0-max_count": "1",
+            "addons-0-ORDER": "0",
+            "addons-0-DELETE": "on",
+        },
+    )
+    response = client.post(_url(event, "products.edit", pk=product.pk), form_data)
+    assert response.status_code == 302
+
+    with scopes_disabled():
+        product.refresh_from_db()
+        assert product.category_id == addon_cat.pk
+        assert not product.addons.exists()
+
+
 # ---------------------------------------------------------------------------
 # 2. Category is_addon Flag & Public Catalog Isolation
 # ---------------------------------------------------------------------------
@@ -389,6 +458,52 @@ def test_addons_single_choice_radio_selection(event):
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: ""})
     assert response.url == _url(event, "shop.checkout.details")
     assert _cart(client, event).get("addons") == []
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_addons_post_rejects_product_outside_rule_category(event):
+    """Manipulated product PKs from another category must not enter the session cart."""
+    _enable_plugin(event)
+    with scopes_disabled():
+        addon_cat = _category(event, "Passes", is_addon=True)
+        other_cat = _category(event, "Other Extras", is_addon=True)
+        base = _product(event, "Main Booth", price="1000.00")
+        allowed = _product(event, "Staff Pass", price="50.00", category=addon_cat)
+        foreign = _product(event, "Foreign Extra", price="75.00", category=other_cat)
+        rule = ExhibitionProductAddOn.objects.create(
+            base_product=base,
+            addon_category=addon_cat,
+            min_count=0,
+            max_count=1,
+            multi_allowed=False,
+        )
+
+    client = Client()
+    client.post(_url(event, "shop"), {"product": [base.pk]})
+
+    response = client.post(
+        _url(event, "shop.checkout.addons"),
+        {f"addon_0_{rule.pk}": str(foreign.pk)},
+    )
+    assert response.status_code == 200
+    assert "Invalid add-on product selected." in response.content.decode()
+    assert _cart(client, event).get("addons") in (None, [])
+
+    # A valid product from the rule category still works.
+    response = client.post(
+        _url(event, "shop.checkout.addons"),
+        {f"addon_0_{rule.pk}": str(allowed.pk)},
+    )
+    assert response.url == _url(event, "shop.checkout.details")
+    assert _cart(client, event).get("addons") == [
+        {
+            "base_index": 0,
+            "product_id": allowed.pk,
+            "price": "50.00",
+            "rule_id": rule.pk,
+        }
+    ]
 
 
 @pytest.mark.django_db

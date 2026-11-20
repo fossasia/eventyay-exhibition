@@ -2018,31 +2018,62 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
         return ctx
 
     def is_valid(self, form):
-        if "addons-TOTAL_FORMS" not in self.request.POST:
-            return form.is_valid()
-        v = form.is_valid() and self.addons_formset.is_valid()
-        if v and form.cleaned_data.get("category") and form.cleaned_data["category"].is_addon:
-            if self.addons_formset.ordered_forms:
+        if not form.is_valid():
+            return False
+
+        category = form.cleaned_data.get("category")
+        becoming_addon = bool(category and category.is_addon)
+
+        if "addons-TOTAL_FORMS" in self.request.POST:
+            if not self.addons_formset.is_valid():
+                return False
+            if becoming_addon and self.addons_formset.ordered_forms:
                 messages.error(
                     self.request,
                     _("You cannot add add-ons to a product that is only available as an add-on itself."),
                 )
-                v = False
-        return v
+                return False
+            return True
+
+        # Formset omitted from POST: existing DB rules would stay attached to an add-on product.
+        product = getattr(self, "object", None)
+        if becoming_addon and product and product.pk and product.addons.exists():
+            messages.error(
+                self.request,
+                _("You cannot add add-ons to a product that is only available as an add-on itself."),
+            )
+            return False
+        return True
 
     def save_addons(self):
-        if "addons-TOTAL_FORMS" not in self.request.POST:
-            return
-        for form in self.addons_formset.deleted_forms:
-            if not form.instance.pk:
-                continue
-            form.instance.delete()
-            form.instance.pk = None
+        if "addons-TOTAL_FORMS" in self.request.POST:
+            for form in self.addons_formset.deleted_forms:
+                if not form.instance.pk:
+                    continue
+                form.instance.delete()
+                form.instance.pk = None
 
-        for i, form in enumerate(self.addons_formset.ordered_forms):
-            form.instance.position = i
-            form.instance.base_product = self.object
-            form.save()
+            for i, form in enumerate(self.addons_formset.ordered_forms):
+                form.instance.position = i
+                form.instance.base_product = self.object
+                form.save()
+
+        self.clear_orphaned_addons()
+
+    def clear_orphaned_addons(self):
+        """Drop add-on rules if this product is itself only available as an add-on."""
+        category = self.object.category
+        if category is None or not category.is_addon:
+            return
+        orphaned = list(self.object.addons.values_list("pk", flat=True))
+        if not orphaned:
+            return
+        self.object.addons.all().delete()
+        self.object.log_action(
+            LOG_PRODUCT_CHANGED,
+            data={"cleared_addons": orphaned, "reason": "product_moved_to_addon_category"},
+            user=self.request.user,
+        )
 
 
 class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):

@@ -396,6 +396,7 @@ class ShopAddOnsView(ShopCheckoutMixin, TemplateView):
             if not base_prod or not base_prod.addons.exists():
                 continue
             for rule in base_prod.addons.select_related("addon_category").order_by("position", "id"):
+                # Only products from this rule's category may be selected or stored in the session.
                 products = list(
                     ExhibitionProduct.objects.filter(event=request.event, category=rule.addon_category)
                     .available()
@@ -410,18 +411,21 @@ class ShopAddOnsView(ShopCheckoutMixin, TemplateView):
                     if prod_pk:
                         try:
                             prod_pk = int(prod_pk)
-                            p = products_by_id.get(prod_pk)
-                            if p:
-                                selection_counts[(base_idx, rule.pk, p.pk)] = 1
-                                remaining = p.remaining_capacity()
-                                if remaining == 0:
-                                    errors.append(_("{product} is sold out.").format(product=p))
-                                else:
-                                    rule_selections.append((p, 1))
-                            else:
-                                errors.append(_("Invalid add-on product selected."))
                         except (ValueError, TypeError):
-                            pass
+                            errors.append(_("Invalid add-on product selected."))
+                            continue
+                        p = products_by_id.get(prod_pk)
+                        if p is None:
+                            # Reject PKs from another category (or unknown/unavailable products)
+                            # before any cart write.
+                            errors.append(_("Invalid add-on product selected."))
+                            continue
+                        selection_counts[(base_idx, rule.pk, p.pk)] = 1
+                        remaining = p.remaining_capacity()
+                        if remaining == 0:
+                            errors.append(_("{product} is sold out.").format(product=p))
+                        else:
+                            rule_selections.append((p, 1))
                 else:
                     for p in products:
                         key = f"addon_{base_idx}_{rule.pk}_{p.pk}"
