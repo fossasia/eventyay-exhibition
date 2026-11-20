@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from urllib.parse import quote, urlencode
 
 from django.conf import settings as django_settings
@@ -2047,14 +2048,40 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
 
     def save_addons(self):
         if "addons-TOTAL_FORMS" in self.request.POST:
-            # Replace all rules so category swaps cannot hit unique_together
-            # while a still-persisted sibling keeps the target category.
-            self.object.addons.all().delete()
-            for i, form in enumerate(self.addons_formset.ordered_forms):
+            for form in self.addons_formset.deleted_forms:
+                if not form.instance.pk:
+                    continue
+                form.instance.delete()
                 form.instance.pk = None
+
+            ordered_forms = list(self.addons_formset.ordered_forms)
+            # Move category-changing rules onto temporary categories first so a
+            # swap cannot collide with a sibling that still holds the target.
+            # Cart selections key off rule_id, so existing primary keys must stay.
+            temp_categories = []
+            for form in ordered_forms:
+                instance = form.instance
+                if not instance.pk:
+                    continue
+                new_category = form.cleaned_data.get("addon_category")
+                if not new_category or instance.addon_category_id == new_category.pk:
+                    continue
+                temp = ExhibitionProductCategory.objects.create(
+                    event=self.request.event,
+                    name={"en": f".addon-swap-{uuid.uuid4().hex}"},
+                    is_addon=True,
+                )
+                temp_categories.append(temp)
+                ExhibitionProductAddOn.objects.filter(pk=instance.pk).update(addon_category=temp)
+                instance.addon_category = temp
+
+            for i, form in enumerate(ordered_forms):
                 form.instance.position = i
                 form.instance.base_product = self.object
                 form.save()
+
+            for temp in temp_categories:
+                temp.delete()
 
         self.clear_orphaned_addons()
 

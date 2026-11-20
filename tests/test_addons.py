@@ -930,9 +930,48 @@ def test_addon_formset_allows_swapping_categories_on_existing_rules(event):
     assert response.status_code == 302
 
     with scopes_disabled():
-        categories = list(
-            ExhibitionProductAddOn.objects.filter(base_product=product)
-            .order_by("position")
-            .values_list("addon_category_id", flat=True)
+        rules = list(ExhibitionProductAddOn.objects.filter(base_product=product).order_by("position"))
+        assert [rule.pk for rule in rules] == [rule_a.pk, rule_b.pk]
+        assert [rule.addon_category_id for rule in rules] == [cat_b.pk, cat_a.pk]
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_addon_formset_keeps_rule_ids_when_limits_change(event):
+    """Cart selections store rule_id; saving the product must not renumber existing rules."""
+    client = _organizer_client(event)
+    with scopes_disabled():
+        product = _product(event, "Base Package")
+        addon_cat = _category(event, "Booth Extras", is_addon=True)
+        rule = ExhibitionProductAddOn.objects.create(
+            base_product=product,
+            addon_category=addon_cat,
+            min_count=0,
+            max_count=1,
+            position=0,
         )
-        assert categories == [cat_b.pk, cat_a.pk]
+        rule_pk = rule.pk
+
+    form_data = _product_form_data(
+        name_0="Base Package",
+        **{
+            "addons-TOTAL_FORMS": "1",
+            "addons-INITIAL_FORMS": "1",
+            "addons-MIN_NUM_FORMS": "0",
+            "addons-MAX_NUM_FORMS": "1000",
+            "addons-0-id": str(rule_pk),
+            "addons-0-addon_category": str(addon_cat.pk),
+            "addons-0-min_count": "1",
+            "addons-0-max_count": "3",
+            "addons-0-ORDER": "0",
+        },
+    )
+
+    response = client.post(_url(event, "products.edit", pk=product.pk), form_data)
+    assert response.status_code == 302
+
+    with scopes_disabled():
+        rule = ExhibitionProductAddOn.objects.get(base_product=product)
+        assert rule.pk == rule_pk
+        assert rule.min_count == 1
+        assert rule.max_count == 3
