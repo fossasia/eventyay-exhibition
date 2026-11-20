@@ -2058,13 +2058,22 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
             # Move category-changing rules onto temporary categories first so a
             # swap cannot collide with a sibling that still holds the target.
             # Cart selections key off rule_id, so existing primary keys must stay.
+            # Compare against the DB value — form validation may already have
+            # written the new category onto form.instance in memory.
             temp_categories = []
             for form in ordered_forms:
                 instance = form.instance
                 if not instance.pk:
                     continue
                 new_category = form.cleaned_data.get("addon_category")
-                if not new_category or instance.addon_category_id == new_category.pk:
+                if not new_category:
+                    continue
+                db_category_id = (
+                    ExhibitionProductAddOn.objects.filter(pk=instance.pk)
+                    .values_list("addon_category_id", flat=True)
+                    .first()
+                )
+                if db_category_id == new_category.pk:
                     continue
                 temp = ExhibitionProductCategory.objects.create(
                     event=self.request.event,
