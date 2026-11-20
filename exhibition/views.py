@@ -2022,12 +2022,7 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
             return form.is_valid()
         v = form.is_valid() and self.addons_formset.is_valid()
         if v and form.cleaned_data.get("category") and form.cleaned_data["category"].is_addon:
-            addons = self.addons_formset.ordered_forms + [
-                ef
-                for ef in self.addons_formset.extra_forms
-                if ef not in self.addons_formset.ordered_forms and ef not in self.addons_formset.deleted_forms
-            ]
-            if addons:
+            if self.addons_formset.ordered_forms:
                 messages.error(
                     self.request,
                     _("You cannot add add-ons to a product that is only available as an add-on itself."),
@@ -2044,12 +2039,7 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
             form.instance.delete()
             form.instance.pk = None
 
-        forms = self.addons_formset.ordered_forms + [
-            ef
-            for ef in self.addons_formset.extra_forms
-            if ef not in self.addons_formset.ordered_forms and ef not in self.addons_formset.deleted_forms
-        ]
-        for i, form in enumerate(forms):
+        for i, form in enumerate(self.addons_formset.ordered_forms):
             form.instance.position = i
             form.instance.base_product = self.object
             form.save()
@@ -2191,6 +2181,15 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
         return context
 
     def form_valid(self, form):
+        if self.object.is_addon and self.object.products.exists():
+            messages.error(
+                self.request,
+                _(
+                    "You cannot delete an add-on category that still contains products. "
+                    "Move or delete those products first."
+                ),
+            )
+            return redirect(self.get_success_url())
         self.object.log_action(
             LOG_PRODUCT_CATEGORY_DELETED,
             data={"name": self.object.localized_name, "uncategorised_products": self.object.products.count()},

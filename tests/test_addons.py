@@ -14,7 +14,13 @@ from exhibition.models import (
     ExhibitionProductCategory,
     ExhibitionQuota,
 )
-from exhibition.shop import shop_products
+from exhibition.shop import checkout_session_key, shop_products
+
+
+def _cart(client, event):
+    session = client.session
+    return session.get(checkout_session_key(event), {})
+
 
 CUSTOMER_DATA = {
     "organization_name": "Acme Inc",
@@ -370,10 +376,19 @@ def test_addons_single_choice_radio_selection(event):
     field_name = f"addon_0_{rule.pk}"
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: str(addon.pk)})
     assert response.url == _url(event, "shop.checkout.details")
+    assert _cart(client, event).get("addons") == [
+        {
+            "base_index": 0,
+            "product_id": addon.pk,
+            "price": "50.00",
+            "rule_id": rule.pk,
+        }
+    ]
 
-    # Or select none
+    # Or select none — previously selected add-on must leave the cart
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: ""})
     assert response.url == _url(event, "shop.checkout.details")
+    assert _cart(client, event).get("addons") == []
 
 
 @pytest.mark.django_db
@@ -400,6 +415,7 @@ def test_addons_required_single_choice_validation(event):
     assert response.status_code == 200
     content = response.content.decode()
     assert "Please select at least 1 options for Mandatory Tiers on Main Booth." in content
+    assert _cart(client, event).get("addons") in (None, [])
 
 
 @pytest.mark.django_db
@@ -427,15 +443,18 @@ def test_addons_multi_quantity_validation(event):
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: "4"})
     assert response.status_code == 200
     assert "You can select at most 3 options for Chairs on Main Booth." in response.content.decode()
+    assert _cart(client, event).get("addons") in (None, [])
 
     # Below min_count (0 < 1)
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: "0"})
     assert response.status_code == 200
     assert "Please select at least 1 options for Chairs on Main Booth." in response.content.decode()
+    assert _cart(client, event).get("addons") in (None, [])
 
     # Valid count (2)
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: "2"})
     assert response.url == _url(event, "shop.checkout.details")
+    assert len(_cart(client, event).get("addons") or []) == 2
 
 
 @pytest.mark.django_db
@@ -462,6 +481,42 @@ def test_addons_sold_out_cannot_be_selected(event):
     response = client.post(_url(event, "shop.checkout.addons"), {field_name: str(monitor.pk)})
     assert response.status_code == 200
     assert "4K TV is sold out." in response.content.decode()
+    assert _cart(client, event).get("addons") in (None, [])
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_required_addons_cannot_skip_to_details(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        addon_cat = _category(event, "Mandatory", is_addon=True)
+        base = _product(event, "Main Booth")
+        _product(event, "Required Extra", category=addon_cat)
+        ExhibitionProductAddOn.objects.create(
+            base_product=base,
+            addon_category=addon_cat,
+            min_count=1,
+            max_count=1,
+        )
+
+    client = Client()
+    client.post(_url(event, "shop"), {"product": [base.pk]})
+    response = client.get(_url(event, "shop.checkout.details"))
+    assert response.url == _url(event, "shop.checkout.addons")
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_cannot_delete_nonempty_addon_category(event):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        addon_cat = _category(event, "Extras", is_addon=True)
+        _product(event, "Extra Chair", category=addon_cat)
+
+    response = client.post(_url(event, "products.categories.delete", pk=addon_cat.pk))
+    assert response.status_code == 302
+    with scopes_disabled():
+        assert ExhibitionProductCategory.objects.filter(pk=addon_cat.pk).exists()
 
 
 # ---------------------------------------------------------------------------

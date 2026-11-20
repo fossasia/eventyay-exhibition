@@ -89,6 +89,41 @@ def send_order_email(order, *, user=None):
     )
 
 
+def resolve_public_addon_list(products, addon_list):
+    """Validate public add-on selections against current rules and recalculate prices.
+
+    Organiser-placed orders skip this via ``check_availability=False``.
+    """
+    by_base = defaultdict(list)
+    for base_idx, addon_prod, _price in addon_list:
+        by_base[base_idx].append(addon_prod)
+
+    resolved = []
+    for base_idx, product in enumerate(products):
+        selected = by_base.get(base_idx, [])
+        rules = list(product.addons.select_related("addon_category").order_by("position", "id"))
+        remaining = list(selected)
+        for rule in rules:
+            matching = [p for p in remaining if p.category_id == rule.addon_category_id]
+            count = len(matching)
+            if count < rule.min_count or count > rule.max_count:
+                raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+            if not rule.multi_allowed and len({p.pk for p in matching}) != count:
+                raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+            for addon_prod in matching:
+                price = Decimal("0.00") if rule.price_included else addon_prod.price
+                resolved.append((base_idx, addon_prod, price))
+            remaining = [p for p in remaining if p.category_id != rule.addon_category_id]
+        if remaining:
+            raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+
+    for base_idx in by_base:
+        if base_idx < 0 or base_idx >= len(products):
+            raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+
+    return resolved
+
+
 def place_exhibition_order(
     event,
     products,
@@ -125,6 +160,9 @@ def place_exhibition_order(
     for _base_idx, addon_prod, _price in addon_list:
         if addon_prod.event_id != event.pk or (check_availability and not addon_prod.is_available(now)):
             raise ExhibitionOrderError(f"{addon_prod} is not on sale.")
+
+    if check_availability:
+        addon_list = resolve_public_addon_list(products, addon_list)
 
     all_products = products + [p for _base_idx, p, _price in addon_list]
     base_total = sum((product.price for product in products), Decimal("0.00"))

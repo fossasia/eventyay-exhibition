@@ -2574,7 +2574,8 @@ class ExhibitionProductAddOnsFormSet(I18nFormSet):
     title = _("Add-ons")
 
     def __init__(self, *args, event=None, **kwargs):
-        self.event = event
+        if event is not None:
+            kwargs["event"] = event
         super().__init__(*args, **kwargs)
 
     def _construct_form(self, i, **kwargs):
@@ -2615,7 +2616,10 @@ class ExhibitionProductAddOnForm(I18nModelForm):
         }
 
     def __init__(self, *args, event=None, **kwargs):
-        self.event = event or (kwargs.get("instance") and kwargs["instance"].base_product.event)
+        if event is not None:
+            kwargs["event"] = event
+        elif kwargs.get("instance") and getattr(kwargs["instance"], "base_product_id", None):
+            kwargs.setdefault("event", kwargs["instance"].base_product.event)
         super().__init__(*args, **kwargs)
         if self.event:
             self.fields["addon_category"].queryset = ExhibitionProductCategory.objects.filter(event=self.event)
