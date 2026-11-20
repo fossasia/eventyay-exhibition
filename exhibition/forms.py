@@ -2629,7 +2629,7 @@ class ExhibitionProductAddOnForm(I18nModelForm):
         category = cleaned.get("addon_category")
         # Category uniqueness across rules is checked on the formset. Do not call
         # clean_categories here: swapping two existing categories would fail against
-        # the still-persisted sibling before save_addons replaces every row.
+        # the still-persisted sibling before save_addons finishes the swap.
         if category and self.event and category.event_id != self.event.pk:
             raise ValidationError(_("The add-on's category must belong to the same event as the product."))
         return cleaned

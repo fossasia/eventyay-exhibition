@@ -82,11 +82,11 @@ testpaths = ["tests"]
 
 [tool.pytest_env]
 EVY_RUNNING_ENVIRONMENT = "testing"
-EVY_POSTGRES_HOST = {value = "localhost", skip_if_set = true}
-EVY_POSTGRES_PORT = {value = "5432", skip_if_set = true}
-EVY_POSTGRES_USER = {value = "postgres", skip_if_set = true}
-EVY_POSTGRES_PASSWORD = {value = "postgres", skip_if_set = true}
-EVY_POSTGRES_DB = {value = "eventyay-db", skip_if_set = true}
+EVY_POSTGRES_HOST = "localhost"
+EVY_POSTGRES_PORT = "5432"
+EVY_POSTGRES_USER = "postgres"
+EVY_POSTGRES_PASSWORD = "postgres"
+EVY_POSTGRES_DB = "eventyay-db"
 
 [tool.coverage.run]
 source = ["exhibition"]
