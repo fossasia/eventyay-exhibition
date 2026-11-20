@@ -2061,36 +2061,39 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
             # Compare against the DB value — form validation may already have
             # written the new category onto form.instance in memory.
             temp_categories = []
-            for form in ordered_forms:
-                instance = form.instance
-                if not instance.pk:
-                    continue
-                new_category = form.cleaned_data.get("addon_category")
-                if not new_category:
-                    continue
-                db_category_id = (
-                    ExhibitionProductAddOn.objects.filter(pk=instance.pk)
-                    .values_list("addon_category_id", flat=True)
-                    .first()
-                )
-                if db_category_id == new_category.pk:
-                    continue
-                temp = ExhibitionProductCategory.objects.create(
-                    event=self.request.event,
-                    name={"en": f".addon-swap-{uuid.uuid4().hex}"},
-                    is_addon=True,
-                )
-                temp_categories.append(temp)
-                ExhibitionProductAddOn.objects.filter(pk=instance.pk).update(addon_category=temp)
-                instance.addon_category = temp
+            try:
+                for form in ordered_forms:
+                    instance = form.instance
+                    if not instance.pk:
+                        continue
+                    new_category = form.cleaned_data.get("addon_category")
+                    if not new_category:
+                        continue
+                    db_category_id = (
+                        ExhibitionProductAddOn.objects.filter(pk=instance.pk)
+                        .values_list("addon_category_id", flat=True)
+                        .first()
+                    )
+                    if db_category_id == new_category.pk:
+                        continue
+                    temp = ExhibitionProductCategory.objects.create(
+                        event=self.request.event,
+                        name={"en": f".addon-swap-{uuid.uuid4().hex}"},
+                        is_addon=True,
+                    )
+                    temp_categories.append(temp)
+                    ExhibitionProductAddOn.objects.filter(pk=instance.pk).update(addon_category=temp)
 
-            for i, form in enumerate(ordered_forms):
-                form.instance.position = i
-                form.instance.base_product = self.object
-                form.save()
-
-            for temp in temp_categories:
-                temp.delete()
+                for i, form in enumerate(ordered_forms):
+                    form.instance.position = i
+                    form.instance.base_product = self.object
+                    new_category = form.cleaned_data.get("addon_category")
+                    if new_category:
+                        form.instance.addon_category = new_category
+                    form.save()
+            finally:
+                for temp in temp_categories:
+                    temp.delete()
 
         self.clear_orphaned_addons()
 
