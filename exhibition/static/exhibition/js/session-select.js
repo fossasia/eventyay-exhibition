@@ -62,13 +62,17 @@ function initSessionSelect(widget) {
         })
     }
 
-    function setSelected(option, selected) {
+    // alreadyTicked: Space on the focused checkbox. The browser has already changed the box
+    // and fires its own change event, so only the chip and the list need updating.
+    function setSelected(option, selected, alreadyTicked) {
         var box = checkboxOf(option)
-        if (!box || box.checked === selected) {
+        if (!box || (box.checked === selected && !alreadyTicked)) {
             return
         }
-        box.checked = selected
-        box.dispatchEvent(new Event('change', { bubbles: true }))
+        if (!alreadyTicked) {
+            box.checked = selected
+            box.dispatchEvent(new Event('change', { bubbles: true }))
+        }
         option.setAttribute('aria-selected', selected ? 'true' : 'false')
         if (selected) {
             addChip(option)
@@ -118,8 +122,11 @@ function initSessionSelect(widget) {
             if (event.target.closest('button')) {
                 return
             }
-            event.preventDefault()
-            setSelected(option, true)
+            var ticked = event.target === box
+            if (!ticked) {
+                event.preventDefault()
+            }
+            setSelected(option, ticked ? box.checked : true, ticked)
             if (search) {
                 search.value = ''
                 applyFilter()
