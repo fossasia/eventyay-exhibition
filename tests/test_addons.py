@@ -15,7 +15,6 @@ from exhibition.models import (
 )
 from exhibition.shop import checkout_session_key, shop_products
 
-
 CUSTOMER_DATA = {
     "organization_name": "Acme Inc",
     "name": "Ada Lovelace",
