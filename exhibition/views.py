@@ -1948,9 +1948,6 @@ class ExhibitionProductListView(ExhibitionProductMixin, PaginationMixin, ListVie
         context = super().get_context_data(**kwargs)
         context["reorder_enabled"] = not context["is_paginated"]
         context["payment_method_missing"] = paid_products_lack_payment_method(self.request.event)
-        context["booth_quotas"] = ExhibitionQuota.objects.filter(
-            event=self.request.event, booth_capacity=True
-        ).with_usage()
         context["booth_products_without_quota"] = (
             ExhibitionProduct.objects.filter(event=self.request.event, active=True, includes_booth=True)
             .exclude(quotas__booth_capacity=True)

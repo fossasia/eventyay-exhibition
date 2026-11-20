@@ -278,7 +278,7 @@ def test_quotas_page_lists_usage(event, shop):
 
 @pytest.mark.django_db
 @override_settings(SITE_URL="https://testserver")
-def test_products_page_shows_booths_left_and_unlimited_booth_products(event, shop):
+def test_products_page_warns_about_unlimited_booth_products_without_capacity_info(event, shop):
     client = _organizer_client(event)
     with scopes_disabled():
         _quota(event, "Booths", 5, shop["booth"], booth_capacity=True)
@@ -287,8 +287,11 @@ def test_products_page_shows_booths_left_and_unlimited_booth_products(event, sho
     response = client.get(_url(event, "products"))
 
     content = response.content.decode()
-    assert "4 of 5 booths left" in content
+    assert "booths left" not in content
+    assert "booths sold, no limit set" not in content
     assert response.context["booth_products_without_quota"] == 1
+    assert "not on a booth capacity quota" in content
+    assert "Manage quotas" in content
 
 
 @pytest.mark.django_db
