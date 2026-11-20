@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
+from django.forms.models import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
@@ -49,6 +50,8 @@ from .forms import (
     ExhibitionOrderProductsForm,
     ExhibitionOrderQuestionForm,
     ExhibitionOrderQuestionOptionFormSet,
+    ExhibitionProductAddOnForm,
+    ExhibitionProductAddOnsFormSet,
     ExhibitionProductCategoryForm,
     ExhibitionProductForm,
     ExhibitionQuestionForm,
@@ -116,6 +119,7 @@ from .models import (
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    ExhibitionProductAddOn,
     ExhibitionProductCategory,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
@@ -1984,14 +1988,86 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
 
     def form_invalid(self, form):
         messages.error(self.request, _("We could not save your changes. See below for details."))
-        return super().form_invalid(form)
+        return self.render_to_response(self.get_context_data(form=form))
+
+    @cached_property
+    def addons_formset(self):
+        formset_cls = inlineformset_factory(
+            ExhibitionProduct,
+            ExhibitionProductAddOn,
+            form=ExhibitionProductAddOnForm,
+            formset=ExhibitionProductAddOnsFormSet,
+            can_order=True,
+            can_delete=True,
+            extra=0,
+        )
+        return formset_cls(
+            self.request.POST if self.request.method == "POST" else None,
+            queryset=(
+                ExhibitionProductAddOn.objects.filter(base_product=self.object)
+                if getattr(self, "object", None) and self.object.pk
+                else ExhibitionProductAddOn.objects.none()
+            ),
+            event=self.request.event,
+            prefix="addons",
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["addons_formset"] = self.addons_formset
+        return ctx
+
+    def is_valid(self, form):
+        if "addons-TOTAL_FORMS" not in self.request.POST:
+            return form.is_valid()
+        v = form.is_valid() and self.addons_formset.is_valid()
+        if v and form.cleaned_data.get("category") and form.cleaned_data["category"].is_addon:
+            addons = self.addons_formset.ordered_forms + [
+                ef
+                for ef in self.addons_formset.extra_forms
+                if ef not in self.addons_formset.ordered_forms and ef not in self.addons_formset.deleted_forms
+            ]
+            if addons:
+                messages.error(
+                    self.request,
+                    _("You cannot add add-ons to a product that is only available as an add-on itself."),
+                )
+                v = False
+        return v
+
+    def save_addons(self):
+        if "addons-TOTAL_FORMS" not in self.request.POST:
+            return
+        for form in self.addons_formset.deleted_forms:
+            if not form.instance.pk:
+                continue
+            form.instance.delete()
+            form.instance.pk = None
+
+        forms = self.addons_formset.ordered_forms + [
+            ef
+            for ef in self.addons_formset.extra_forms
+            if ef not in self.addons_formset.ordered_forms and ef not in self.addons_formset.deleted_forms
+        ]
+        for i, form in enumerate(forms):
+            form.instance.position = i
+            form.instance.base_product = self.object
+            form.save()
 
 
 class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
+    def post(self, request, *args, **kwargs):
+        self.object = None
+        form = self.get_form()
+        if self.is_valid(form):
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
     def form_valid(self, form):
         form.instance.event = self.request.event
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_addons()
             self.object.log_action(
                 LOG_PRODUCT_ADDED,
                 data={"name": self.object.localized_name},
@@ -2002,9 +2078,17 @@ class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
 
 
 class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        if self.is_valid(form):
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
     def form_valid(self, form):
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_addons()
             if form.has_changed():
                 self.object.log_action(
                     LOG_PRODUCT_CHANGED,

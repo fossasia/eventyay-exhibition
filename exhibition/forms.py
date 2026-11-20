@@ -67,6 +67,7 @@ from .models import (
     ExhibitionOrderQuestion,
     ExhibitionOrderQuestionOption,
     ExhibitionProduct,
+    ExhibitionProductAddOn,
     ExhibitionProductCategory,
     ExhibitionProductPurpose,
     ExhibitionQuestion,
@@ -2566,7 +2567,58 @@ class ExhibitionProductCategoryForm(I18nModelForm):
     class Meta:
         model = ExhibitionProductCategory
         localized_fields = "__all__"
-        fields = ["name", "internal_name", "description"]
+        fields = ["name", "internal_name", "description", "is_addon"]
+
+
+class ExhibitionProductAddOnsFormSet(I18nFormSet):
+    title = _("Add-ons")
+
+    def __init__(self, *args, event=None, **kwargs):
+        self.event = event
+        super().__init__(*args, **kwargs)
+
+    def _construct_form(self, i, **kwargs):
+        kwargs["event"] = self.event
+        return super()._construct_form(i, **kwargs)
+
+    def clean(self):
+        super().clean()
+        categories = set()
+        for i in range(0, self.total_form_count()):
+            form = self.forms[i]
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            if "addon_category" in form.cleaned_data:
+                category = form.cleaned_data["addon_category"]
+                if category:
+                    if category.pk in categories:
+                        raise ValidationError(_("You added the same add-on category twice."))
+                    categories.add(category.pk)
+
+
+class ExhibitionProductAddOnForm(I18nModelForm):
+    class Meta:
+        model = ExhibitionProductAddOn
+        localized_fields = "__all__"
+        fields = [
+            "addon_category",
+            "min_count",
+            "max_count",
+            "price_included",
+            "multi_allowed",
+        ]
+        help_texts = {
+            "min_count": _(
+                "Be aware that setting a minimal number makes it impossible to buy this product if all "
+                "available add-ons are sold out."
+            )
+        }
+
+    def __init__(self, *args, event=None, **kwargs):
+        self.event = event or (kwargs.get("instance") and kwargs["instance"].base_product.event)
+        super().__init__(*args, **kwargs)
+        if self.event:
+            self.fields["addon_category"].queryset = ExhibitionProductCategory.objects.filter(event=self.event)
 
 
 class ExhibitionProductForm(I18nModelForm):

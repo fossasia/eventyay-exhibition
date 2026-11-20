@@ -52,6 +52,9 @@
                             {% if category.internal_name %}
                                 <small class="text-muted">{{ category.localized_name }}</small>
                             {% endif %}
+                            {% if category.is_addon %}
+                                <span class="label label-info">{% trans "Add-on" %}</span>
+                            {% endif %}
                         </td>
                         <td data-label="{% trans 'Products' %}">{{ category.product_count }}</td>
                         <td class="list-actions text-right flip" data-label="{% trans 'Actions' %}">

@@ -93,6 +93,7 @@ def place_exhibition_order(
     event,
     products,
     *,
+    addons=None,
     name,
     email,
     organization_name="",
@@ -114,17 +115,27 @@ def place_exhibition_order(
     if order_form is not None and not order_form.is_valid():
         raise ExhibitionOrderError("The order form has errors.")
 
+    addon_list = list(addons or [])
+
     now = timezone.now()
     for product in products:
         if product.event_id != event.pk or (check_availability and not product.is_available(now)):
             raise ExhibitionOrderError(f"{product} is not on sale.")
 
-    total = sum((product.price for product in products), Decimal("0.00"))
+    for _base_idx, addon_prod, _price in addon_list:
+        if addon_prod.event_id != event.pk or (check_availability and not addon_prod.is_available(now)):
+            raise ExhibitionOrderError(f"{addon_prod} is not on sale.")
+
+    all_products = products + [p for _base_idx, p, _price in addon_list]
+    base_total = sum((product.price for product in products), Decimal("0.00"))
+    addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
+    total = base_total + addons_total
+
     if check_availability and total and payment_provider not in usable_payment_providers(event):
         raise ExhibitionOrderError("The payment method is not available for this event.")
 
     with transaction.atomic():
-        reserve_quota_capacity(products)
+        reserve_quota_capacity(all_products)
         order = ExhibitionOrder.objects.create(
             event=event,
             organization_name=organization_name,
@@ -142,14 +153,33 @@ def place_exhibition_order(
                 else None
             ),
         )
-        ExhibitionOrderPosition.objects.bulk_create(
-            ExhibitionOrderPosition.for_product(order, product) for product in products
-        )
+        for base_idx, product in enumerate(products):
+            base_pos = ExhibitionOrderPosition.objects.create(
+                order=order,
+                product=product,
+                name=product.name,
+                purpose=product.purpose,
+                includes_booth=product.includes_booth,
+                price=product.price,
+                addon_to=None,
+            )
+            for a_base_idx, addon_product, price in addon_list:
+                if a_base_idx == base_idx:
+                    ExhibitionOrderPosition.objects.create(
+                        order=order,
+                        product=addon_product,
+                        name=addon_product.name,
+                        purpose=addon_product.purpose,
+                        includes_booth=addon_product.includes_booth,
+                        price=price,
+                        addon_to=base_pos,
+                    )
+
         if order_form is not None:
             order_form.save_exhibition_questions(order)
         order.log_action(
             LOG_ORDER_PLACED,
-            data={"total": str(total), "products": [product.pk for product in products]},
+            data={"total": str(total), "products": [product.pk for product in all_products]},
             user=user,
         )
         if not total:
