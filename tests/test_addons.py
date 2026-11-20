@@ -821,3 +821,118 @@ def test_order_display_shows_addons_indented_under_base_product(event, django_ca
     assert "Sponsor Package" in admin_content
     assert "Logo On Stage" in admin_content
     assert "Add-on" in admin_content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_order_display_nests_each_addon_under_its_own_base(event, django_capture_on_commit_callbacks):
+    """Two-pass bulk_create must not leave a flat base-then-addon list in the UI."""
+    _enable_plugin(event)
+    event.settings.set("payment_manual__enabled", True)
+    with scopes_disabled():
+        addon_cat = _category(event, "Extras", is_addon=True)
+        base_a = _product(event, "Package A", price="100.00")
+        base_b = _product(event, "Package B", price="200.00")
+        extra_a = _product(event, "Extra A", price="10.00", category=addon_cat)
+        extra_b = _product(event, "Extra B", price="20.00", category=addon_cat)
+        rule_a = ExhibitionProductAddOn.objects.create(
+            base_product=base_a,
+            addon_category=addon_cat,
+            min_count=1,
+            max_count=1,
+        )
+        rule_b = ExhibitionProductAddOn.objects.create(
+            base_product=base_b,
+            addon_category=addon_cat,
+            min_count=1,
+            max_count=1,
+        )
+
+    client = Client()
+    client.post(_url(event, "shop"), {"product": [base_a.pk, base_b.pk]})
+    client.post(
+        _url(event, "shop.checkout.addons"),
+        {
+            f"addon_0_{rule_a.pk}": str(extra_a.pk),
+            f"addon_1_{rule_b.pk}": str(extra_b.pk),
+        },
+    )
+    client.post(_url(event, "shop.checkout.details"), CUSTOMER_DATA)
+    client.post(_url(event, "shop.checkout.payment"), {"payment": "manual"})
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(_url(event, "shop.checkout.confirm"))
+
+    with scopes_disabled():
+        order = ExhibitionOrder.objects.get(event=event)
+        names = [str(position.localized_name) for position in order.nested_positions()]
+
+    assert names == ["Package A", "Extra A", "Package B", "Extra B"]
+
+    order_page = client.get(_url(event, "shop.order", code=order.code, secret=order.secret))
+    body = order_page.content.decode()
+    assert body.index("Package A") < body.index("Extra A") < body.index("Package B") < body.index("Extra B")
+
+    org_client = _organizer_client(event)
+    admin_body = org_client.get(_url(event, "orders.detail", code=order.code)).content.decode()
+    assert (
+        admin_body.index("Package A")
+        < admin_body.index("Extra A")
+        < admin_body.index("Package B")
+        < admin_body.index("Extra B")
+    )
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_addon_formset_allows_swapping_categories_on_existing_rules(event):
+    client = _organizer_client(event)
+    with scopes_disabled():
+        product = _product(event, "Base Package")
+        cat_a = _category(event, "Category A", is_addon=True)
+        cat_b = _category(event, "Category B", is_addon=True)
+        rule_a = ExhibitionProductAddOn.objects.create(
+            base_product=product,
+            addon_category=cat_a,
+            min_count=0,
+            max_count=1,
+            position=0,
+        )
+        rule_b = ExhibitionProductAddOn.objects.create(
+            base_product=product,
+            addon_category=cat_b,
+            min_count=0,
+            max_count=1,
+            position=1,
+        )
+
+    form_data = _product_form_data(
+        name_0="Base Package",
+        **{
+            "addons-TOTAL_FORMS": "2",
+            "addons-INITIAL_FORMS": "2",
+            "addons-MIN_NUM_FORMS": "0",
+            "addons-MAX_NUM_FORMS": "1000",
+            "addons-0-id": str(rule_a.pk),
+            "addons-0-addon_category": str(cat_b.pk),
+            "addons-0-min_count": "0",
+            "addons-0-max_count": "1",
+            "addons-0-ORDER": "0",
+            "addons-1-id": str(rule_b.pk),
+            "addons-1-addon_category": str(cat_a.pk),
+            "addons-1-min_count": "0",
+            "addons-1-max_count": "1",
+            "addons-1-ORDER": "1",
+        },
+    )
+
+    response = client.post(_url(event, "products.edit", pk=product.pk), form_data)
+    assert response.status_code == 302
+
+    with scopes_disabled():
+        categories = list(
+            ExhibitionProductAddOn.objects.filter(base_product=product)
+            .order_by("position")
+            .values_list("addon_category_id", flat=True)
+        )
+        assert categories == [cat_b.pk, cat_a.pk]

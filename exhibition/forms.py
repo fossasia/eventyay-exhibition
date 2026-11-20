@@ -2624,6 +2624,16 @@ class ExhibitionProductAddOnForm(I18nModelForm):
         if self.event:
             self.fields["addon_category"].queryset = ExhibitionProductCategory.objects.filter(event=self.event)
 
+    def clean(self):
+        cleaned = super().clean()
+        category = cleaned.get("addon_category")
+        # Category uniqueness across rules is checked on the formset. Do not call
+        # clean_categories here: swapping two existing categories would fail against
+        # the still-persisted sibling before save_addons replaces every row.
+        if category and self.event and category.event_id != self.event.pk:
+            raise ValidationError(_("The add-on's category must belong to the same event as the product."))
+        return cleaned
+
 
 class ExhibitionProductForm(I18nModelForm):
     """An exhibition or sponsorship package, laid out like the Tickets product form."""

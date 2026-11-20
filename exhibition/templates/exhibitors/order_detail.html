@@ -121,7 +121,7 @@
                 </tr>
                 </thead>
                 <tbody>
-                {% for position in order.positions.all %}
+                {% for position in positions %}
                     <tr {% if position.is_addon %}class="addon-row text-muted"{% endif %}>
                         <td {% if position.is_addon %}style="padding-left: 25px;"{% endif %}>
                             {% if position.is_addon %}<i class="fa fa-level-up fa-rotate-90"></i> {% endif %}

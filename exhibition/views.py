@@ -2047,13 +2047,11 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
 
     def save_addons(self):
         if "addons-TOTAL_FORMS" in self.request.POST:
-            for form in self.addons_formset.deleted_forms:
-                if not form.instance.pk:
-                    continue
-                form.instance.delete()
-                form.instance.pk = None
-
+            # Replace all rules so category swaps cannot hit unique_together
+            # while a still-persisted sibling keeps the target category.
+            self.object.addons.all().delete()
             for i, form in enumerate(self.addons_formset.ordered_forms):
+                form.instance.pk = None
                 form.instance.position = i
                 form.instance.base_product = self.object
                 form.save()
@@ -2358,6 +2356,7 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["order"] = self.order
+        context["positions"] = self.order.nested_positions()
         context["can_change_orders"] = self.can_change_orders()
         context["payment_method_name"] = payment_method_names(self.request.event).get(
             self.order.payment_provider, self.order.payment_provider

@@ -1,6 +1,7 @@
 import os
 import secrets
 import string
+from collections import defaultdict
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -1743,6 +1744,29 @@ class ExhibitionOrder(LoggedModel):
             self.code = self.code or generate_exhibition_order_code(self.event)
             self.currency = self.currency or self.event.currency
         return super().save(*args, **kwargs)
+
+    def nested_positions(self):
+        """Base positions with each add-on listed immediately under its parent.
+
+        Insertion order from two-pass ``bulk_create`` puts every base position
+        before every add-on, so id-ordered querysets do not nest. Views that
+        render an order should use this list instead.
+        """
+        positions = list(self.positions.select_related("product").all())
+        addons_by_base = defaultdict(list)
+        bases = []
+        for position in positions:
+            if position.addon_to_id is None:
+                bases.append(position)
+            else:
+                addons_by_base[position.addon_to_id].append(position)
+        nested = []
+        for base in bases:
+            nested.append(base)
+            nested.extend(addons_by_base.pop(base.pk, []))
+        for orphaned in addons_by_base.values():
+            nested.extend(orphaned)
+        return nested
 
     @property
     def can_be_marked_paid(self):
