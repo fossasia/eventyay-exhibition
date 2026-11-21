@@ -1,8 +1,10 @@
 import os
 import secrets
 import string
+from collections import defaultdict
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator
 from django.db import models, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
@@ -1427,6 +1429,15 @@ class ExhibitionProductCategory(LoggedModel):
         blank=True,
     )
     position = models.IntegerField(default=0)
+    is_addon = models.BooleanField(
+        default=False,
+        verbose_name=_("Products in this category are add-on products"),
+        help_text=_(
+            "If selected, the products belonging to this category are not for sale on their own. They can "
+            "only be bought in combination with a product that has this category configured as a possible "
+            "source for add-ons."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Exhibition product category")
@@ -1574,6 +1585,68 @@ class ExhibitionProduct(LoggedModel):
         return self.localized_name or str(self.name)
 
 
+class ExhibitionProductAddOn(models.Model):
+    """An add-on rule allowing products of a category to be attached to an exhibition package."""
+
+    base_product = models.ForeignKey(
+        ExhibitionProduct,
+        on_delete=models.CASCADE,
+        related_name="addons",
+    )
+    addon_category = models.ForeignKey(
+        ExhibitionProductCategory,
+        on_delete=models.CASCADE,
+        related_name="addon_to",
+        verbose_name=_("Category"),
+    )
+    min_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Minimum number"),
+    )
+    max_count = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_("Maximum number"),
+    )
+    price_included = models.BooleanField(
+        default=False,
+        verbose_name=_("Add-Ons are included in the price"),
+        help_text=_(
+            "If selected, adding add-ons to this product is free, even if the add-ons would normally cost "
+            "money individually."
+        ),
+    )
+    multi_allowed = models.BooleanField(
+        default=False,
+        verbose_name=_("Allow the same product to be selected multiple times"),
+    )
+    position = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Position"),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product add-on")
+        verbose_name_plural = _("Exhibition product add-ons")
+        unique_together = (("base_product", "addon_category"),)
+        ordering = ("position", "id")
+
+    def clean(self):
+        if self.min_count > self.max_count:
+            raise ValidationError(_("The minimum number of add-ons cannot be greater than the maximum number."))
+
+    @staticmethod
+    def clean_categories(event, product, addon, new_category):
+        if new_category and event != new_category.event:
+            raise ValidationError(_("The add-on's category must belong to the same event as the product."))
+        if product is not None and product.pk:
+            for existing in product.addons.all():
+                if (addon is None or existing.pk != addon.pk) and existing.addon_category == new_category:
+                    raise ValidationError(_("The product already has an add-on of this category."))
+
+    def __str__(self):
+        return f"{self.base_product} -> {self.addon_category}"
+
+
 class ExhibitionOrderStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     PAID = "paid", _("Paid")
@@ -1676,6 +1749,29 @@ class ExhibitionOrder(LoggedModel):
             self.code = self.code or generate_exhibition_order_code(self.event)
             self.currency = self.currency or self.event.currency
         return super().save(*args, **kwargs)
+
+    def nested_positions(self):
+        """Base positions with each add-on listed immediately under its parent.
+
+        Insertion order from two-pass ``bulk_create`` puts every base position
+        before every add-on, so id-ordered querysets do not nest. Views that
+        render an order should use this list instead.
+        """
+        positions = list(self.positions.select_related("product").all())
+        addons_by_base = defaultdict(list)
+        bases = []
+        for position in positions:
+            if position.addon_to_id is None:
+                bases.append(position)
+            else:
+                addons_by_base[position.addon_to_id].append(position)
+        nested = []
+        for base in bases:
+            nested.append(base)
+            nested.extend(addons_by_base.pop(base.pk, []))
+        for orphaned in addons_by_base.values():
+            nested.extend(orphaned)
+        return nested
 
     @property
     def can_be_marked_paid(self):
@@ -1836,20 +1932,33 @@ class ExhibitionOrderPosition(models.Model):
     )
     includes_booth = models.BooleanField(default=False, verbose_name=_("Includes exhibition booth"))
     price = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Price"))
+    addon_to = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="addons",
+        verbose_name=_("Add-on to"),
+    )
 
     class Meta:
         ordering = ("order", "id")
 
     @classmethod
-    def for_product(cls, order, product):
+    def for_product(cls, order, product, *, addon_to=None, price=None):
         return cls(
             order=order,
             product=product,
             name=product.name,
             purpose=product.purpose,
             includes_booth=product.includes_booth,
-            price=product.price,
+            price=product.price if price is None else price,
+            addon_to=addon_to,
         )
+
+    @property
+    def is_addon(self):
+        return self.addon_to_id is not None
 
     @property
     def localized_name(self):
