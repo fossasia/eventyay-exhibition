@@ -38,10 +38,17 @@
     {% endif %}
     {% if "can_change_event_settings" in request.eventpermset %}
         <td class="organization-published-col">
-            {% if e.published %}
-                <span class="label label-success">{% trans "Published" %}</span>
+            {% if e.published and e.missing_public_images %}
+                <span class="label label-warning" title="{% trans "Not shown on the public Exhibition page, which requires both a logo and an exhibition banner." %}" data-toggle="tooltip">{% trans "Published, missing images" %}</span>
             {% else %}
-                <span class="text-muted">{% trans "Not published" %}</span>
+                {% if e.published %}
+                    <span class="label label-success">{% trans "Published" %}</span>
+                {% else %}
+                    <span class="text-muted">{% trans "Not published" %}</span>
+                {% endif %}
+                {% if e.active and e.missing_public_images %}
+                    <i class="fa fa-exclamation-triangle text-warning" role="img" tabindex="0" title="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" aria-label="{% trans "The public Exhibition page requires both a logo and an exhibition banner." %}" data-toggle="tooltip"></i>
+                {% endif %}
             {% endif %}
         </td>
         <td class="organization-vouchers-col">
