@@ -10,13 +10,17 @@ from i18nfield.strings import LazyI18nString
 
 from . import mail
 from .models import (
+    LOG_DISCOUNT_REDEEMED,
     LOG_ORDER_PLACED,
+    ExhibitionDiscountError,
     ExhibitionOrder,
     ExhibitionOrderError,
     ExhibitionOrderPosition,
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    lock_discount,
+    reserve_discount_usage,
     reserve_quota_capacity,
 )
 
@@ -142,13 +146,16 @@ def place_exhibition_order(
     check_availability=True,
     paid=False,
     payment_reference="",
+    discount=None,
 ):
-    """Place an order at current prices; organisers skip the sale checks and may book it as paid, quotas still apply."""
+    """Place an order priced with ``discount``; organisers skip sale checks and may book it paid, limits still apply."""
     products = list(products)
     if not products:
         raise ExhibitionOrderError("An order needs at least one product.")
     if order_form is not None and not order_form.is_valid():
         raise ExhibitionOrderError("The order form has errors.")
+    if discount is not None and discount.event_id != event.pk:
+        raise ExhibitionDiscountError("The discount code belongs to another event.")
 
     addon_list = list(addons or [])
 
@@ -165,15 +172,23 @@ def place_exhibition_order(
         addon_list = resolve_public_addon_list(products, addon_list)
 
     all_products = products + [p for _base_idx, p, _price in addon_list]
-    base_total = sum((product.price for product in products), Decimal("0.00"))
-    addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
-    total = base_total + addons_total
-
-    if check_availability and total and payment_provider not in usable_payment_providers(event):
-        raise ExhibitionOrderError("The payment method is not available for this event.")
 
     with transaction.atomic():
+        if discount is not None:
+            discount = lock_discount(discount)
+        for product in products:
+            if check_availability and product.hide_without_discount and not (discount and discount.reveals(product)):
+                raise ExhibitionOrderError(f"{product} is only sold with a discount code.")
+        positions = [ExhibitionOrderPosition.for_product(None, product, discount) for product in products]
+        discounted = sum(1 for position in positions if position.discount_id)
+        base_total = sum((position.price for position in positions), Decimal("0.00"))
+        addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
+        total = base_total + addons_total
+        if check_availability and total and payment_provider not in usable_payment_providers(event):
+            raise ExhibitionOrderError("The payment method is not available for this event.")
         reserve_quota_capacity(all_products)
+        if discounted:
+            reserve_discount_usage(discount, discounted)
         order = ExhibitionOrder.objects.create(
             event=event,
             organization_name=organization_name,
@@ -191,9 +206,9 @@ def place_exhibition_order(
                 else None
             ),
         )
-        base_positions = ExhibitionOrderPosition.objects.bulk_create(
-            [ExhibitionOrderPosition.for_product(order, product) for product in products]
-        )
+        for position in positions:
+            position.order = order
+        base_positions = ExhibitionOrderPosition.objects.bulk_create(positions)
         addon_positions = []
         for a_base_idx, addon_product, price in addon_list:
             if a_base_idx < 0 or a_base_idx >= len(base_positions):
@@ -213,9 +228,17 @@ def place_exhibition_order(
             order_form.save_exhibition_questions(order)
         order.log_action(
             LOG_ORDER_PLACED,
-            data={"total": str(total), "products": [product.pk for product in all_products]},
+            data={
+                "total": str(total),
+                "products": [product.pk for product in all_products],
+                "discount": discount.code if discounted else "",
+            },
             user=user,
         )
+        if discounted:
+            discount.log_action(
+                LOG_DISCOUNT_REDEEMED, data={"exhibition_order": order.code, "uses": discounted}, user=user
+            )
         if not total:
             order.mark_paid(provider=FREE_PAYMENT_PROVIDER, user=user)
         elif paid:

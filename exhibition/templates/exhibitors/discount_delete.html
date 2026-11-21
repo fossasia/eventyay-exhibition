@@ -1,0 +1,39 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ request.event.name }} - {% trans "Delete discount code" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Delete discount code" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    {% if used %}
+        <p>
+            {% blocktrans trimmed with code=object.code %}
+                The discount code <strong>{{ code }}</strong> has been used in orders, so it cannot be deleted. To
+                stop it from being used again, lower its maximum uses or set its expiry date.
+            {% endblocktrans %}
+        </p>
+        <div class="form-group submit-group">
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products.discounts.edit' organizer=request.event.organizer.slug event=request.event.slug pk=object.pk %}">
+                {% trans "Edit the code" %}
+            </a>
+        </div>
+    {% else %}
+        <form action="" method="post">
+            {% csrf_token %}
+            <p>
+                {% blocktrans trimmed with code=object.code %}
+                    Are you sure you want to delete the discount code <strong>{{ code }}</strong>?
+                {% endblocktrans %}
+            </p>
+            <div class="form-group submit-group">
+                <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+                <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products.discounts' organizer=request.event.organizer.slug event=request.event.slug %}">
+                    {% trans "Cancel" %}
+                </a>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

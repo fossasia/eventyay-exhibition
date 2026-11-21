@@ -17,6 +17,18 @@
                     deactivate it instead to stop selling it.
                 {% endblocktrans %}
             </p>
+        {% elif only_product_of_codes %}
+            <p>
+                {% blocktrans trimmed with name=object %}
+                    The product <strong>{{ name }}</strong> is the only product of these discount codes, which would
+                    then apply to every product. Change or delete them first:
+                {% endblocktrans %}
+            </p>
+            <ul>
+                {% for discount in only_product_of_codes %}
+                    <li><a href="{% url 'plugins:exhibition:products.discounts.edit' organizer=request.event.organizer.slug event=request.event.slug pk=discount.pk %}">{{ discount.code }}</a></li>
+                {% endfor %}
+            </ul>
         {% else %}
             <p>
                 {% blocktrans trimmed with name=object %}
@@ -25,7 +37,7 @@
             </p>
         {% endif %}
         <div class="form-group submit-group">
-            {% if not has_orders %}
+            {% if not has_orders and not only_product_of_codes %}
                 <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
             {% endif %}
             <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">

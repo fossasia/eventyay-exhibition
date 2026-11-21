@@ -18,12 +18,14 @@ from eventyay.control.forms import ExtFileField
 
 from .forms import ExhibitionOrderForm
 from .models import (
+    ExhibitionDiscountError,
     ExhibitionOrder,
     ExhibitionOrderError,
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
     ExhibitionQuotaExceeded,
+    find_discount,
 )
 from .orders import payment_instructions, place_exhibition_order, send_order_email, usable_payment_providers
 
@@ -32,19 +34,51 @@ def checkout_session_key(event):
     return f"exhibition_checkout_{event.pk}"
 
 
-def shop_products(event):
-    """The exhibition products on sale now, in sales order, each told whether its quotas are sold out."""
-    products = list(
-        ExhibitionProduct.objects.filter(event=event)
+def shop_products(event, discount=None):
+    """The products on sale now in sales order, with their price under ``discount`` and whether they sold out."""
+    products = [
+        product
+        for product in ExhibitionProduct.objects.filter(event=event)
         .available()
         .exclude(category__is_addon=True)
         .in_sales_order()
         .select_related("category")
-    )
+        if not product.hide_without_discount or (discount is not None and discount.reveals(product))
+    ]
     for product in products:
         product.remaining = product.remaining_capacity()
         product.sold_out = product.remaining == 0
+        product.discount = discount if discount is not None and discount.applies_to(product) else None
+        product.discounted_price = discount.price_for(product) if product.discount else product.price
     return products
+
+
+def session_discount(request):
+    """The discount code applied in this buyer's checkout, while it still exists and can be used."""
+    code = request.session.get(checkout_session_key(request.event), {}).get("discount")
+    discount = find_discount(request.event, code) if code else None
+    return discount if discount is not None and not discount.unusable_reason() else None
+
+
+def apply_discount_code(request, code):
+    """Apply the code typed or linked by the buyer to their checkout, or remove it when empty; True if applied."""
+    key = checkout_session_key(request.event)
+    cart = request.session.get(key, {})
+    cart.pop("discount", None)
+    code = (code or "").strip()
+    if not code:
+        request.session[key] = cart
+        return False
+    discount = find_discount(request.event, code)
+    problem = _("The discount code {code} is not valid.").format(code=code) if discount is None else ""
+    problem = problem or discount.unusable_reason()
+    if problem:
+        messages.error(request, problem)
+        request.session[key] = cart
+        return False
+    cart["discount"] = discount.code
+    request.session[key] = cart
+    return True
 
 
 def group_by_category(products):
@@ -90,7 +124,7 @@ class ShopIndexView(View):
 
     @cached_property
     def products(self):
-        return shop_products(self.request.event)
+        return shop_products(self.request.event, session_discount(self.request))
 
     def get(self, request, *args, **kwargs):
         return redirect(packages_url(request.event))
@@ -137,18 +171,18 @@ class ShopCheckoutMixin:
         self.request.session[key] = cart
 
     @cached_property
+    def discount(self):
+        return session_discount(self.request)
+
+    @cached_property
     def products(self):
-        pk_list = self.cart.get("products", [])
-        if not pk_list:
-            return []
-        products_by_id = {
-            product.pk: product
-            for product in ExhibitionProduct.objects.filter(event=self.request.event, pk__in=pk_list)
-            .available()
-            .exclude(category__is_addon=True)
-            .select_related("category")
-        }
-        return [products_by_id.get(pk) for pk in pk_list]
+        on_sale = {product.pk: product for product in shop_products(self.request.event, self.discount)}
+        return [on_sale.get(pk) for pk in self.cart.get("products", [])]
+
+    def drop_discount(self, message):
+        messages.error(self.request, message)
+        self.save_cart(discount=None)
+        return redirect(packages_url(self.request.event))
 
     @property
     def has_addons_step(self):
@@ -255,7 +289,7 @@ class ShopCheckoutMixin:
 
     @cached_property
     def total(self):
-        base_total = sum((product.price for product in self.products if product), Decimal("0.00"))
+        base_total = sum((product.discounted_price for product in self.products if product), Decimal("0.00"))
         addons_total = sum((price for _, _, price in self.addon_items), Decimal("0.00"))
         return base_total + addons_total
 
@@ -263,6 +297,10 @@ class ShopCheckoutMixin:
         if not self.cart.get("products"):
             messages.info(request, _("Please select the products you want to order."))
             return redirect(packages_url(request.event))
+        if self.cart.get("discount") and self.discount is None:
+            return self.drop_discount(
+                _("The discount code {code} can no longer be used.").format(code=self.cart["discount"])
+            )
         if None in self.products:
             messages.error(request, _("One of the selected products is no longer on sale."))
             return redirect(packages_url(request.event))
@@ -319,6 +357,7 @@ class ShopCheckoutMixin:
         context["event"] = self.request.event
         context["products"] = self.products
         context["total"] = self.total
+        context["discount"] = self.discount
         context["summary_entries"] = self.summary_entries
         context["checkout_flow"] = self.checkout_flow()
         return context
@@ -646,10 +685,15 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
                 order_form=form,
                 payment_provider=self.payment_provider.identifier if self.payment_provider else "",
                 user=request.user if request.user.is_authenticated else None,
+                discount=self.discount,
             )
         except ExhibitionQuotaExceeded:
             messages.error(request, _("Sorry, one of the selected products has sold out in the meantime."))
             return redirect(packages_url(request.event))
+        except ExhibitionDiscountError:
+            return self.drop_discount(
+                _("Sorry, the discount code {code} has no uses left for this order.").format(code=self.discount.code)
+            )
         except ExhibitionOrderError:
             messages.error(request, _("Your order could not be placed. Please check your selection."))
             return redirect(packages_url(request.event))

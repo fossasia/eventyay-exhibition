@@ -80,7 +80,13 @@
                                     {% if position.is_addon %}<span class="label label-info">{% trans "Add-on" %}</span>{% endif %}
                                 </td>
                                 <td>{% if position.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                                <td class="text-right">{% if position.price %}{{ position.price|money:order.currency }}{% else %}{% trans "Free" %}{% endif %}</td>
+                                <td class="text-right">
+                                    {% if position.discount_id %}<del>{{ position.original_price|money:order.currency }}</del>{% endif %}
+                                    {% if position.price %}{{ position.price|money:order.currency }}{% else %}{% trans "Free" %}{% endif %}
+                                    {% if position.discount_id %}
+                                        <br><small class="text-muted">{% blocktrans trimmed with code=position.discount.code %}Discount code {{ code }}{% endblocktrans %}</small>
+                                    {% endif %}
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>

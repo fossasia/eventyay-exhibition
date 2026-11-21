@@ -397,7 +397,12 @@ class ExhibitionProductViewSet(viewsets.ReadOnlyModelViewSet):
     permission = None
 
     def get_queryset(self):
-        return ExhibitionProduct.objects.for_event(self.request.event).available().in_sales_order()
+        return (
+            ExhibitionProduct.objects.for_event(self.request.event)
+            .available()
+            .filter(hide_without_discount=False)
+            .in_sales_order()
+        )
 
 
 class ExhibitionProductCategoryViewSet(viewsets.ReadOnlyModelViewSet):

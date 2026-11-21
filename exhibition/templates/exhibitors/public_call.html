@@ -67,9 +67,44 @@
             </div>
         {% endif %}
     {% endif %}
-    {% if products_by_category %}
+    {% if products_by_category or offers_discounts %}
         <div id="exhibition-packages">
             <h2 class="content-header" id="{% if show_call %}exhibition-packages-heading{% else %}exhibition-call-heading{% endif %}">{% trans "Sponsorship and exhibition packages" %}</h2>
+            {% if discount %}
+                <div class="alert alert-success">
+                    <p>
+                        {% blocktrans trimmed with code=discount.code %}
+                            The discount code <strong>{{ code }}</strong> is applied.
+                        {% endblocktrans %}
+                        <a href="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}?discount=">{% trans "Remove" %}</a>
+                    </p>
+                </div>
+            {% elif offers_discounts %}
+                <section class="front-page exhibition-discount" aria-labelledby="exhibition-discount-heading">
+                    <h3 id="exhibition-discount-heading">{% trans "Have a discount code?" %}</h3>
+                    <form method="get" action="{% url 'plugins:exhibition:public_call' organizer=request.event.organizer.slug event=request.event.slug %}">
+                        <div class="row-voucher">
+                            <div class="col-md-8 col-sm-6 col-xs-12">
+                                <label for="exhibition-discount-code" class="sr-only">{% trans "Discount code" %}</label>
+                                <div class="input-group input-group-lg">
+                                    <span class="input-group-addon"><i class="fa fa-tag fa-fw" aria-hidden="true"></i></span>
+                                    <input type="text" class="form-control" name="discount" id="exhibition-discount-code"
+                                           placeholder="{% trans 'Discount code' %}" required>
+                                </div>
+                            </div>
+                            <div class="redeem-voucher-container">
+                                <div class="col-md-4 col-sm-6 col-xs-12">
+                                    <button class="btn btn-block btn-primary btn-lg" type="submit">
+                                        {% trans "Apply discount code" %}
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="clearfix"></div>
+                        </div>
+                    </form>
+                </section>
+            {% endif %}
+            {% if products_by_category %}
             <form method="post" action="{% url 'plugins:exhibition:shop' organizer=request.event.organizer.slug event=request.event.slug %}">
                 {% csrf_token %}
                 {% include "exhibitors/_shop_product_list.html" %}
@@ -84,6 +119,7 @@
                     </div>
                 </section>
             </form>
+            {% endif %}
         </div>
     {% endif %}
 {% endblock %}

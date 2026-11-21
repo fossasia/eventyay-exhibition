@@ -1,0 +1,41 @@
+{% extends "exhibitors/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{{ request.event.name }} - {% trans "Create multiple codes" %}{% endblock %}
+
+{% block exhibitors_header %}
+    <h1>{% trans "Create multiple codes" %}</h1>
+{% endblock %}
+
+{% block exhibitors_content %}
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+        <fieldset>
+            <legend>{% trans "Discount codes" %}</legend>
+            {% bootstrap_field form.count layout="control" %}
+            {% bootstrap_field form.prefix layout="control" %}
+            {% bootstrap_field form.max_usages layout="control" %}
+            {% bootstrap_field form.valid_until layout="control" %}
+        </fieldset>
+        <fieldset>
+            <legend>{% trans "Discount" %}</legend>
+            {% bootstrap_field form.price_mode layout="control" %}
+            {% bootstrap_field form.value layout="control" %}
+            {% bootstrap_field form.products layout="control" %}
+            {% bootstrap_field form.show_hidden_products layout="control" %}
+        </fieldset>
+        <fieldset>
+            <legend>{% trans "Organization" %}</legend>
+            {% bootstrap_field form.tag layout="control" %}
+            {% bootstrap_field form.comment layout="control" %}
+        </fieldset>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">{% trans "Create" %}</button>
+            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products.discounts' organizer=request.event.organizer.slug event=request.event.slug %}">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}
