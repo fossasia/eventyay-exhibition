@@ -28,7 +28,7 @@
             {% if not has_orders %}
                 <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
             {% endif %}
-            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">
+            <a class="btn btn-default btn-lg" href="{{ view.get_success_url }}">
                 {% trans "Cancel" %}
             </a>
         </div>

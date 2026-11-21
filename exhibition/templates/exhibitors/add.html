@@ -95,10 +95,12 @@
                 {% trans "Save" %}
             {% endif %}
         </button>
-        {% if organization_type == 'sponsor' or request.GET.type == 'sponsor' %}
-            {% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
-        {% else %}
-            {% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
+        {% if not cancel_url %}
+            {% if organization_type == 'sponsor' or request.GET.type == 'sponsor' %}
+                {% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
+            {% else %}
+                {% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
+            {% endif %}
         {% endif %}
         <a class="btn btn-default btn-lg" href="{{ cancel_url }}">
             {% trans "Cancel" %}

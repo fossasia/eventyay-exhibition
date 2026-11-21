@@ -9,11 +9,6 @@
 {% endblock %}
 
 {% block exhibitors_content %}
-    {% if exhibitor.is_sponsor and not exhibitor.is_exhibitor %}
-        {% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
-    {% else %}
-        {% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
-    {% endif %}
     <p>
         {% blocktrans trimmed %}
             Hand this exhibitor or sponsor codes from the voucher pool. Whoever redeems one on the ticket
