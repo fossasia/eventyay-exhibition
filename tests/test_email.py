@@ -902,6 +902,43 @@ def test_compose_view_schedules_emails(mail_event):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("post", "scheduled", "message"),
+    [
+        ({}, False, "1 email has been placed in the outbox."),
+        ({"_send": "1"}, False, "1 email has been sent."),
+        ({"_send": "1"}, True, "1 email has been scheduled."),
+    ],
+)
+def test_compose_view_reports_a_single_email_in_the_singular(mail_event, post, scheduled, message):
+    _request(mail_event, "Acme", ExhibitionRequestState.ACCEPTED, email="a@example.com")
+    when = timezone.now() + timedelta(days=1)
+    form = ExhibitionComposeForm(
+        data={
+            "state": ExhibitionRequestState.ACCEPTED,
+            "organization_type": "",
+            "scheduled_at": when.strftime("%Y-%m-%dT%H:%M") if scheduled else "",
+            **_compose_data(mail_event, subject="Hi", body="Body"),
+        },
+        event=mail_event,
+    )
+    assert form.is_valid(), form.errors
+
+    request = RequestFactory().post("/compose", data=post)
+    request.event = mail_event
+    request.user = None
+    request.session = {}
+    request._messages = FallbackStorage(request)
+    view = EmailComposeView()
+    view.request = request
+
+    with patch("exhibition.tasks.send_scheduled_email.apply_async"):
+        view.form_valid(form)
+
+    assert _message_texts(request) == [message]
+
+
+@pytest.mark.django_db
 def test_scheduled_task_sends_when_due(mail_event, exhibition_request):
     from exhibition.tasks import send_scheduled_email
 

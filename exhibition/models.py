@@ -1,8 +1,10 @@
 import os
 import secrets
 import string
+from collections import defaultdict
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator
 from django.db import models, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
@@ -306,8 +308,25 @@ class VoucherDefaultsMixin(models.Model):
         abstract = True
 
 
+class ExhibitorGroup(models.TextChoices):
+    """The two exhibitor groups every event has; they cannot be renamed, removed or added to."""
+
+    PAID = "paid", _("Paid exhibitor")
+    NON_PAID = "non_paid", _("Non-paid exhibitor")
+
+
 class ExhibitorSettings(VoucherDefaultsMixin, LoggedModel):
     event = models.ForeignKey("base.Event", on_delete=models.CASCADE)
+    paid_voucher_default_count = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        verbose_name=_("Vouchers per paid exhibitor"),
+    )
+    non_paid_voucher_default_count = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        verbose_name=_("Vouchers per non-paid exhibitor"),
+    )
     voucher_pool_tag = models.CharField(
         max_length=255,
         blank=True,
@@ -516,6 +535,14 @@ class ExhibitorInfo(LoggedModel):
         related_name="organizations",
     )
     is_exhibitor = models.BooleanField(default=True)
+    exhibitor_group = models.CharField(
+        max_length=16,
+        choices=ExhibitorGroup.choices,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name=_("Exhibitor group"),
+    )
     active = models.BooleanField(default=True)
     published = models.BooleanField(
         default=False,
@@ -601,6 +628,17 @@ class ExhibitorInfo(LoggedModel):
             locale = getattr(self.event, "locale", None)
             booth_name = booth_name.localize(locale) if locale else str(booth_name)
         return booth_name or ""
+
+    @property
+    def group_label(self):
+        """The group shown for the organization: its sponsor group while it sponsors, else its exhibitor group."""
+        if self.is_sponsor:
+            if self.sponsor_group_id:
+                return _("Sponsor · {group}").format(group=self.sponsor_group.localized_name)
+            return _("Sponsor")
+        if self.exhibitor_group:
+            return self.get_exhibitor_group_display()
+        return _("No group")
 
     @property
     def visible_logo_url(self):
@@ -1386,6 +1424,15 @@ class ExhibitionProductCategory(LoggedModel):
         blank=True,
     )
     position = models.IntegerField(default=0)
+    is_addon = models.BooleanField(
+        default=False,
+        verbose_name=_("Products in this category are add-on products"),
+        help_text=_(
+            "If selected, the products belonging to this category are not for sale on their own. They can "
+            "only be bought in combination with a product that has this category configured as a possible "
+            "source for add-ons."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Exhibition product category")
@@ -1533,6 +1580,68 @@ class ExhibitionProduct(LoggedModel):
         return self.localized_name or str(self.name)
 
 
+class ExhibitionProductAddOn(models.Model):
+    """An add-on rule allowing products of a category to be attached to an exhibition package."""
+
+    base_product = models.ForeignKey(
+        ExhibitionProduct,
+        on_delete=models.CASCADE,
+        related_name="addons",
+    )
+    addon_category = models.ForeignKey(
+        ExhibitionProductCategory,
+        on_delete=models.CASCADE,
+        related_name="addon_to",
+        verbose_name=_("Category"),
+    )
+    min_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Minimum number"),
+    )
+    max_count = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_("Maximum number"),
+    )
+    price_included = models.BooleanField(
+        default=False,
+        verbose_name=_("Add-Ons are included in the price"),
+        help_text=_(
+            "If selected, adding add-ons to this product is free, even if the add-ons would normally cost "
+            "money individually."
+        ),
+    )
+    multi_allowed = models.BooleanField(
+        default=False,
+        verbose_name=_("Allow the same product to be selected multiple times"),
+    )
+    position = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Position"),
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product add-on")
+        verbose_name_plural = _("Exhibition product add-ons")
+        unique_together = (("base_product", "addon_category"),)
+        ordering = ("position", "id")
+
+    def clean(self):
+        if self.min_count > self.max_count:
+            raise ValidationError(_("The minimum number of add-ons cannot be greater than the maximum number."))
+
+    @staticmethod
+    def clean_categories(event, product, addon, new_category):
+        if new_category and event != new_category.event:
+            raise ValidationError(_("The add-on's category must belong to the same event as the product."))
+        if product is not None and product.pk:
+            for existing in product.addons.all():
+                if (addon is None or existing.pk != addon.pk) and existing.addon_category == new_category:
+                    raise ValidationError(_("The product already has an add-on of this category."))
+
+    def __str__(self):
+        return f"{self.base_product} -> {self.addon_category}"
+
+
 class ExhibitionOrderStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     PAID = "paid", _("Paid")
@@ -1635,6 +1744,29 @@ class ExhibitionOrder(LoggedModel):
             self.code = self.code or generate_exhibition_order_code(self.event)
             self.currency = self.currency or self.event.currency
         return super().save(*args, **kwargs)
+
+    def nested_positions(self):
+        """Base positions with each add-on listed immediately under its parent.
+
+        Insertion order from two-pass ``bulk_create`` puts every base position
+        before every add-on, so id-ordered querysets do not nest. Views that
+        render an order should use this list instead.
+        """
+        positions = list(self.positions.select_related("product").all())
+        addons_by_base = defaultdict(list)
+        bases = []
+        for position in positions:
+            if position.addon_to_id is None:
+                bases.append(position)
+            else:
+                addons_by_base[position.addon_to_id].append(position)
+        nested = []
+        for base in bases:
+            nested.append(base)
+            nested.extend(addons_by_base.pop(base.pk, []))
+        for orphaned in addons_by_base.values():
+            nested.extend(orphaned)
+        return nested
 
     @property
     def can_be_marked_paid(self):
@@ -1795,20 +1927,33 @@ class ExhibitionOrderPosition(models.Model):
     )
     includes_booth = models.BooleanField(default=False, verbose_name=_("Includes exhibition booth"))
     price = models.DecimalField(max_digits=13, decimal_places=2, verbose_name=_("Price"))
+    addon_to = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="addons",
+        verbose_name=_("Add-on to"),
+    )
 
     class Meta:
         ordering = ("order", "id")
 
     @classmethod
-    def for_product(cls, order, product):
+    def for_product(cls, order, product, *, addon_to=None, price=None):
         return cls(
             order=order,
             product=product,
             name=product.name,
             purpose=product.purpose,
             includes_booth=product.includes_booth,
-            price=product.price,
+            price=product.price if price is None else price,
+            addon_to=addon_to,
         )
+
+    @property
+    def is_addon(self):
+        return self.addon_to_id is not None
 
     @property
     def localized_name(self):
@@ -2088,6 +2233,8 @@ class ExhibitionEmailQueue(LoggedModel):
         state = "sent" if self.sent_at else "pending"
         return f"{self.to_email} · {state} · {self.subject}"
 
+    DELIVERY_FIELDS = ("to_email", "subject", "body", "reply_to", "locale", "attachment_id")
+
     def send(self, requestor=None):
         """Deliver the email via core mail() and mark it sent, holding the row so a concurrent discard waits."""
         from eventyay.base.services.mail import mail
@@ -2096,8 +2243,17 @@ class ExhibitionEmailQueue(LoggedModel):
             return
 
         with transaction.atomic():
-            if not type(self).objects.select_for_update().filter(pk=self.pk, sent_at__isnull=True).exists():
+            current = (
+                type(self)
+                .objects.select_for_update()
+                .filter(pk=self.pk, sent_at__isnull=True)
+                .values(*self.DELIVERY_FIELDS)
+                .first()
+            )
+            if current is None:
                 return
+            for name, value in current.items():
+                setattr(self, name, value)
             mail(
                 email=self.to_email,
                 subject=self.subject,
@@ -2154,10 +2310,26 @@ class ExhibitionEmailDraft(models.Model):
     subject = I18nCharField(max_length=255, null=True, blank=True, verbose_name=_("Subject"))
     body = I18nTextField(null=True, blank=True, verbose_name=_("Body"))
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    attachment = models.ForeignKey(
+        "base.CachedFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
-    FORM_FIELDS = ("states", "organization_type", "sponsor_group", "organizations", "subject", "body", "scheduled_at")
+    FORM_FIELDS = (
+        "states",
+        "organization_type",
+        "sponsor_group",
+        "organizations",
+        "subject",
+        "body",
+        "scheduled_at",
+        "attachment",
+    )
 
     class Meta:
         verbose_name = _("Email draft")
@@ -2174,9 +2346,11 @@ class ExhibitionEmailDraft(models.Model):
     def fill_from_form(self, cleaned_data):
         """Copy the compose form's values onto the draft; fields the form leaves out keep their defaults."""
         for name in self.FORM_FIELDS:
-            if name in cleaned_data:
+            if name in cleaned_data and name != "attachment":
                 setattr(self, name, cleaned_data[name])
         self.states = list(self.states or [])
+        if "attachment" in cleaned_data:
+            self.attachment = cleaned_data["attachment"] or None
         self.organizations = list(self.organizations or [])
 
     def recipient_count(self):

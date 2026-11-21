@@ -4,10 +4,11 @@ import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from django_scopes import scopes_disabled
 from eventyay.base.models import LogEntry
+from eventyay.base.models.auth import User
 
 from exhibition.forms import ExhibitionLayoutForm
 from exhibition.models import LOG_SETTINGS_CHANGED, ExhibitorSettings, exhibition_layout_path
@@ -186,6 +187,44 @@ def test_layout_view_shows_the_layout_and_links_back(event):
     assert 'alt="Exhibition layout: Hall 1, ground floor"' in html
     assert "<figcaption>Hall 1, ground floor</figcaption>" in html
     assert 'rel="noopener noreferrer"' in html
+
+
+def _layout_settings_html(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        user = User.objects.create_user(email="organizer@example.com", password="secret", fullname="Organizer")
+        team = event.organizer.teams.create(name="team", all_events=True, can_change_event_settings=True)
+        team.members.add(user)
+    client = Client()
+    client.force_login(user)
+    url = reverse(
+        "plugins:exhibition:settings.exhibitors", kwargs={"organizer": event.organizer.slug, "event": event.slug}
+    )
+    return client.get(url).content.decode()
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_layout_caption_has_a_language_switcher_for_multilingual_events(event):
+    event.settings.set("locales", ["en", "de"])
+
+    html = _layout_settings_html(event)
+
+    assert html.count("data-i18n-switcher") == 1
+    assert html.index("data-i18n-switcher") < html.index('name="layout_caption_0"')
+    assert 'data-locale="en"' in html
+    assert 'data-locale="de"' in html
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_layout_caption_has_no_language_switcher_for_single_language_events(event):
+    event.settings.set("locales", ["en"])
+
+    html = _layout_settings_html(event)
+
+    assert "data-i18n-switcher" not in html
+    assert 'name="layout_caption_0"' in html
 
 
 @pytest.mark.django_db
