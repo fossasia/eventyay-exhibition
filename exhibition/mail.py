@@ -757,7 +757,7 @@ def organizer_created_profiles(event):
     )
 
 
-def resolve_compose_recipients(event, *, organizations=(), state="", organization_type="", sponsor_group=None):
+def resolve_compose_recipients(event, *, organizations=(), states=(), organization_type="", sponsor_group=None):
     """Applications and profiles a composed email goes to: the chosen organizations, else everyone matching the filters.
 
     ``organizations`` holds the compose form's choice values, ``request-<pk>`` and ``profile-<pk>``.
@@ -774,7 +774,7 @@ def resolve_compose_recipients(event, *, organizations=(), state="", organizatio
         return exhibition_requests, profiles
     exhibition_requests = compose_recipients(
         event,
-        states=[state] if state else None,
+        states=states,
         organization_type=organization_type,
         sponsor_group=sponsor_group,
     )
