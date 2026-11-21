@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('exhibition', '0036_exhibition_sales'),
+        ('exhibition', '0039_exhibitionorderposition_addon_to_and_more'),
     ]
 
     operations = [
