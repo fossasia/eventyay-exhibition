@@ -10,12 +10,31 @@
         </tr>
     </thead>
     <tbody>
-        {% for product in products %}
+        {% for entry in summary_entries %}
             <tr>
-                <td>{{ product.name|event_localize }}</td>
-                <td>{% if product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                <td class="text-right">{{ product.price|money:event.currency }}</td>
+                <td><strong>{{ entry.product.name|event_localize }}</strong></td>
+                <td>{% if entry.product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                <td class="text-right">{{ entry.product.price|money:event.currency }}</td>
             </tr>
+            {% for addon in entry.addons %}
+                <tr class="addon-row text-muted">
+                    <td style="padding-left: 25px;">
+                        <i class="fa fa-level-up fa-rotate-90"></i>
+                        {{ addon.product.name|event_localize }}
+                        <span class="label label-info">{% trans "Add-on" %}</span>
+                    </td>
+                    <td>{% if addon.product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                    <td class="text-right">{% if addon.price %}{{ addon.price|money:event.currency }}{% else %}{% trans "Free" %}{% endif %}</td>
+                </tr>
+            {% endfor %}
+        {% empty %}
+            {% for product in products %}
+                <tr>
+                    <td>{{ product.name|event_localize }}</td>
+                    <td>{% if product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                    <td class="text-right">{{ product.price|money:event.currency }}</td>
+                </tr>
+            {% endfor %}
         {% endfor %}
     </tbody>
     <tfoot>
