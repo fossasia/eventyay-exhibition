@@ -371,7 +371,7 @@ def test_draft_count_covers_every_chosen_state(mail_event):
 
 
 def test_migration_keeps_a_draft_saved_with_one_state():
-    migration = importlib.import_module("exhibition.migrations.0037_emaildraft_states")
+    migration = importlib.import_module("exhibition.migrations.0040_emaildraft_states")
     saved = SimpleNamespace(state="accepted", states=[], save=lambda update_fields: None)
     drafts = SimpleNamespace(exclude=lambda state: [saved])
     apps = SimpleNamespace(get_model=lambda app, name: SimpleNamespace(objects=drafts))
