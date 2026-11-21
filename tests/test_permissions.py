@@ -151,3 +151,25 @@ def test_review_only_user_has_no_state_dropdown(event, settings):
     assert not row.select("[data-request-action]")
     assert not row.select("select[data-request-state-select]")
     assert row.select_one("[data-request-actions-cell] a") is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("flag", ["is_exhibition_reviewer", "can_change_exhibition_proposals"])
+def test_compose_preview_works_for_every_role_that_can_compose(event, settings, flag):
+    settings.SITE_URL = "https://testserver"
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        member = _member(event, f"{flag}@example.com", **{flag: True})
+    client = Client()
+    client.force_login(member)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+
+    assert client.get(reverse("plugins:exhibition:email.compose", kwargs=kwargs)).status_code == 200
+    response = client.post(
+        reverse("plugins:exhibition:email.templates.preview", kwargs=kwargs) + "?role=compose",
+        {"body_en": "Hello {request_name}"},
+    )
+
+    assert response.status_code == 200
+    assert "Hello" in response.json()["previews"]["en"]

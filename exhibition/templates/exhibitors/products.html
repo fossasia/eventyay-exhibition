@@ -32,19 +32,6 @@
             <a href="{{ payment_settings_url }}">{% trans "Open payment settings" %}</a>
         </div>
     {% endif %}
-    {% for quota in booth_quotas %}
-        <div class="alert alert-info">
-            {% if quota.size is None %}
-                {% blocktrans trimmed with name=quota.name used=quota.used %}
-                    Booth capacity <strong>{{ name }}</strong>: {{ used }} booths sold, no limit set.
-                {% endblocktrans %}
-            {% else %}
-                {% blocktrans trimmed with name=quota.name remaining=quota.remaining size=quota.size %}
-                    Booth capacity <strong>{{ name }}</strong>: {{ remaining }} of {{ size }} booths left.
-                {% endblocktrans %}
-            {% endif %}
-        </div>
-    {% endfor %}
     {% if booth_products_without_quota %}
         <div class="alert alert-warning">
             {% blocktrans trimmed count count=booth_products_without_quota %}

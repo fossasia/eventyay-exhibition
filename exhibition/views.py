@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from urllib.parse import quote, urlencode
 
 from django.conf import settings as django_settings
@@ -8,6 +9,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
+from django.forms.models import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
@@ -49,6 +51,8 @@ from .forms import (
     ExhibitionOrderProductsForm,
     ExhibitionOrderQuestionForm,
     ExhibitionOrderQuestionOptionFormSet,
+    ExhibitionProductAddOnForm,
+    ExhibitionProductAddOnsFormSet,
     ExhibitionProductCategoryForm,
     ExhibitionProductForm,
     ExhibitionQuestionForm,
@@ -116,6 +120,7 @@ from .models import (
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    ExhibitionProductAddOn,
     ExhibitionProductCategory,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
@@ -1993,9 +1998,6 @@ class ExhibitionProductListView(ExhibitionProductMixin, ClampedPaginationMixin, 
         context = super().get_context_data(**kwargs)
         context["reorder_enabled"] = not context["is_paginated"]
         context["payment_method_missing"] = paid_products_lack_payment_method(self.request.event)
-        context["booth_quotas"] = ExhibitionQuota.objects.filter(
-            event=self.request.event, booth_capacity=True
-        ).with_usage()
         context["booth_products_without_quota"] = (
             ExhibitionProduct.objects.filter(event=self.request.event, active=True, includes_booth=True)
             .exclude(quotas__booth_capacity=True)
@@ -2029,14 +2031,143 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
 
     def form_invalid(self, form):
         messages.error(self.request, _("We could not save your changes. See below for details."))
-        return super().form_invalid(form)
+        return self.render_to_response(self.get_context_data(form=form))
+
+    @cached_property
+    def addons_formset(self):
+        formset_cls = inlineformset_factory(
+            ExhibitionProduct,
+            ExhibitionProductAddOn,
+            form=ExhibitionProductAddOnForm,
+            formset=ExhibitionProductAddOnsFormSet,
+            can_order=True,
+            can_delete=True,
+            extra=0,
+        )
+        return formset_cls(
+            self.request.POST if self.request.method == "POST" else None,
+            queryset=(
+                ExhibitionProductAddOn.objects.filter(base_product=self.object)
+                if getattr(self, "object", None) and self.object.pk
+                else ExhibitionProductAddOn.objects.none()
+            ),
+            event=self.request.event,
+            prefix="addons",
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["addons_formset"] = self.addons_formset
+        return ctx
+
+    def is_valid(self, form):
+        if not form.is_valid():
+            return False
+
+        category = form.cleaned_data.get("category")
+        becoming_addon = bool(category and category.is_addon)
+
+        if "addons-TOTAL_FORMS" in self.request.POST:
+            if not self.addons_formset.is_valid():
+                return False
+            if becoming_addon and self.addons_formset.ordered_forms:
+                messages.error(
+                    self.request,
+                    _("You cannot add add-ons to a product that is only available as an add-on itself."),
+                )
+                return False
+            return True
+
+        # Formset omitted from POST: existing DB rules would stay attached to an add-on product.
+        product = getattr(self, "object", None)
+        if becoming_addon and product and product.pk and product.addons.exists():
+            messages.error(
+                self.request,
+                _("You cannot add add-ons to a product that is only available as an add-on itself."),
+            )
+            return False
+        return True
+
+    def save_addons(self):
+        if "addons-TOTAL_FORMS" in self.request.POST:
+            for form in self.addons_formset.deleted_forms:
+                if not form.instance.pk:
+                    continue
+                form.instance.delete()
+                form.instance.pk = None
+
+            ordered_forms = list(self.addons_formset.ordered_forms)
+            # Move category-changing rules onto temporary categories first so a
+            # swap cannot collide with a sibling that still holds the target.
+            # Cart selections key off rule_id, so existing primary keys must stay.
+            # Compare against the DB value — form validation may already have
+            # written the new category onto form.instance in memory.
+            temp_categories = []
+            try:
+                for form in ordered_forms:
+                    instance = form.instance
+                    if not instance.pk:
+                        continue
+                    new_category = form.cleaned_data.get("addon_category")
+                    if not new_category:
+                        continue
+                    db_category_id = (
+                        ExhibitionProductAddOn.objects.filter(pk=instance.pk)
+                        .values_list("addon_category_id", flat=True)
+                        .first()
+                    )
+                    if db_category_id == new_category.pk:
+                        continue
+                    temp = ExhibitionProductCategory.objects.create(
+                        event=self.request.event,
+                        name={"en": f".addon-swap-{uuid.uuid4().hex}"},
+                        is_addon=True,
+                    )
+                    temp_categories.append(temp)
+                    ExhibitionProductAddOn.objects.filter(pk=instance.pk).update(addon_category=temp)
+
+                for i, form in enumerate(ordered_forms):
+                    form.instance.position = i
+                    form.instance.base_product = self.object
+                    new_category = form.cleaned_data.get("addon_category")
+                    if new_category:
+                        form.instance.addon_category = new_category
+                    form.save()
+            finally:
+                for temp in temp_categories:
+                    temp.delete()
+
+        self.clear_orphaned_addons()
+
+    def clear_orphaned_addons(self):
+        """Drop add-on rules if this product is itself only available as an add-on."""
+        category = self.object.category
+        if category is None or not category.is_addon:
+            return
+        orphaned = list(self.object.addons.values_list("pk", flat=True))
+        if not orphaned:
+            return
+        self.object.addons.all().delete()
+        self.object.log_action(
+            LOG_PRODUCT_CHANGED,
+            data={"cleared_addons": orphaned, "reason": "product_moved_to_addon_category"},
+            user=self.request.user,
+        )
 
 
 class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
+    def post(self, request, *args, **kwargs):
+        self.object = None
+        form = self.get_form()
+        if self.is_valid(form):
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
     def form_valid(self, form):
         form.instance.event = self.request.event
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_addons()
             self.object.log_action(
                 LOG_PRODUCT_ADDED,
                 data={"name": self.object.localized_name},
@@ -2047,9 +2178,17 @@ class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
 
 
 class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        if self.is_valid(form):
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
     def form_valid(self, form):
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_addons()
             if form.has_changed():
                 self.object.log_action(
                     LOG_PRODUCT_CHANGED,
@@ -2152,6 +2291,15 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
         return context
 
     def form_valid(self, form):
+        if self.object.is_addon and self.object.products.exists():
+            messages.error(
+                self.request,
+                _(
+                    "You cannot delete an add-on category that still contains products. "
+                    "Move or delete those products first."
+                ),
+            )
+            return redirect(self.get_success_url())
         self.object.log_action(
             LOG_PRODUCT_CATEGORY_DELETED,
             data={"name": self.object.localized_name, "uncategorised_products": self.object.products.count()},
@@ -2289,6 +2437,7 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["order"] = self.order
+        context["positions"] = self.order.nested_positions()
         context["can_change_orders"] = self.can_change_orders()
         context["payment_method_name"] = payment_method_names(self.request.event).get(
             self.order.payment_provider, self.order.payment_provider
@@ -3819,8 +3968,13 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
                 if draft is None:
                     return self.draft_already_queued()
+            previous_attachment_id = draft.attachment_id
             draft.fill_from_form(form.cleaned_data)
+            if draft.attachment_id != previous_attachment_id:
+                mail_helpers.keep_attachment(draft.attachment)
             draft.save()
+            if previous_attachment_id != draft.attachment_id:
+                mail_helpers.release_attachment(previous_attachment_id)
         messages.success(self.request, _("The draft has been saved."))
         return redirect(self.drafts_url())
 
@@ -3854,6 +4008,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 scheduled_at=scheduled_at,
                 send_now=send_now,
                 requestor=self.request.user,
+                attachment=form.cleaned_data.get("attachment") or None,
             )
             if created and draft is not None:
                 draft.delete()
@@ -3883,18 +4038,29 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
         if self.single_request is not None:
             return self.single_request_done(created[0], scheduled_at)
 
+        count = len(created)
         if scheduled_at:
             messages.success(
                 self.request,
-                _("%(count)d emails have been scheduled.") % {"count": len(created)},
+                ngettext("%(count)d email has been scheduled.", "%(count)d emails have been scheduled.", count)
+                % {"count": count},
             )
             return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
         if send_now:
-            messages.success(self.request, _("%(count)d emails have been sent.") % {"count": len(created)})
+            messages.success(
+                self.request,
+                ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count)
+                % {"count": count},
+            )
             return redirect("plugins:exhibition:email.sent", **event_kwargs(event))
         messages.success(
             self.request,
-            _("%(count)d emails have been placed in the outbox.") % {"count": len(created)},
+            ngettext(
+                "%(count)d email has been placed in the outbox.",
+                "%(count)d emails have been placed in the outbox.",
+                count,
+            )
+            % {"count": count},
         )
         return redirect("plugins:exhibition:email.outbox", **event_kwargs(event))
 
@@ -3958,6 +4124,7 @@ def group_email_entries(emails):
                     "sent_at": email.sent_at,
                     "scheduled_at": email.scheduled_at,
                     "is_batch": False,
+                    "has_attachment": bool(email.attachment_id),
                 }
             )
             continue
@@ -3972,6 +4139,7 @@ def group_email_entries(emails):
                 "sent_at": email.sent_at,
                 "scheduled_at": email.scheduled_at,
                 "is_batch": True,
+                "has_attachment": bool(email.attachment_id),
             }
             by_batch[key] = entry
             entries.append(entry)
@@ -4195,15 +4363,25 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         subject = form.cleaned_data["subject"]
         body = form.cleaned_data["body"]
         scheduled_at = form.cleaned_data["scheduled_at"]
+        attachment = form.cleaned_data.get("attachment") or None
         reschedule = "scheduled_at" in form.changed_data
 
         if self.object.batch:
-            rows = list(self.editable_batch_queryset())
-            self.editable_batch_queryset().update(subject=subject, body=body, scheduled_at=scheduled_at)
+            with transaction.atomic():
+                rows = list(self.editable_batch_queryset().select_for_update())
+                if not rows:
+                    return self.already_handled()
+                previous_ids = {row.attachment_id for row in rows}
+                self.keep_new_attachment(previous_ids, attachment)
+                ExhibitionEmailQueue.objects.filter(pk__in=[row.pk for row in rows]).update(
+                    subject=subject, body=body, scheduled_at=scheduled_at, attachment=attachment
+                )
+                self.release_replaced_attachments(previous_ids, attachment)
             if "_send" in self.request.POST:
                 for row in rows:
                     row.subject = subject
                     row.body = body
+                    row.attachment = attachment
                     row.send(requestor=self.request.user)
                 messages.success(self.request, _("The emails have been saved and sent."))
             else:
@@ -4212,7 +4390,21 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 messages.success(self.request, _("The emails have been saved."))
             return redirect(self.get_success_url())
 
-        self.object.save()
+        with transaction.atomic():
+            locked = (
+                ExhibitionEmailQueue.objects.select_for_update().filter(pk=self.object.pk, sent_at__isnull=True).first()
+            )
+            if locked is None:
+                return self.already_handled()
+            previous_ids = {locked.attachment_id}
+            self.keep_new_attachment(previous_ids, attachment)
+            changed = [name for name in ("to_email", "subject", "body", "scheduled_at") if name in form.cleaned_data]
+            for name in changed:
+                setattr(locked, name, form.cleaned_data[name])
+            locked.attachment = attachment
+            locked.save(update_fields=[*changed, "attachment", "updated"])
+            self.release_replaced_attachments(previous_ids, attachment)
+            self.object = locked
         if "_send" in self.request.POST:
             self.object.send(requestor=self.request.user)
             messages.success(self.request, _("The email has been saved and sent."))
@@ -4222,6 +4414,22 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             messages.success(self.request, _("The email has been saved."))
         return redirect(self.get_success_url())
 
+    def already_handled(self):
+        """Stop an edit whose email was sent or discarded while the organizer was editing it."""
+        messages.warning(self.request, _("This email was already sent or discarded, so your changes were not saved."))
+        return redirect(self.get_success_url())
+
+    @staticmethod
+    def keep_new_attachment(previous_ids, attachment):
+        """Keep a newly chosen file; an unchanged one, such as a voucher CSV, keeps its own expiry."""
+        if attachment is not None and attachment.pk not in previous_ids:
+            mail_helpers.keep_attachment(attachment)
+
+    @staticmethod
+    def release_replaced_attachments(previous_ids, attachment):
+        for previous_id in previous_ids - {getattr(attachment, "pk", None)}:
+            mail_helpers.release_attachment(previous_id)
+
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         if self.object.sent_at is not None:
@@ -4230,8 +4438,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
         return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
-        self.object.refresh_from_db()
-        if self.object.sent_at is not None:
+        if ExhibitionEmailQueue.objects.filter(pk=self.object.pk, sent_at__isnull=False).exists():
             return reverse("plugins:exhibition:email.sent", kwargs=event_kwargs(self.request.event))
         return outbox_return_url(self.request)
 
@@ -4480,7 +4687,7 @@ class EmailTemplatePreviewView(EventPermissionRequiredMixin, View):
     per rendered locale.
     """
 
-    permission = "can_change_event_settings"
+    permission = EMAIL_MANAGE_PERMISSION
 
     def post(self, request, *args, **kwargs):
         role = request.GET.get("role", "")
