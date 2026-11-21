@@ -95,6 +95,16 @@
         </section>
 
         <section class="card mb-3">
+            <div class="card-header"><strong>{% trans "Reply-To and BCC" %}</strong></div>
+            <div class="card-body">
+                <fieldset>
+                    {% bootstrap_field form.reply_to layout="control" %}
+                    {% bootstrap_field form.bcc layout="control" %}
+                </fieldset>
+            </div>
+        </section>
+
+        <section class="card mb-3">
             <div class="card-header"><strong>{% trans "Message" %}</strong></div>
             <div class="card-body">
                 <fieldset>
@@ -135,6 +145,22 @@
             <div class="card-header"><strong>{% trans "Delivery" %}</strong></div>
             <div class="card-body">
                 <fieldset>
+                    <div class="form-group{% if form.test_email.errors %} has-error{% endif %}">
+                        <label class="col-md-3 control-label" for="{{ form.test_email.id_for_label }}">{{ form.test_email.label }}</label>
+                        <div class="col-md-9">
+                            <div class="delivery-test-controls">
+                                {{ form.test_email }}
+                                <button type="submit" class="btn btn-outline-info" name="_test" value="test">
+                                    {% trans "Send test email" %}
+                                </button>
+                            </div>
+                            {% for error in form.test_email.errors %}
+                                <div class="help-block">{{ error }}</div>
+                            {% endfor %}
+                            <div class="help-block">{% trans "Sends one sample copy to this address. Nothing is queued and the draft is kept." %}</div>
+                        </div>
+                    </div>
+                    <hr>
                     {% bootstrap_field form.scheduled_at layout="control" %}
                 </fieldset>
             </div>
