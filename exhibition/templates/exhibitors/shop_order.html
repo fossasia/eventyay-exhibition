@@ -58,6 +58,18 @@
                 </div>
             </div>
         {% endif %}
+        {% if order.can_download_invoice %}
+            <div class="panel panel-primary">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{% trans "Invoice" %}</h3>
+                </div>
+                <div class="panel-body">
+                    <a href="{{ invoice_url }}" class="btn btn-default">
+                        <i class="fa fa-download" aria-hidden="true"></i> {% trans "Download invoice" %}
+                    </a>
+                </div>
+            </div>
+        {% endif %}
         <div class="panel panel-primary cart">
             <div class="panel-heading">
                 <h3 class="panel-title">{% trans "Ordered items" %}</h3>
