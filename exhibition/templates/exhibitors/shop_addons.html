@@ -1,0 +1,155 @@
+{% extends "exhibitors/shop_checkout_base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load money %}
+{% load presale_locale %}
+
+{% block inner %}
+    <p>{% trans "For some of the packages in your cart, you can choose additional options before you continue." %}</p>
+    <form class="form-horizontal" method="post">
+        {% csrf_token %}
+        <div class="panel-group addons" id="addons_group">
+            {% for base_item in addon_groups %}
+                <details class="panel panel-default" open>
+                    <summary class="panel-heading">
+                        <h4 class="panel-title">
+                            <strong>{{ base_item.product.name|event_localize }}</strong>
+                            <i class="fa fa-angle-down collapse-indicator" aria-hidden="true"></i>
+                        </h4>
+                    </summary>
+                    <div class="panel-body">
+                        {% for cat_group in base_item.categories %}
+                            <fieldset style="margin-bottom: 25px;">
+                                <legend style="font-size: 16px; font-weight: bold; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                                    {{ cat_group.category.name|event_localize }}
+                                </legend>
+                                {% if cat_group.category.description %}
+                                    <p class="text-muted">{{ cat_group.category.description|event_localize }}</p>
+                                {% endif %}
+                                <p class="help-block">
+                                    {% if cat_group.rule.price_included %}
+                                        <span class="label label-success">{% trans "Included in package" %}</span>
+                                    {% endif %}
+                                    {% if cat_group.rule.min_count == cat_group.rule.max_count %}
+                                        {% if cat_group.rule.min_count == 1 %}
+                                            {% trans "You need to choose exactly one option from this category." %}
+                                        {% else %}
+                                            {% blocktrans trimmed with count=cat_group.rule.min_count %}
+                                                You need to choose {{ count }} options from this category.
+                                            {% endblocktrans %}
+                                        {% endif %}
+                                    {% elif cat_group.rule.min_count == 0 %}
+                                        {% if cat_group.rule.max_count == 1 %}
+                                            {% trans "You can choose up to 1 option from this category." %}
+                                        {% else %}
+                                            {% blocktrans trimmed with max_count=cat_group.rule.max_count %}
+                                                You can choose up to {{ max_count }} options from this category.
+                                            {% endblocktrans %}
+                                        {% endif %}
+                                    {% else %}
+                                        {% blocktrans trimmed with min_count=cat_group.rule.min_count max_count=cat_group.rule.max_count %}
+                                            You can choose between {{ min_count }} and {{ max_count }} options from this category.
+                                        {% endblocktrans %}
+                                    {% endif %}
+                                </p>
+
+                                {% if cat_group.rule.max_count == 1 and not cat_group.rule.multi_allowed %}
+                                    <div class="radio-group" style="padding-left: 10px;">
+                                        {% if cat_group.rule.min_count == 0 %}
+                                            <div class="radio">
+                                                <label>
+                                                    <input type="radio" name="addon_{{ base_item.index }}_{{ cat_group.rule.pk }}" value=""
+                                                           {% if not cat_group.selected_product_id %}checked{% endif %}>
+                                                    <em>{% trans "None" %}</em>
+                                                </label>
+                                            </div>
+                                        {% endif %}
+                                        {% for prod in cat_group.products %}
+                                            <div class="radio">
+                                                <label {% if prod.sold_out %}class="text-muted"{% endif %}>
+                                                    <input type="radio" name="addon_{{ base_item.index }}_{{ cat_group.rule.pk }}" value="{{ prod.pk }}"
+                                                           {% if cat_group.selected_product_id == prod.pk %}checked{% endif %}
+                                                           {% if prod.sold_out %}disabled{% endif %}>
+                                                    <strong>{{ prod.name|event_localize }}</strong>
+                                                    {% if prod.description %}
+                                                        <span class="text-muted">— {{ prod.description|event_localize }}</span>
+                                                    {% endif %}
+                                                    <span class="pull-right flip">
+                                                        {% if prod.sold_out %}
+                                                            <span class="label label-danger">{% trans "Sold out" %}</span>
+                                                        {% elif cat_group.rule.price_included %}
+                                                            <span class="text-success font-weight-bold">{% trans "Free" %}</span>
+                                                        {% else %}
+                                                            <strong>{{ prod.price|money:event.currency }}</strong>
+                                                        {% endif %}
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <div class="table-responsive">
+                                        <table class="table table-condensed">
+                                            <thead>
+                                                <tr>
+                                                    <th>{% trans "Option" %}</th>
+                                                    <th class="text-right">{% trans "Price" %}</th>
+                                                    <th style="width: 120px;" class="text-right">{% trans "Quantity" %}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for prod in cat_group.products %}
+                                                    <tr>
+                                                        <td>
+                                                            <strong>{{ prod.name|event_localize }}</strong>
+                                                            {% if prod.description %}
+                                                                <br><small class="text-muted">{{ prod.description|event_localize }}</small>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td class="text-right">
+                                                            {% if prod.sold_out %}
+                                                                <span class="label label-danger">{% trans "Sold out" %}</span>
+                                                            {% elif cat_group.rule.price_included %}
+                                                                <span class="text-success font-weight-bold">{% trans "Free" %}</span>
+                                                            {% else %}
+                                                                {{ prod.price|money:event.currency }}
+                                                            {% endif %}
+                                                        </td>
+                                                        <td class="text-right">
+                                                            {% if prod.sold_out %}
+                                                                <span class="text-muted">—</span>
+                                                            {% else %}
+                                                                <input type="number" class="form-control text-right"
+                                                                       name="addon_{{ base_item.index }}_{{ cat_group.rule.pk }}_{{ prod.pk }}"
+                                                                       value="{{ prod.selected_count|default:0 }}"
+                                                                       min="0"
+                                                                       max="{% if not cat_group.rule.multi_allowed %}1{% else %}{{ cat_group.rule.max_count }}{% endif %}">
+                                                            {% endif %}
+                                                        </td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                {% endif %}
+                            </fieldset>
+                        {% endfor %}
+                    </div>
+                </details>
+            {% endfor %}
+        </div>
+        <div class="row checkout-button-row">
+            <div class="col-md-4 col-sm-6">
+                <a class="btn btn-block btn-default btn-lg" href="{{ prev_url }}">
+                    {% trans "Go back" %}
+                </a>
+            </div>
+            <div class="col-md-4 col-md-offset-4 col-sm-6">
+                <button class="btn btn-block btn-primary btn-lg" type="submit">
+                    {% trans "Continue" %}
+                </button>
+            </div>
+            <div class="clearfix"></div>
+        </div>
+    </form>
+{% endblock %}
