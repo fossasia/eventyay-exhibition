@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load bootstrap3 %}
 {% load static %}
+{% load formset_tags %}
 
 {% block custom_header %}
     {{ block.super }}
@@ -17,29 +18,126 @@
 {% block exhibitors_content %}
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
-        {% bootstrap_form_errors form %}
-        <fieldset>
-            <legend>{% trans "General information" %}</legend>
-            {% include 'exhibitors/_i18n_language_switcher.html' %}
-            {% bootstrap_field form.name layout="control" %}
-            {% bootstrap_field form.description layout="control" %}
-            {% bootstrap_field form.category layout="control" %}
-            {% bootstrap_field form.purpose layout="control" %}
-            {% bootstrap_field form.includes_booth layout="control" %}
-            {% bootstrap_field form.price addon_after=request.event.currency layout="control" %}
-        </fieldset>
-        <fieldset>
-            <legend>{% trans "Availability" %}</legend>
-            {% bootstrap_field form.active layout="control" %}
-            {% bootstrap_field form.available_from layout="control" %}
-            {% bootstrap_field form.available_until layout="control" %}
-            {% bootstrap_field form.hide_without_discount layout="control" %}
-        </fieldset>
-        <div class="form-group submit-group">
-            <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
-            <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">
-                {% trans "Cancel" %}
-            </a>
+        <div class="row">
+            <div class="col-xs-12 col-lg-10">
+                <div class="tabbed-form">
+                    <fieldset>
+                        <legend>{% trans "General" %}</legend>
+                        {% bootstrap_form_errors form %}
+                        {% include 'exhibitors/_i18n_language_switcher.html' %}
+                        {% bootstrap_field form.name layout="control" %}
+                        {% bootstrap_field form.description layout="control" %}
+                        {% bootstrap_field form.category layout="control" %}
+                        {% bootstrap_field form.purpose layout="control" %}
+                        {% bootstrap_field form.includes_booth layout="control" %}
+                    </fieldset>
+                    <fieldset>
+                        <legend>{% trans "Price" %}</legend>
+                        {% bootstrap_field form.price addon_after=request.event.currency layout="control" %}
+                    </fieldset>
+                    <fieldset>
+                        <legend>{% trans "Availability" %}</legend>
+                        {% bootstrap_field form.active layout="control" %}
+                        {% bootstrap_field form.available_from layout="control" %}
+                        {% bootstrap_field form.available_until layout="control" %}
+                        {% bootstrap_field form.hide_without_discount layout="control" %}
+                    </fieldset>
+                    <fieldset>
+                        <legend>{% trans "Add-ons" %}</legend>
+                        <p>
+                            {% blocktrans trimmed %}
+                                With add-ons, you can specify products that can be bought as an addition to this product. For example, if
+                                you offer an exhibitor package and a number of booth upgrades or extra passes, you could define them
+                                as add-ons to the exhibitor package. With this configuration, the add-ons cannot be bought on their own
+                                but only in combination with an exhibitor package. You can here specify categories of products that can
+                                be used as add-ons to this product. You can also specify the minimum and maximum number of add-ons of
+                                the given category that can or need to be chosen.
+                            {% endblocktrans %}
+                        </p>
+                        <div class="formset" data-formset data-formset-prefix="{{ addons_formset.prefix }}">
+                            {{ addons_formset.management_form }}
+                            {% bootstrap_formset_errors addons_formset %}
+                            <div data-formset-body>
+                                {% for f in addons_formset %}
+                                    <div class="panel panel-default" data-formset-form>
+                                        <div class="sr-only">
+                                            {{ f.id }}
+                                            {% bootstrap_field f.ORDER form_group_class="" layout="inline" %}
+                                            {% bootstrap_field f.DELETE form_group_class="" layout="inline" %}
+                                        </div>
+                                        <div class="panel-heading">
+                                            <div class="row">
+                                                <div class="col-sm-8">
+                                                    <h3 class="panel-title">{% trans "Add-On" %}</h3>
+                                                </div>
+                                                <div class="col-sm-4 text-right flip">
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-up-button aria-label="{% trans "Move up" %}">
+                                                        <i class="fa fa-arrow-up"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-down-button aria-label="{% trans "Move down" %}">
+                                                        <i class="fa fa-arrow-down"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-delete btn-danger" data-formset-delete-button aria-label="{% trans "Delete" %}">
+                                                        <i class="fa fa-trash"></i></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="panel-body form-horizontal">
+                                            {% bootstrap_form_errors f %}
+                                            {% bootstrap_field f.addon_category layout="control" %}
+                                            {% bootstrap_field f.min_count layout="control" %}
+                                            {% bootstrap_field f.max_count layout="control" %}
+                                            {% bootstrap_field f.multi_allowed layout="control" %}
+                                            {% bootstrap_field f.price_included layout="control" %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <script type="form-template" data-formset-empty-form>
+                                {% escapescript %}
+                                    <div class="panel panel-default" data-formset-form>
+                                        <div class="sr-only">
+                                            {{ addons_formset.empty_form.id }}
+                                            {% bootstrap_field addons_formset.empty_form.ORDER form_group_class="" layout="inline" %}
+                                            {% bootstrap_field addons_formset.empty_form.DELETE form_group_class="" layout="inline" %}
+                                        </div>
+                                        <div class="panel-heading">
+                                            <div class="row">
+                                                <div class="col-sm-8">
+                                                    <h3 class="panel-title">{% trans "Add-On" %}</h3>
+                                                </div>
+                                                <div class="col-sm-4 text-right flip">
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-up-button aria-label="{% trans "Move up" %}">
+                                                        <i class="fa fa-arrow-up"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-down-button aria-label="{% trans "Move down" %}">
+                                                        <i class="fa fa-arrow-down"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-delete btn-danger" data-formset-delete-button aria-label="{% trans "Delete" %}">
+                                                        <i class="fa fa-trash"></i></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="panel-body form-horizontal">
+                                            {% bootstrap_field addons_formset.empty_form.addon_category layout="control" %}
+                                            {% bootstrap_field addons_formset.empty_form.min_count layout="control" %}
+                                            {% bootstrap_field addons_formset.empty_form.max_count layout="control" %}
+                                            {% bootstrap_field addons_formset.empty_form.multi_allowed layout="control" %}
+                                            {% bootstrap_field addons_formset.empty_form.price_included layout="control" %}
+                                        </div>
+                                    </div>
+                                {% endescapescript %}
+                            </script>
+                            <p>
+                                <button type="button" class="btn btn-default" data-formset-add>
+                                    <i class="fa fa-plus"></i> {% trans "Add a new add-on" %}</button>
+                            </p>
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="form-group submit-group">
+                    <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+                    <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products' organizer=request.event.organizer.slug event=request.event.slug %}">
+                        {% trans "Cancel" %}
+                    </a>
+                </div>
+            </div>
         </div>
     </form>
 {% endblock %}

@@ -1,4 +1,5 @@
 import uuid
+from collections import defaultdict
 from decimal import Decimal
 
 from django.contrib import messages
@@ -39,6 +40,7 @@ def shop_products(event, discount=None):
         product
         for product in ExhibitionProduct.objects.filter(event=event)
         .available()
+        .exclude(category__is_addon=True)
         .in_sales_order()
         .select_related("category")
         if not product.hide_without_discount or (discount is not None and discount.reveals(product))
@@ -146,7 +148,10 @@ class ShopIndexView(View):
         key = checkout_session_key(request.event)
         cart = request.session.get(key, {})
         cart["products"] = [product.pk for product in chosen]
+        cart.pop("addons", None)
         request.session[key] = cart
+        if any(p.addons.exists() for p in chosen):
+            return redirect(shop_url(request.event, "shop.checkout.addons"))
         return redirect(shop_url(request.event, "shop.checkout.details"))
 
 
@@ -174,14 +179,119 @@ class ShopCheckoutMixin:
         on_sale = {product.pk: product for product in shop_products(self.request.event, self.discount)}
         return [on_sale.get(pk) for pk in self.cart.get("products", [])]
 
-    @cached_property
-    def total(self):
-        return sum((product.discounted_price for product in self.products), Decimal("0.00"))
-
     def drop_discount(self, message):
         messages.error(self.request, message)
         self.save_cart(discount=None)
         return redirect(packages_url(self.request.event))
+
+    @property
+    def has_addons_step(self):
+        return any(p and p.addons.exists() for p in self.products)
+
+    @cached_property
+    def _resolved_addons(self):
+        """Resolve cart add-ons against current rules and prices.
+
+        Returns ``(items, error_message)`` where items are
+        ``(base_index, ExhibitionProduct, Decimal(price))`` tuples.
+        """
+        addons_data = list(self.cart.get("addons") or [])
+        if not self.has_addons_step and not addons_data:
+            return [], None
+
+        addon_pks = [item["product_id"] for item in addons_data if "product_id" in item]
+        products_by_id = {
+            p.pk: p
+            for p in ExhibitionProduct.objects.filter(event=self.request.event, pk__in=addon_pks)
+            .available()
+            .select_related("category")
+        }
+        for item in addons_data:
+            if item.get("product_id") not in products_by_id:
+                return [], _("One of your selected add-ons is no longer available. Please review your add-on choices.")
+
+        by_base_rule = defaultdict(list)
+        for item in addons_data:
+            by_base_rule[(item.get("base_index"), item.get("rule_id"))].append(item)
+
+        items = []
+        seen_keys = set()
+        for base_idx, base_prod in enumerate(self.products):
+            if not base_prod:
+                continue
+            for rule in base_prod.addons.select_related("addon_category").order_by("position", "id"):
+                key = (base_idx, rule.pk)
+                seen_keys.add(key)
+                entries = by_base_rule.get(key, [])
+                count = len(entries)
+                if count < rule.min_count or count > rule.max_count:
+                    return [], _("Please review your add-on choices.")
+
+                selected_pks = []
+                for entry in entries:
+                    prod = products_by_id[entry["product_id"]]
+                    if prod.category_id != rule.addon_category_id:
+                        return [], _("Please review your add-on choices.")
+                    selected_pks.append(prod.pk)
+                    price = Decimal("0.00") if rule.price_included else prod.price
+                    items.append((base_idx, prod, price))
+
+                if not rule.multi_allowed and len(selected_pks) != len(set(selected_pks)):
+                    return [], _("Please review your add-on choices.")
+
+        for key, entries in by_base_rule.items():
+            if key not in seen_keys and entries:
+                return [], _("Please review your add-on choices.")
+
+        return items, None
+
+    @cached_property
+    def addon_items(self):
+        """List of tuples: (base_index, ExhibitionProduct, Decimal(price))"""
+        items, error = self._resolved_addons
+        return [] if error else items
+
+    @property
+    def addon_resolve_error(self):
+        return self._resolved_addons[1]
+
+    def check_addons_ready(self):
+        """Redirect to the add-ons step when the cart selection is missing or invalid."""
+        if not self.has_addons_step:
+            return None
+        if "addons" not in self.cart:
+            return redirect(shop_url(self.request.event, "shop.checkout.addons"))
+        error = self.addon_resolve_error
+        if error:
+            messages.error(self.request, error)
+            return redirect(shop_url(self.request.event, "shop.checkout.addons"))
+        return None
+
+    @cached_property
+    def all_products(self):
+        return [p for p in self.products if p] + [prod for _, prod, _ in self.addon_items]
+
+    @cached_property
+    def summary_entries(self):
+        addons_by_base = defaultdict(list)
+        for base_idx, prod, price in self.addon_items:
+            addons_by_base[base_idx].append({"product": prod, "price": price})
+        entries = []
+        for idx, base_prod in enumerate(self.products):
+            if base_prod:
+                entries.append(
+                    {
+                        "product": base_prod,
+                        "addons": addons_by_base.get(idx, []),
+                    }
+                )
+        return entries
+
+    @cached_property
+    def total(self):
+        base_total = sum((product.discounted_price for product in self.products if product), Decimal("0.00"))
+        addons_total = sum((price for _, _, price in self.addon_items), Decimal("0.00"))
+        return base_total + addons_total
 
     def dispatch(self, request, *args, **kwargs):
         if not self.cart.get("products"):
@@ -219,16 +329,19 @@ class ShopCheckoutMixin:
             data=MultiValueDict(details),
             files=self.stored_files(),
             event=self.request.event,
-            products=self.products,
+            products=self.all_products,
         )
 
     def checkout_flow(self):
-        steps = [("details", _("Your details"), "shop.checkout.details")]
+        steps = []
+        if self.has_addons_step:
+            steps.append(("addons", _("Add-ons"), "shop.checkout.addons"))
+        steps.append(("details", _("Your details"), "shop.checkout.details"))
         if self.total:
             steps.append(("payment", _("Payment"), "shop.checkout.payment"))
         steps.append(("confirm", _("Review order"), "shop.checkout.confirm"))
         identifiers = [identifier for identifier, label, name in steps]
-        current = identifiers.index(self.step)
+        current = identifiers.index(self.step) if self.step in identifiers else 0
         return [
             {
                 "label": label,
@@ -245,8 +358,189 @@ class ShopCheckoutMixin:
         context["products"] = self.products
         context["total"] = self.total
         context["discount"] = self.discount
+        context["summary_entries"] = self.summary_entries
         context["checkout_flow"] = self.checkout_flow()
         return context
+
+
+class ShopAddOnsView(ShopCheckoutMixin, TemplateView):
+    """Where the buyer chooses add-ons for packages in their cart."""
+
+    template_name = "exhibitors/shop_addons.html"
+    step = "addons"
+
+    def check_step(self):
+        if not self.has_addons_step:
+            return redirect(shop_url(self.request.event, "shop.checkout.details"))
+        return None
+
+    def _selection_counts_from_cart(self):
+        counts = defaultdict(int)
+        for item in self.cart.get("addons") or []:
+            key = (item.get("base_index"), item.get("rule_id"), item.get("product_id"))
+            counts[key] += 1
+        return counts
+
+    def get_addon_groups(self, selection_counts=None):
+        if selection_counts is None:
+            selection_counts = self._selection_counts_from_cart()
+        groups = []
+        for base_idx, base_prod in enumerate(self.products):
+            if not base_prod or not base_prod.addons.exists():
+                continue
+            cat_groups = []
+            for rule in base_prod.addons.select_related("addon_category").order_by("position", "id"):
+                products = list(
+                    ExhibitionProduct.objects.filter(event=self.request.event, category=rule.addon_category)
+                    .available()
+                    .in_sales_order()
+                )
+                selected_prod_id = None
+                for p in products:
+                    p.remaining = p.remaining_capacity()
+                    p.sold_out = p.remaining == 0
+                    matching_count = selection_counts.get((base_idx, rule.pk, p.pk), 0)
+                    p.selected_count = matching_count
+                    if matching_count > 0:
+                        selected_prod_id = p.pk
+                cat_groups.append(
+                    {
+                        "rule": rule,
+                        "category": rule.addon_category,
+                        "products": products,
+                        "selected_product_id": selected_prod_id,
+                    }
+                )
+            groups.append(
+                {
+                    "index": base_idx,
+                    "product": base_prod,
+                    "categories": cat_groups,
+                }
+            )
+        return groups
+
+    def get_context_data(self, **kwargs):
+        selection_counts = kwargs.pop("selection_counts", None)
+        context = super().get_context_data(**kwargs)
+        context["addon_groups"] = self.get_addon_groups(selection_counts=selection_counts)
+        context["prev_url"] = packages_url(self.request.event)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        chosen_addons = []
+        errors = []
+        selection_counts = defaultdict(int)
+        for base_idx, base_prod in enumerate(self.products):
+            if not base_prod or not base_prod.addons.exists():
+                continue
+            for rule in base_prod.addons.select_related("addon_category").order_by("position", "id"):
+                # Only products from this rule's category may be selected or stored in the session.
+                products = list(
+                    ExhibitionProduct.objects.filter(event=request.event, category=rule.addon_category)
+                    .available()
+                    .in_sales_order()
+                )
+                products_by_id = {p.pk: p for p in products}
+                rule_selections = []
+
+                if rule.max_count == 1 and not rule.multi_allowed:
+                    key = f"addon_{base_idx}_{rule.pk}"
+                    prod_pk = request.POST.get(key)
+                    if prod_pk:
+                        try:
+                            prod_pk = int(prod_pk)
+                        except (ValueError, TypeError):
+                            errors.append(_("Invalid add-on product selected."))
+                            continue
+                        p = products_by_id.get(prod_pk)
+                        if p is None:
+                            # Reject PKs from another category (or unknown/unavailable products)
+                            # before any cart write.
+                            errors.append(_("Invalid add-on product selected."))
+                            continue
+                        selection_counts[(base_idx, rule.pk, p.pk)] = 1
+                        remaining = p.remaining_capacity()
+                        if remaining == 0:
+                            errors.append(_("{product} is sold out.").format(product=p))
+                        else:
+                            rule_selections.append((p, 1))
+                else:
+                    for p in products:
+                        key = f"addon_{base_idx}_{rule.pk}_{p.pk}"
+                        count_val = request.POST.get(key, 0)
+                        try:
+                            count = int(count_val)
+                        except (ValueError, TypeError):
+                            count = 0
+                        if count < 0:
+                            count = 0
+                        if count == 0:
+                            continue
+                        selection_counts[(base_idx, rule.pk, p.pk)] = count
+                        if not rule.multi_allowed and count > 1:
+                            errors.append(_("You cannot select multiple of {product}.").format(product=p))
+                            continue
+                        if count > rule.max_count:
+                            errors.append(
+                                _("You can select at most {max} options for {category} on {package}.").format(
+                                    max=rule.max_count,
+                                    category=rule.addon_category,
+                                    package=base_prod,
+                                )
+                            )
+                            continue
+                        remaining = p.remaining_capacity()
+                        if remaining == 0:
+                            errors.append(_("{product} is sold out.").format(product=p))
+                            continue
+                        if remaining is not None and count > remaining:
+                            errors.append(
+                                _("Only {remaining} of {product} remaining.").format(
+                                    remaining=remaining,
+                                    product=p,
+                                )
+                            )
+                            continue
+                        rule_selections.append((p, count))
+
+                rule_total_count = sum(count for _p, count in rule_selections)
+                if rule_total_count < rule.min_count:
+                    errors.append(
+                        _("Please select at least {min} options for {category} on {package}.").format(
+                            min=rule.min_count,
+                            category=rule.addon_category,
+                            package=base_prod,
+                        )
+                    )
+                elif rule_total_count > rule.max_count:
+                    errors.append(
+                        _("You can select at most {max} options for {category} on {package}.").format(
+                            max=rule.max_count,
+                            category=rule.addon_category,
+                            package=base_prod,
+                        )
+                    )
+                elif not errors:
+                    for p, count in rule_selections:
+                        price_str = "0.00" if rule.price_included else str(p.price)
+                        for _count_idx in range(count):
+                            chosen_addons.append(
+                                {
+                                    "base_index": base_idx,
+                                    "product_id": p.pk,
+                                    "price": price_str,
+                                    "rule_id": rule.pk,
+                                }
+                            )
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            return self.render_to_response(self.get_context_data(selection_counts=selection_counts))
+
+        self.save_cart(addons=chosen_addons)
+        return redirect(shop_url(request.event, "shop.checkout.details"))
 
 
 class ShopDetailsView(ShopCheckoutMixin, TemplateView):
@@ -255,22 +549,29 @@ class ShopDetailsView(ShopCheckoutMixin, TemplateView):
     template_name = "exhibitors/shop_details.html"
     step = "details"
 
+    def check_step(self):
+        return self.check_addons_ready()
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         form = kwargs.get("form") or self.stored_order_form()
         if form is None:
             user = self.request.user
             initial = {"email": user.email, "name": user.get_full_name()} if user.is_authenticated else {}
-            form = ExhibitionOrderForm(initial=initial, event=self.request.event, products=self.products)
+            form = ExhibitionOrderForm(initial=initial, event=self.request.event, products=self.all_products)
         context["form"] = form
-        context["prev_url"] = packages_url(self.request.event)
+        context["prev_url"] = (
+            shop_url(self.request.event, "shop.checkout.addons")
+            if self.has_addons_step
+            else packages_url(self.request.event)
+        )
         return context
 
     def post(self, request, *args, **kwargs):
         files = self.stored_files()
         for name in request.FILES:
             files[name] = request.FILES[name]
-        form = ExhibitionOrderForm(data=request.POST, files=files, event=request.event, products=self.products)
+        form = ExhibitionOrderForm(data=request.POST, files=files, event=request.event, products=self.all_products)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
         stored = dict(self.cart.get("files", {}))
@@ -302,6 +603,9 @@ class ShopPaymentView(ShopCheckoutMixin, TemplateView):
         return usable_payment_providers(self.request.event)
 
     def check_step(self):
+        redirect_response = self.check_addons_ready()
+        if redirect_response:
+            return redirect_response
         if not self.total:
             return redirect(shop_url(self.request.event, "shop.checkout.confirm"))
         return None
@@ -340,6 +644,9 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
         return usable_payment_providers(self.request.event).get(self.cart.get("payment")) if self.total else None
 
     def check_step(self):
+        redirect_response = self.check_addons_ready()
+        if redirect_response:
+            return redirect_response
         if self.order_form is None or not self.order_form.is_valid():
             messages.error(self.request, _("Please check your details."))
             return redirect(shop_url(self.request.event, "shop.checkout.details"))
@@ -373,6 +680,7 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
             order = place_exhibition_order(
                 request.event,
                 self.products,
+                addons=self.addon_items,
                 **form.order_details(),
                 order_form=form,
                 payment_provider=self.payment_provider.identifier if self.payment_provider else "",
@@ -420,7 +728,7 @@ class ShopOrderView(ShopOrderMixin, TemplateView):
         order = self.order
         context["event"] = self.request.event
         context["order"] = order
-        context["positions"] = list(order.positions.select_related("discount"))
+        context["positions"] = order.nested_positions()
         context["answers"] = list(order.answers.select_related("question").prefetch_related("options"))
         context["thanks"] = "thanks" in self.request.GET
         context["is_pending"] = order.status == ExhibitionOrderStatus.PENDING

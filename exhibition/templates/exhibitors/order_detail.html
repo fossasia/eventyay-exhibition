@@ -121,14 +121,18 @@
                 </tr>
                 </thead>
                 <tbody>
-                {% for position in order.positions.all %}
-                    <tr>
-                        <td>{{ position }}</td>
+                {% for position in positions %}
+                    <tr {% if position.is_addon %}class="addon-row text-muted"{% endif %}>
+                        <td {% if position.is_addon %}style="padding-left: 25px;"{% endif %}>
+                            {% if position.is_addon %}<i class="fa fa-level-up fa-rotate-90"></i> {% endif %}
+                            {{ position }}
+                            {% if position.is_addon %}<span class="label label-info">{% trans "Add-on" %}</span>{% endif %}
+                        </td>
                         <td>{{ position.get_purpose_display }}</td>
                         <td>{% if position.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
                         <td class="text-right">
                             {% if position.discount_id %}<del>{{ position.original_price|money:order.currency }}</del>{% endif %}
-                            {{ position.price|money:order.currency }}
+                            {% if position.price %}{{ position.price|money:order.currency }}{% else %}{% trans "Free" %}{% endif %}
                             {% if position.discount_id %}
                                 <br><small><a href="{% url 'plugins:exhibition:products.discounts.edit' organizer=request.event.organizer.slug event=request.event.slug pk=position.discount_id %}">{% blocktrans trimmed with code=position.discount.code %}Discount code {{ code }}{% endblocktrans %}</a></small>
                             {% endif %}

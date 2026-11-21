@@ -58,8 +58,9 @@ Go to **Exhibition → Products → Quotas** and create a quota:
 
 Pending and paid orders take up a place. When an order is cancelled or
 expires, its place is free again. Once a quota is full, its products show as
-**Sold out** on the public page. The products page shows how many booths are
-left, and warns you about booth products that are not on any booth quota.
+**Sold out** on the public page. Remaining booth capacity is shown on the
+Quotas page. The products page warns you about booth products that are not
+on any booth quota.
 
 The order form
 --------------

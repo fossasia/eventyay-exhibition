@@ -93,10 +93,46 @@ def send_order_email(order, *, user=None):
     )
 
 
+def resolve_public_addon_list(products, addon_list):
+    """Validate public add-on selections against current rules and recalculate prices.
+
+    Organiser-placed orders skip this via ``check_availability=False``.
+    """
+    by_base = defaultdict(list)
+    for base_idx, addon_prod, _price in addon_list:
+        by_base[base_idx].append(addon_prod)
+
+    resolved = []
+    for base_idx, product in enumerate(products):
+        selected = by_base.get(base_idx, [])
+        rules = list(product.addons.select_related("addon_category").order_by("position", "id"))
+        remaining = list(selected)
+        for rule in rules:
+            matching = [p for p in remaining if p.category_id == rule.addon_category_id]
+            count = len(matching)
+            if count < rule.min_count or count > rule.max_count:
+                raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+            if not rule.multi_allowed and len({p.pk for p in matching}) != count:
+                raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+            for addon_prod in matching:
+                price = Decimal("0.00") if rule.price_included else addon_prod.price
+                resolved.append((base_idx, addon_prod, price))
+            remaining = [p for p in remaining if p.category_id != rule.addon_category_id]
+        if remaining:
+            raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+
+    for base_idx in by_base:
+        if base_idx < 0 or base_idx >= len(products):
+            raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+
+    return resolved
+
+
 def place_exhibition_order(
     event,
     products,
     *,
+    addons=None,
     name,
     email,
     organization_name="",
@@ -121,10 +157,21 @@ def place_exhibition_order(
     if discount is not None and discount.event_id != event.pk:
         raise ExhibitionDiscountError("The discount code belongs to another event.")
 
+    addon_list = list(addons or [])
+
     now = timezone.now()
     for product in products:
         if product.event_id != event.pk or (check_availability and not product.is_available(now)):
             raise ExhibitionOrderError(f"{product} is not on sale.")
+
+    for _base_idx, addon_prod, _price in addon_list:
+        if addon_prod.event_id != event.pk or (check_availability and not addon_prod.is_available(now)):
+            raise ExhibitionOrderError(f"{addon_prod} is not on sale.")
+
+    if check_availability:
+        addon_list = resolve_public_addon_list(products, addon_list)
+
+    all_products = products + [p for _base_idx, p, _price in addon_list]
 
     with transaction.atomic():
         if discount is not None:
@@ -134,10 +181,12 @@ def place_exhibition_order(
                 raise ExhibitionOrderError(f"{product} is only sold with a discount code.")
         positions = [ExhibitionOrderPosition.for_product(None, product, discount) for product in products]
         discounted = sum(1 for position in positions if position.discount_id)
-        total = sum((position.price for position in positions), Decimal("0.00"))
+        base_total = sum((position.price for position in positions), Decimal("0.00"))
+        addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
+        total = base_total + addons_total
         if check_availability and total and payment_provider not in usable_payment_providers(event):
             raise ExhibitionOrderError("The payment method is not available for this event.")
-        reserve_quota_capacity(products)
+        reserve_quota_capacity(all_products)
         if discounted:
             reserve_discount_usage(discount, discounted)
         order = ExhibitionOrder.objects.create(
@@ -159,14 +208,29 @@ def place_exhibition_order(
         )
         for position in positions:
             position.order = order
-        ExhibitionOrderPosition.objects.bulk_create(positions)
+        base_positions = ExhibitionOrderPosition.objects.bulk_create(positions)
+        addon_positions = []
+        for a_base_idx, addon_product, price in addon_list:
+            if a_base_idx < 0 or a_base_idx >= len(base_positions):
+                raise ExhibitionOrderError("Add-on selection does not match the current product rules.")
+            addon_positions.append(
+                ExhibitionOrderPosition.for_product(
+                    order,
+                    addon_product,
+                    addon_to=base_positions[a_base_idx],
+                    price=price,
+                )
+            )
+        if addon_positions:
+            ExhibitionOrderPosition.objects.bulk_create(addon_positions)
+
         if order_form is not None:
             order_form.save_exhibition_questions(order)
         order.log_action(
             LOG_ORDER_PLACED,
             data={
                 "total": str(total),
-                "products": [product.pk for product in products],
+                "products": [product.pk for product in all_products],
                 "discount": discount.code if discounted else "",
             },
             user=user,
