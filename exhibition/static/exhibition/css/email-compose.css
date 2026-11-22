@@ -105,3 +105,34 @@
     gap: 8px;
     justify-content: flex-end;
 }
+
+
+/* Align warning and error alerts, including nested form alerts */
+.container-fluid .alert.alert-warning,
+.container-fluid .alert.alert-danger {
+    display: flex;
+    align-items: center;
+    min-height: 50px;
+    min-width: 0;
+    padding: 0 16px 0 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+/* Keep the colored icon area full-height and centered */
+.container-fluid .alert.alert-warning::before,
+.container-fluid .alert.alert-danger::before {
+    position: static;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    flex: 0 0 48px;
+    min-width: 48px;
+    width: 48px;
+    height: auto;
+    margin: 0 16px 0 0;
+    padding: 0;
+    box-sizing: border-box;
+}
