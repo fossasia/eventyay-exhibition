@@ -972,13 +972,19 @@ class ExhibitionRequest(LoggedModel):
             data={"from": previous, "to": self.state, "code": self.code},
             user=requestor,
         )
-        log_operation(
-            f"exhibition.request.{action}",
-            OUTCOME_SUCCESS,
-            backend="exhibition",
-            event_id=self.event_id,
-            object_id=self.pk,
-            user_id=getattr(requestor, "pk", None),
+        event_id = self.event_id
+        object_id = self.pk
+        action_name = f"exhibition.request.{action}"
+        user_id = getattr(requestor, "pk", None)
+        transaction.on_commit(
+            lambda: log_operation(
+                action_name,
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=event_id,
+                object_id=object_id,
+                user_id=user_id,
+            )
         )
 
     def approve(self, requestor=None):

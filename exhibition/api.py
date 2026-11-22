@@ -650,17 +650,19 @@ class LeadRetrieveView(views.APIView):
             )
 
         # Fetch all leads associated with the exhibitor
-        leads = Lead.objects.filter(exhibitor=exhibitor).values(
-            "id",
-            "pseudonymization_id",
-            "exhibitor_name",
-            "scanned",
-            "scan_type",
-            "device_name",
-            "booth_number",
-            "booth_name",
-            "attendee",
-            booth_id=F("booth_number"),
+        leads = list(
+            Lead.objects.filter(exhibitor=exhibitor).values(
+                "id",
+                "pseudonymization_id",
+                "exhibitor_name",
+                "scanned",
+                "scan_type",
+                "device_name",
+                "booth_number",
+                "booth_name",
+                "attendee",
+                booth_id=F("booth_number"),
+            )
         )
         log_operation(
             "exhibition.lead.retrieve",
@@ -672,7 +674,7 @@ class LeadRetrieveView(views.APIView):
             route=_request_route(request),
         )
 
-        return Response({"success": True, "leads": list(leads)}, status=status.HTTP_200_OK)
+        return Response({"success": True, "leads": leads}, status=status.HTTP_200_OK)
 
 
 class VoucherRedemptionRetrieveView(views.APIView):
@@ -737,7 +739,7 @@ class TagListView(views.APIView):
                 error_code="lead_scanning_disabled",
             )
 
-        tags = ExhibitorTag.objects.filter(exhibitor=exhibitor)
+        tag_names = [tag.name for tag in ExhibitorTag.objects.filter(exhibitor=exhibitor)]
         log_operation(
             "exhibition.tag.list",
             OUTCOME_SUCCESS,
@@ -747,7 +749,7 @@ class TagListView(views.APIView):
             object_id=exhibitor.id,
             route=_request_route(request),
         )
-        return Response({"success": True, "tags": [tag.name for tag in tags]})
+        return Response({"success": True, "tags": tag_names})
 
 
 class LeadUpdateView(views.APIView):

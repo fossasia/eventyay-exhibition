@@ -71,13 +71,19 @@ def current_request_id():
     """Return the active sanitized request correlation ID, if any."""
     if _get_host_request_id is None:
         return None
-    return _safe_identifier(_get_host_request_id())
+    try:
+        return _safe_identifier(_get_host_request_id())
+    except Exception:
+        return None
 
 
 def _current_job_id():
     if _get_host_job_id is None:
         return None
-    return _safe_identifier(_get_host_job_id())
+    try:
+        return _safe_identifier(_get_host_job_id())
+    except Exception:
+        return None
 
 
 def _clean(fields):

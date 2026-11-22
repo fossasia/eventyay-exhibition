@@ -119,12 +119,21 @@ def test_logging_failure_is_swallowed(monkeypatch):
     monkeypatch.setattr(operational_log, "_HOST_LOG_EVENT", boom)
     log_operation("plugin.loaded", OUTCOME_SUCCESS, backend="exhibition")
 
+    monkeypatch.setattr(operational_log, "_HOST_LOG_EVENT", None)
+    monkeypatch.setattr(operational_log, "_get_host_request_id", boom)
+    monkeypatch.setattr(operational_log, "_get_host_job_id", boom)
+    assert operational_log.current_request_id() is None
+    assert operational_log._current_job_id() is None
+    log_operation("plugin.loaded", OUTCOME_SUCCESS, backend="exhibition")
+
 
 def test_request_transition_omits_error_code_on_success(monkeypatch):
     import exhibition.models as exhibition_models
 
     calls = []
+    commit_callbacks = []
     monkeypatch.setattr(exhibition_models, "log_operation", lambda *a, **kw: calls.append((a, kw)))
+    monkeypatch.setattr(exhibition_models.transaction, "on_commit", commit_callbacks.append)
     fake_request = SimpleNamespace(
         event_id=7,
         pk=42,
@@ -135,6 +144,9 @@ def test_request_transition_omits_error_code_on_success(monkeypatch):
     exhibition_models.ExhibitionRequest.log_transition(
         fake_request, "approve", "submitted", requestor=SimpleNamespace(pk=9)
     )
+    assert calls == []
+    assert len(commit_callbacks) == 1
+    commit_callbacks.pop()()
     assert len(calls) == 1
     args, kwargs = calls[0]
     assert args == ("exhibition.request.approve", OUTCOME_SUCCESS)
