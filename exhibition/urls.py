@@ -21,6 +21,7 @@ from .dashboard import (
     MyExhibitionVouchersView,
 )
 from .shop import (
+    ShopAddOnsView,
     ShopConfirmView,
     ShopDetailsView,
     ShopIndexView,
@@ -184,6 +185,11 @@ urlpatterns = [
         "<str:organizer>/<str:event>/exhibition/packages/",
         ShopIndexView.as_view(),
         name="shop",
+    ),
+    path(
+        "<str:organizer>/<str:event>/exhibition/packages/checkout/addons/",
+        ShopAddOnsView.as_view(),
+        name="shop.checkout.addons",
     ),
     path(
         "<str:organizer>/<str:event>/exhibition/packages/checkout/details/",

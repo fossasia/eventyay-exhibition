@@ -73,10 +73,14 @@
                     </thead>
                     <tbody>
                         {% for position in positions %}
-                            <tr>
-                                <td>{{ position.name|event_localize }}</td>
+                            <tr {% if position.is_addon %}class="addon-row text-muted"{% endif %}>
+                                <td {% if position.is_addon %}style="padding-left: 25px;"{% endif %}>
+                                    {% if position.is_addon %}<i class="fa fa-level-up fa-rotate-90"></i> {% endif %}
+                                    {{ position.name|event_localize }}
+                                    {% if position.is_addon %}<span class="label label-info">{% trans "Add-on" %}</span>{% endif %}
+                                </td>
                                 <td>{% if position.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                                <td class="text-right">{{ position.price|money:order.currency }}</td>
+                                <td class="text-right">{% if position.price %}{{ position.price|money:order.currency }}{% else %}{% trans "Free" %}{% endif %}</td>
                             </tr>
                         {% endfor %}
                     </tbody>
