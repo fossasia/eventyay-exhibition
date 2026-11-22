@@ -1921,6 +1921,7 @@ class ExhibitionOrder(LoggedModel):
                 raise ExhibitionOrderStateError(f"Order {self.code} cannot change from {current.status} to {status}.")
             if check:
                 check(current)
+            effective_provider = fields.get("payment_provider", current.payment_provider) or None
             fields["status"] = status
             for name, value in fields.items():
                 setattr(self, name, value)
@@ -1930,18 +1931,24 @@ class ExhibitionOrder(LoggedModel):
                 data={key: str(value) for key, value in fields.items() if key != "status"},
                 user=user,
             )
-        op_action = self._TRANSITION_OPERATION_ACTIONS.get(action)
-        if op_action:
-            log_operation(
-                op_action,
-                OUTCOME_SUCCESS,
-                backend="exhibition",
-                event_id=self.event_id,
-                order_id=self.pk,
-                order_code=self.code,
-                payment_provider=self.payment_provider or None,
-                user_id=getattr(user, "pk", None),
-            )
+            op_action = self._TRANSITION_OPERATION_ACTIONS.get(action)
+            if op_action:
+                event_id = self.event_id
+                order_id = self.pk
+                order_code = self.code
+                user_id = getattr(user, "pk", None)
+                transaction.on_commit(
+                    lambda: log_operation(
+                        op_action,
+                        OUTCOME_SUCCESS,
+                        backend="exhibition",
+                        event_id=event_id,
+                        order_id=order_id,
+                        order_code=order_code,
+                        payment_provider=effective_provider,
+                        user_id=user_id,
+                    )
+                )
 
     def __str__(self):
         return self.code

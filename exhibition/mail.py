@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import re
+import time
 import uuid
 from collections import defaultdict
 from urllib.parse import urljoin
@@ -628,6 +629,7 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
         locale=locale or "",
     )
     if send_now:
+        started = time.monotonic()
         try:
             queued.send(requestor=requestor)
         except Exception:
@@ -636,6 +638,7 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
                 OUTCOME_FAILURE,
                 backend="exhibition",
                 error_code="send_failed",
+                duration_ms=int((time.monotonic() - started) * 1000),
                 event_id=event.pk,
                 object_id=queued.pk,
                 mail_type=role,
@@ -647,6 +650,7 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
             "mail.send",
             OUTCOME_SUCCESS,
             backend="exhibition",
+            duration_ms=int((time.monotonic() - started) * 1000),
             event_id=event.pk,
             object_id=queued.pk,
             mail_type=role,
@@ -689,6 +693,7 @@ def queue_order_email(event, order, role, *, send_now=False, requestor=None):
         locale=locale or "",
     )
     if send_now:
+        started = time.monotonic()
         try:
             queued.send(requestor=requestor)
         except Exception:
@@ -697,6 +702,7 @@ def queue_order_email(event, order, role, *, send_now=False, requestor=None):
                 OUTCOME_FAILURE,
                 backend="exhibition",
                 error_code="send_failed",
+                duration_ms=int((time.monotonic() - started) * 1000),
                 event_id=event.pk,
                 order_id=order.pk,
                 order_code=order.code,
@@ -710,6 +716,7 @@ def queue_order_email(event, order, role, *, send_now=False, requestor=None):
             "mail.send",
             OUTCOME_SUCCESS,
             backend="exhibition",
+            duration_ms=int((time.monotonic() - started) * 1000),
             event_id=event.pk,
             order_id=order.pk,
             order_code=order.code,
@@ -782,6 +789,7 @@ def send_request_organizer_emails(event, request, action):
 
     sent_count = 0
     failed_count = 0
+    started = time.monotonic()
     for member in members:
         locale = recipient_locale(event, member)
         with override(locale):
@@ -810,12 +818,14 @@ def send_request_organizer_emails(event, request, action):
             )
         else:
             sent_count += 1
+    duration_ms = int((time.monotonic() - started) * 1000)
     if failed_count:
         log_operation(
             "mail.send",
             OUTCOME_FAILURE,
             backend="exhibition",
             error_code="send_failed",
+            duration_ms=duration_ms,
             event_id=event.pk,
             object_id=request.pk,
             mail_type=REQUEST_ORGANIZER,
@@ -826,6 +836,7 @@ def send_request_organizer_emails(event, request, action):
             "mail.send",
             OUTCOME_SUCCESS,
             backend="exhibition",
+            duration_ms=duration_ms,
             event_id=event.pk,
             object_id=request.pk,
             mail_type=REQUEST_ORGANIZER,
@@ -1051,6 +1062,7 @@ def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_n
         locale=locale or "",
     )
     if send_now:
+        started = time.monotonic()
         try:
             queued.send(requestor=requestor)
         except Exception:
@@ -1059,6 +1071,7 @@ def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_n
                 OUTCOME_FAILURE,
                 backend="exhibition",
                 error_code="send_failed",
+                duration_ms=int((time.monotonic() - started) * 1000),
                 event_id=event.pk,
                 object_id=queued.pk,
                 mail_type=role,
@@ -1070,6 +1083,7 @@ def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_n
             "mail.send",
             OUTCOME_SUCCESS,
             backend="exhibition",
+            duration_ms=int((time.monotonic() - started) * 1000),
             event_id=event.pk,
             object_id=queued.pk,
             mail_type=role,

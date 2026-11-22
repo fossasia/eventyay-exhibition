@@ -584,6 +584,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 event=self.request.event,
             )
             if not layout_form.is_valid():
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="validation_failed",
+                    event_id=request.event.pk,
+                    user_id=_user_id(request),
+                )
                 settings.allowed_fields = allowed_fields
                 messages.error(self.request, _("We could not save your changes. See below for details."))
                 return self.render_to_response(
@@ -609,6 +617,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
         if action == "save_lead_settings":
             device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
             if not device_defaults_form.is_valid():
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="validation_failed",
+                    event_id=request.event.pk,
+                    user_id=_user_id(request),
+                )
                 return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
             device_defaults_form.save()
             settings.log_action(
@@ -633,6 +649,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 event=self.request.event,
             )
             if not voucher_defaults_form.is_valid():
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="validation_failed",
+                    event_id=request.event.pk,
+                    user_id=_user_id(request),
+                )
                 return self.render_to_response(self.get_context_data(voucher_defaults_form=voucher_defaults_form))
             voucher_defaults_form.save()
             settings.log_action(
@@ -672,6 +696,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 )
                 messages.success(self.request, _("Call settings have been saved."))
                 return redirect(self.get_settings_url("call"))
+            log_operation(
+                "exhibition.settings.update",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="validation_failed",
+                event_id=request.event.pk,
+                user_id=_user_id(request),
+            )
             return self.render_to_response(self.get_context_data(call_settings_form=form))
 
         if action == "regenerate_call_secret":
@@ -711,6 +743,14 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 messages.success(self.request, _("Sponsor group added."))
                 return redirect(self.get_settings_url("sponsors"))
 
+            log_operation(
+                "exhibition.sponsor_group.create",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="validation_failed",
+                event_id=request.event.pk,
+                user_id=_user_id(request),
+            )
             messages.error(self.request, _("We could not save your changes. See below for details."))
             return self.render_to_response(
                 self.get_context_data(
@@ -741,6 +781,15 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 messages.success(self.request, _("Sponsor group updated."))
                 return redirect(self.get_settings_url("sponsors"))
 
+            log_operation(
+                "exhibition.sponsor_group.update",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="validation_failed",
+                event_id=request.event.pk,
+                object_id=group.pk,
+                user_id=_user_id(request),
+            )
             messages.error(self.request, _("We could not save your changes. See below for details."))
             return self.render_to_response(
                 self.get_context_data(
@@ -1636,21 +1685,26 @@ class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
             return redirect(self.get_success_url())
 
         group_id = self.object.pk
+        event_id = self.request.event.pk
+        user_id = _user_id(self.request)
         self.object.log_action(
             LOG_GROUP_DELETED,
             data={"name": self.object.localized_name},
             user=self.request.user,
         )
-        log_operation(
-            "exhibition.sponsor_group.delete",
-            OUTCOME_SUCCESS,
-            backend="exhibition",
-            event_id=self.request.event.pk,
-            object_id=group_id,
-            user_id=_user_id(self.request),
+        response = super().form_valid(form)
+        transaction.on_commit(
+            lambda: log_operation(
+                "exhibition.sponsor_group.delete",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=event_id,
+                object_id=group_id,
+                user_id=user_id,
+            )
         )
         messages.success(self.request, _("Sponsor group deleted."))
-        return super().form_valid(form)
+        return response
 
     def get_success_url(self):
         return reverse(
@@ -4802,18 +4856,33 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 )
                 self.release_replaced_attachments(previous_ids, attachment)
             if "_send" in self.request.POST:
+                count = 0
                 for row in rows:
                     row.subject = subject
                     row.body = body
                     row.attachment = attachment
-                    row.send(requestor=self.request.user)
+                    try:
+                        row.send(requestor=self.request.user)
+                    except Exception:
+                        log_operation(
+                            "mail.send",
+                            OUTCOME_FAILURE,
+                            backend="exhibition",
+                            error_code="send_failed",
+                            event_id=self.request.event.pk,
+                            object_id=self.object.pk,
+                            recipient_count=count,
+                            user_id=_user_id(self.request),
+                        )
+                        raise
+                    count += 1
                 log_operation(
                     "mail.send",
                     OUTCOME_SUCCESS,
                     backend="exhibition",
                     event_id=self.request.event.pk,
                     object_id=self.object.pk,
-                    recipient_count=len(rows),
+                    recipient_count=count,
                     user_id=_user_id(self.request),
                 )
                 messages.success(self.request, _("The emails have been saved and sent."))
@@ -4839,7 +4908,20 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             self.release_replaced_attachments(previous_ids, attachment)
             self.object = locked
         if "_send" in self.request.POST:
-            self.object.send(requestor=self.request.user)
+            try:
+                self.object.send(requestor=self.request.user)
+            except Exception:
+                log_operation(
+                    "mail.send",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="send_failed",
+                    event_id=self.request.event.pk,
+                    object_id=self.object.pk,
+                    recipient_count=0,
+                    user_id=_user_id(self.request),
+                )
+                raise
             log_operation(
                 "mail.send",
                 OUTCOME_SUCCESS,
@@ -4907,7 +4989,20 @@ class EmailSendView(EventPermissionRequiredMixin, View):
             rows = [email]
         count = 0
         for row in rows:
-            row.send(requestor=request.user)
+            try:
+                row.send(requestor=request.user)
+            except Exception:
+                log_operation(
+                    "mail.send",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="send_failed",
+                    event_id=request.event.pk,
+                    object_id=email.pk,
+                    recipient_count=count,
+                    user_id=_user_id(request),
+                )
+                raise
             count += 1
         log_operation(
             "mail.send",
@@ -5025,7 +5120,19 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
         if action == "send":
             count = 0
             for row in rows:
-                row.send(requestor=request.user)
+                try:
+                    row.send(requestor=request.user)
+                except Exception:
+                    log_operation(
+                        "mail.send",
+                        OUTCOME_FAILURE,
+                        backend="exhibition",
+                        error_code="send_failed",
+                        event_id=request.event.pk,
+                        recipient_count=count,
+                        user_id=_user_id(request),
+                    )
+                    raise
                 count += 1
             if count:
                 log_operation(

@@ -228,7 +228,7 @@ def place_exhibition_order(
         event_id=event.pk,
         order_id=order.pk,
         order_code=order.code,
-        payment_provider=order.payment_provider or FREE_PAYMENT_PROVIDER,
+        payment_provider=order.payment_provider or None,
         user_id=getattr(user, "pk", None),
     )
     return order

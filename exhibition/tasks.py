@@ -1,4 +1,5 @@
 import logging
+import time
 
 from celery.exceptions import MaxRetriesExceededError
 from django.db import transaction
@@ -36,7 +37,17 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
             )
             return
 
+    log_operation(
+        "job.start",
+        OUTCOME_SUCCESS,
+        backend="exhibition",
+        job_name="exhibition.send_scheduled_email",
+        event_id=event.pk,
+        object_id=queue_id,
+        request_id=request_id,
+    )
     send_completed = False
+    started = time.monotonic()
     try:
         with transaction.atomic():
             queued = (
@@ -60,12 +71,14 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
             queued.send()
             send_completed = True
     except Exception as exc:
+        duration_ms = int((time.monotonic() - started) * 1000)
         logger.exception("[Exhibition] Failed to send scheduled email %s", queue_id)
         log_operation(
             "mail.send",
             OUTCOME_FAILURE,
             backend="exhibition",
             error_code="send_failed",
+            duration_ms=duration_ms,
             event_id=event.pk,
             object_id=queue_id,
             retry_count=getattr(self.request, "retries", None),
@@ -81,6 +94,7 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
                 OUTCOME_FAILURE,
                 backend="exhibition",
                 error_code="max_retries_exceeded",
+                duration_ms=duration_ms,
                 event_id=event.pk,
                 object_id=queue_id,
                 retry_count=getattr(self.request, "retries", None),
@@ -92,6 +106,7 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
                 "mail.send",
                 OUTCOME_SUCCESS,
                 backend="exhibition",
+                duration_ms=int((time.monotonic() - started) * 1000),
                 event_id=event.pk,
                 object_id=queue_id,
                 request_id=request_id,

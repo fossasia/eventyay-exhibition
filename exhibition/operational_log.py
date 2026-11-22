@@ -35,6 +35,7 @@ _INT_FIELDS = frozenset(
         "order_id",
         "user_id",
         "status",
+        "duration_ms",
         "retry_count",
         "recipient_count",
         "voucher_id",
@@ -44,6 +45,7 @@ _IDENTIFIER_FIELDS = frozenset(
     {
         "error_code",
         "backend",
+        "job_name",
         "mail_type",
         "payment_provider",
         "order_code",

@@ -45,6 +45,8 @@ def test_drops_email_token_and_unknown_fields(captured):
         voucher_id=56,
         recipient_count=3,
         retry_count=1,
+        duration_ms=42,
+        job_name="exhibition.send_scheduled_email",
         mail_type="vouchers",
         route="plugins:exhibition:exhibitor-auth",
     )
@@ -58,6 +60,8 @@ def test_drops_email_token_and_unknown_fields(captured):
     assert extra["voucher_id"] == 56
     assert extra["recipient_count"] == 3
     assert extra["retry_count"] == 1
+    assert extra["duration_ms"] == 42
+    assert extra["job_name"] == "exhibition.send_scheduled_email"
     assert extra["mail_type"] == "vouchers"
     assert extra["route"] == "plugins:exhibition:exhibitor-auth"
     assert extra["outcome"] == "success"
@@ -213,12 +217,23 @@ def test_scheduled_email_logs_success_only_after_commit(monkeypatch):
     )
 
     exhibition_tasks.send_scheduled_email.run(10, 20)
-    assert calls == [
-        (
-            ("mail.send", OUTCOME_SUCCESS),
-            {"backend": "exhibition", "event_id": 10, "object_id": 20, "request_id": None},
-        ),
-    ]
+    assert len(calls) == 2
+    assert calls[0] == (
+        ("job.start", OUTCOME_SUCCESS),
+        {
+            "backend": "exhibition",
+            "job_name": "exhibition.send_scheduled_email",
+            "event_id": 10,
+            "object_id": 20,
+            "request_id": None,
+        },
+    )
+    assert calls[1][0] == ("mail.send", OUTCOME_SUCCESS)
+    assert calls[1][1]["backend"] == "exhibition"
+    assert calls[1][1]["event_id"] == 10
+    assert calls[1][1]["object_id"] == 20
+    assert calls[1][1]["request_id"] is None
+    assert isinstance(calls[1][1]["duration_ms"], int)
 
     # Commit-time failure must NOT emit a success log.
     calls.clear()
@@ -237,8 +252,11 @@ def test_scheduled_email_logs_success_only_after_commit(monkeypatch):
         lambda *a, **kw: (_ for _ in ()).throw(MaxRetriesExceededError()),
     )
     exhibition_tasks.send_scheduled_email.run(10, 20)
-    assert [kw["error_code"] for _, kw in calls] == ["send_failed", "max_retries_exceeded"]
-    assert all(args[1] == OUTCOME_FAILURE for args, _ in calls)
+    assert calls[0][0] == ("job.start", OUTCOME_SUCCESS)
+    failure_calls = calls[1:]
+    assert [kw["error_code"] for _, kw in failure_calls] == ["send_failed", "max_retries_exceeded"]
+    assert all(args[1] == OUTCOME_FAILURE for args, _ in failure_calls)
+    assert all(isinstance(kw["duration_ms"], int) for _, kw in failure_calls)
 
 
 def test_api_auth_logs_without_raw_key(monkeypatch):
@@ -384,8 +402,10 @@ def test_order_operations_logging(monkeypatch):
     import exhibition.models as exhibition_models
 
     calls = []
+    commit_callbacks = []
     monkeypatch.setattr(exhibition_models, "log_operation", lambda *a, **kw: calls.append((a, kw)))
     monkeypatch.setattr(exhibition_models.transaction, "atomic", nullcontext)
+    monkeypatch.setattr(exhibition_models.transaction, "on_commit", commit_callbacks.append)
 
     order = exhibition_models.ExhibitionOrder(
         pk=101,
@@ -396,10 +416,14 @@ def test_order_operations_logging(monkeypatch):
     )
     monkeypatch.setattr(order, "save", lambda **kw: None)
     monkeypatch.setattr(order, "log_action", lambda *a, **kw: None)
+    locked_order = SimpleNamespace(
+        status=exhibition_models.ExhibitionOrderStatus.PENDING,
+        payment_provider="banktransfer",
+    )
     monkeypatch.setattr(
         exhibition_models.ExhibitionOrder.objects,
         "select_for_update",
-        lambda: SimpleNamespace(get=lambda pk: order),
+        lambda: SimpleNamespace(get=lambda pk: locked_order),
     )
 
     order.change_payment_provider("banktransfer", user=SimpleNamespace(pk=8))
@@ -415,14 +439,21 @@ def test_order_operations_logging(monkeypatch):
         },
     )
 
+    # _transition defers success logging to transaction.on_commit and uses locked payment_provider
+    # even if self.payment_provider was stale ("manual").
+    order.payment_provider = "manual"
+    calls.clear()
     order._transition(
         {exhibition_models.ExhibitionOrderStatus.PENDING},
-        exhibition_models.ExhibitionOrderStatus.PAID,
-        exhibition_models.LOG_ORDER_PAID,
+        exhibition_models.ExhibitionOrderStatus.CANCELLED,
+        exhibition_models.LOG_ORDER_CANCELLED,
         SimpleNamespace(pk=8),
     )
+    assert calls == []
+    assert len(commit_callbacks) == 1
+    commit_callbacks.pop()()
     assert calls[-1] == (
-        ("exhibition.order.paid", OUTCOME_SUCCESS),
+        ("exhibition.order.cancelled", OUTCOME_SUCCESS),
         {
             "backend": "exhibition",
             "event_id": 4,
@@ -550,3 +581,44 @@ def test_correlation_ids_and_api_reads(monkeypatch):
 
     assert exhibition_api.TagListView().get(req_read, organizer="o", event="e").status_code == 200
     assert api_calls[-1][0] == ("exhibition.tag.list", OUTCOME_SUCCESS)
+
+
+def test_email_send_view_logs_failure_and_reraises(monkeypatch):
+    import exhibition.views as exhibition_views
+
+    calls = []
+    monkeypatch.setattr(exhibition_views, "log_operation", lambda *a, **kw: calls.append((a, kw)))
+
+    sent = []
+
+    def ok_send(requestor=None):
+        sent.append("ok")
+
+    def bad_send(requestor=None):
+        raise RuntimeError("smtp down")
+
+    row1 = SimpleNamespace(pk=11, batch="b1", send=ok_send)
+    row2 = SimpleNamespace(pk=12, batch="b1", send=bad_send)
+    monkeypatch.setattr(exhibition_views, "get_object_or_404", lambda *a, **kw: row1)
+    monkeypatch.setattr(
+        exhibition_views.ExhibitionEmailQueue.objects,
+        "filter",
+        lambda **kw: [row1, row2],
+    )
+    request = SimpleNamespace(event=SimpleNamespace(pk=5), user=SimpleNamespace(pk=8))
+    with pytest.raises(RuntimeError, match="smtp down"):
+        exhibition_views.EmailSendView().post(request, pk=11)
+
+    assert calls == [
+        (
+            ("mail.send", OUTCOME_FAILURE),
+            {
+                "backend": "exhibition",
+                "error_code": "send_failed",
+                "event_id": 5,
+                "object_id": 11,
+                "recipient_count": 1,
+                "user_id": 8,
+            },
+        )
+    ]
