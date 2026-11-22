@@ -1,0 +1,33 @@
+/* Responsive required-field information messages */
+@media (max-width: 768px) {
+    .dragsort-table .info-toggle-header {
+        position: relative;
+    }
+
+    .dragsort-table .inline-info-box {
+        position: absolute;
+        top: 100%;
+        bottom: auto;
+        left: 0;
+        right: auto;
+
+        width: min(320px, calc(100vw - 32px));
+        min-width: 0;
+        max-width: calc(100vw - 32px);
+
+        box-sizing: border-box;
+        z-index: 1050;
+    }
+
+    .dragsort-table .talk-info-content {
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .dragsort-table .talk-info-icon {
+        flex: 0 0 48px;
+        min-width: 48px;
+    }
+}
