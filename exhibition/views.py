@@ -136,7 +136,7 @@ from .models import (
     get_next_sponsor_group_level,
     storable_request_field_settings,
 )
-from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, current_request_id, log_operation
 from .orders import (
     paid_products_lack_payment_method,
     payment_method_names,
@@ -169,6 +169,10 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _user_id(request):
+    return getattr(getattr(request, "user", None), "pk", None)
 
 
 def _log_permission_denied(request, error_code):
@@ -597,7 +601,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 OUTCOME_SUCCESS,
                 backend="exhibition",
                 event_id=request.event.pk,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("exhibitors"))
@@ -617,7 +621,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 OUTCOME_SUCCESS,
                 backend="exhibition",
                 event_id=request.event.pk,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("leads"))
@@ -641,7 +645,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 OUTCOME_SUCCESS,
                 backend="exhibition",
                 event_id=request.event.pk,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("vouchers"))
@@ -664,7 +668,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     OUTCOME_SUCCESS,
                     backend="exhibition",
                     event_id=request.event.pk,
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
                 messages.success(self.request, _("Call settings have been saved."))
                 return redirect(self.get_settings_url("call"))
@@ -677,7 +681,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 OUTCOME_SUCCESS,
                 backend="exhibition",
                 event_id=request.event.pk,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.success(
                 self.request,
@@ -702,7 +706,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     event_id=request.event.pk,
                     object_id=group.pk,
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
                 messages.success(self.request, _("Sponsor group added."))
                 return redirect(self.get_settings_url("sponsors"))
@@ -732,7 +736,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     event_id=request.event.pk,
                     object_id=group.pk,
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
                 messages.success(self.request, _("Sponsor group updated."))
                 return redirect(self.get_settings_url("sponsors"))
@@ -795,7 +799,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
                 error_code="unsupported_format",
                 status=400,
                 event_id=self.request.event.pk,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             return HttpResponseBadRequest(_("Unsupported export format."))
         queryset = self.get_queryset()
@@ -810,7 +814,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
             backend="exhibition",
             status=200,
             event_id=self.request.event.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         if content_type == "text/csv":
             content_type += "; charset=utf-8"
@@ -1626,7 +1630,7 @@ class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
                 error_code="in_use",
                 event_id=self.request.event.pk,
                 object_id=self.object.pk,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.error(self.request, blocker)
             return redirect(self.get_success_url())
@@ -1643,7 +1647,7 @@ class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=group_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Sponsor group deleted."))
         return super().form_valid(form)
@@ -1875,6 +1879,15 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
                 _log_permission_denied(self.request, "review")
                 raise PermissionDenied()
             if not self.object.can_apply_action(action):
+                log_operation(
+                    "exhibition.request",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="invalid_state",
+                    event_id=self.request.event.pk,
+                    object_id=self.object.pk,
+                    user_id=_user_id(self.request),
+                )
                 messages.error(self.request, _("This request can no longer be changed to that state."))
                 return redirect(self.get_success_url())
             return self.perform_review_action(action)
@@ -2237,7 +2250,7 @@ class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response
@@ -2267,7 +2280,7 @@ class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response
@@ -2291,7 +2304,7 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
                 error_code="has_orders",
                 event_id=self.request.event.pk,
                 object_id=self.object.pk,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.error(
                 self.request,
@@ -2311,7 +2324,7 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=product_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -2362,7 +2375,7 @@ class ExhibitionProductCategoryCreateView(ExhibitionProductCategoryFormMixin, Cr
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response
@@ -2384,7 +2397,7 @@ class ExhibitionProductCategoryEditView(ExhibitionProductCategoryFormMixin, Upda
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response
@@ -2408,7 +2421,7 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
                 error_code="addon_category_not_empty",
                 event_id=self.request.event.pk,
                 object_id=self.object.pk,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.error(
                 self.request,
@@ -2431,7 +2444,7 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=category_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -2490,7 +2503,7 @@ class ExhibitionQuotaCreateView(ExhibitionQuotaFormMixin, CreateView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response
@@ -2512,7 +2525,7 @@ class ExhibitionQuotaEditView(ExhibitionQuotaFormMixin, UpdateView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response
@@ -2532,7 +2545,7 @@ class ExhibitionQuotaDeleteView(ExhibitionQuotaMixin, DeleteView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=quota_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -2668,7 +2681,7 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
                 backend="exhibition",
                 error_code="quota_exceeded",
                 event_id=request.event.pk,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.error(request, _("One of the products is sold out. Free up room in its quotas first."))
             return self.render_to_response(context)
@@ -2679,7 +2692,7 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
                 backend="exhibition",
                 error_code="order_invalid",
                 event_id=request.event.pk,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.error(request, _("The order could not be created."))
             return self.render_to_response(context)
@@ -2716,7 +2729,7 @@ class ExhibitionOrderMarkPaidView(ExhibitionOrderActionMixin, FormView):
                 event_id=self.request.event.pk,
                 order_id=self.order.pk,
                 order_code=self.order.code,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.error(self.request, _("This order cannot be marked as paid in its current state."))
         except ExhibitionQuotaExceeded:
@@ -2728,7 +2741,7 @@ class ExhibitionOrderMarkPaidView(ExhibitionOrderActionMixin, FormView):
                 event_id=self.request.event.pk,
                 order_id=self.order.pk,
                 order_code=self.order.code,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.error(
                 self.request,
@@ -2757,7 +2770,7 @@ class ExhibitionOrderResendView(ExhibitionOrderActionMixin, View):
                 event_id=request.event.pk,
                 order_id=self.order.pk,
                 order_code=self.order.code,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.error(request, _("This order has been cancelled."))
         else:
@@ -2792,7 +2805,7 @@ class ExhibitionOrderCancelView(ExhibitionOrderActionMixin, TemplateView):
                 event_id=request.event.pk,
                 order_id=self.order.pk,
                 order_code=self.order.code,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.error(request, _("This order has already been cancelled."))
         else:
@@ -3426,7 +3439,7 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -3495,7 +3508,7 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -3548,7 +3561,7 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=organization_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -3652,7 +3665,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
                 event_id=request.event.pk,
                 object_id=self.object.pk,
                 voucher_id=link.voucher_id,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.error(request, _("This voucher has already been redeemed and cannot be returned."))
             return redirect(self.get_success_url())
@@ -3665,7 +3678,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
                 event_id=request.event.pk,
                 object_id=self.object.pk,
                 voucher_id=link.voucher_id,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.error(
                 request,
@@ -3684,7 +3697,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             event_id=request.event.pk,
             object_id=self.object.pk,
             voucher_id=voucher_id,
-            user_id=request.user.pk,
+            user_id=_user_id(request),
         )
         messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
@@ -3745,7 +3758,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
                 event_id=request.event.pk,
                 object_id=self.object.pk,
                 mail_type=mail_helpers.VOUCHERS,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
         if reason == mail_helpers.VOUCHER_SKIP_NO_EMAIL:
             messages.error(request, _("No email address is on file, so vouchers cannot be emailed."))
@@ -3782,7 +3795,7 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             object_id=self.object.pk,
             mail_type=mail_helpers.VOUCHERS,
             recipient_count=1,
-            user_id=request.user.pk,
+            user_id=_user_id(request),
         )
         messages.success(
             request,
@@ -4049,7 +4062,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                     event_id=request.event.pk,
                     mail_type=mail_helpers.VOUCHERS,
                     recipient_count=len(queued),
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
             else:
                 log_operation(
@@ -4059,7 +4072,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                     error_code="no_recipients",
                     event_id=request.event.pk,
                     mail_type=mail_helpers.VOUCHERS,
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
             messages.success(
                 request,
@@ -4078,7 +4091,7 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                 error_code="no_recipients",
                 event_id=request.event.pk,
                 mail_type=mail_helpers.VOUCHERS,
-                user_id=request.user.pk,
+                user_id=_user_id(request),
             )
             messages.info(request, _("There is nobody to send vouchers to in this selection."))
         self.report_skipped(
@@ -4345,7 +4358,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                         backend="exhibition",
                         error_code="already_queued",
                         event_id=self.request.event.pk,
-                        user_id=self.request.user.pk,
+                        user_id=_user_id(self.request),
                     )
                     return self.draft_already_queued()
             previous_attachment_id = draft.attachment_id
@@ -4361,7 +4374,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=draft.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.success(self.request, _("The draft has been saved."))
         return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
@@ -4415,7 +4428,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 backend="exhibition",
                 error_code="draft_already_queued",
                 event_id=event.pk,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             return self.draft_already_queued()
         if not created:
@@ -4425,14 +4438,18 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 backend="exhibition",
                 error_code="no_recipients",
                 event_id=event.pk,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)
 
         if scheduled_at:
+            request_id = current_request_id()
             for queued in created:
-                send_scheduled_email.apply_async(args=[event.pk, queued.pk], eta=scheduled_at)
+                async_kwargs = {"args": [event.pk, queued.pk], "eta": scheduled_at}
+                if request_id:
+                    async_kwargs["kwargs"] = {"request_id": request_id}
+                send_scheduled_email.apply_async(**async_kwargs)
 
         op_action = "mail.schedule" if scheduled_at else ("mail.send" if send_now else "mail.queue")
         log_operation(
@@ -4442,7 +4459,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             event_id=event.pk,
             mail_type="compose",
             recipient_count=len(created),
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
 
         if self.single_request is not None:
@@ -4708,7 +4725,7 @@ class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=draft_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return response
 
@@ -4758,8 +4775,12 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
 
         if not scheduled_at:
             return
+        request_id = current_request_id()
         for row in rows:
-            send_scheduled_email.apply_async(args=[self.request.event.pk, row.pk], eta=scheduled_at)
+            async_kwargs = {"args": [self.request.event.pk, row.pk], "eta": scheduled_at}
+            if request_id:
+                async_kwargs["kwargs"] = {"request_id": request_id}
+            send_scheduled_email.apply_async(**async_kwargs)
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -4793,7 +4814,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                     event_id=self.request.event.pk,
                     object_id=self.object.pk,
                     recipient_count=len(rows),
-                    user_id=self.request.user.pk,
+                    user_id=_user_id(self.request),
                 )
                 messages.success(self.request, _("The emails have been saved and sent."))
             else:
@@ -4826,7 +4847,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 event_id=self.request.event.pk,
                 object_id=self.object.pk,
                 recipient_count=1,
-                user_id=self.request.user.pk,
+                user_id=_user_id(self.request),
             )
             messages.success(self.request, _("The email has been saved and sent."))
         else:
@@ -4844,7 +4865,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             error_code="already_handled",
             event_id=self.request.event.pk,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         messages.warning(self.request, _("This email was already sent or discarded, so your changes were not saved."))
         return redirect(self.get_success_url())
@@ -4895,7 +4916,7 @@ class EmailSendView(EventPermissionRequiredMixin, View):
             event_id=request.event.pk,
             object_id=email.pk,
             recipient_count=count,
-            user_id=request.user.pk,
+            user_id=_user_id(request),
         )
         messages.success(
             request,
@@ -4939,7 +4960,7 @@ class EmailDeleteView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixi
             backend="exhibition",
             event_id=self.request.event.pk,
             object_id=email_id,
-            user_id=self.request.user.pk,
+            user_id=_user_id(self.request),
         )
         return redirect(success_url)
 
@@ -5013,7 +5034,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                     backend="exhibition",
                     event_id=request.event.pk,
                     recipient_count=count,
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
                 messages.success(
                     request,
@@ -5034,7 +5055,7 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                     backend="exhibition",
                     event_id=request.event.pk,
                     recipient_count=count,
-                    user_id=request.user.pk,
+                    user_id=_user_id(request),
                 )
                 messages.success(
                     request,

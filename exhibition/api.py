@@ -662,6 +662,15 @@ class LeadRetrieveView(views.APIView):
             "attendee",
             booth_id=F("booth_number"),
         )
+        log_operation(
+            "exhibition.lead.retrieve",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.id,
+            route=_request_route(request),
+        )
 
         return Response({"success": True, "leads": list(leads)}, status=status.HTTP_200_OK)
 
@@ -698,6 +707,15 @@ class VoucherRedemptionRetrieveView(views.APIView):
             }
             for position in positions
         ]
+        log_operation(
+            "exhibition.voucher.redemptions",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.id,
+            route=_request_route(request),
+        )
 
         return Response({"success": True, "redemptions": redemptions}, status=status.HTTP_200_OK)
 
@@ -720,6 +738,15 @@ class TagListView(views.APIView):
             )
 
         tags = ExhibitorTag.objects.filter(exhibitor=exhibitor)
+        log_operation(
+            "exhibition.tag.list",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.id,
+            route=_request_route(request),
+        )
         return Response({"success": True, "tags": [tag.name for tag in tags]})
 
 

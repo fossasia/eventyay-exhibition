@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @app.task(base=ProfiledEventTask, bind=True, max_retries=5, default_retry_delay=60, acks_late=True)
-def send_scheduled_email(self, event_id, queue_id):
+def send_scheduled_email(self, event_id, queue_id, request_id=None):
     from .models import ExhibitionEmailQueue
 
     if isinstance(event_id, Event):
@@ -32,6 +32,7 @@ def send_scheduled_email(self, event_id, queue_id):
                 error_code="event_missing",
                 event_id=original_event_id if isinstance(original_event_id, int) else None,
                 object_id=queue_id,
+                request_id=request_id,
             )
             return
 
@@ -50,7 +51,10 @@ def send_scheduled_email(self, event_id, queue_id):
                 return
 
             if queued.scheduled_at > now():
-                send_scheduled_email.apply_async(args=[original_event_id, queue_id], eta=queued.scheduled_at)
+                async_kwargs = {"args": [original_event_id, queue_id], "eta": queued.scheduled_at}
+                if request_id:
+                    async_kwargs["kwargs"] = {"request_id": request_id}
+                send_scheduled_email.apply_async(**async_kwargs)
                 return
 
             queued.send()
@@ -65,9 +69,11 @@ def send_scheduled_email(self, event_id, queue_id):
             event_id=event.pk,
             object_id=queue_id,
             retry_count=getattr(self.request, "retries", None),
+            request_id=request_id,
         )
         try:
-            self.retry(exc=exc, args=[original_event_id, queue_id])
+            retry_kwargs = {"request_id": request_id} if request_id else None
+            self.retry(exc=exc, args=[original_event_id, queue_id], kwargs=retry_kwargs)
         except MaxRetriesExceededError:
             logger.error("[Exhibition] Max retries exceeded for scheduled email %s", queue_id)
             log_operation(
@@ -78,6 +84,7 @@ def send_scheduled_email(self, event_id, queue_id):
                 event_id=event.pk,
                 object_id=queue_id,
                 retry_count=getattr(self.request, "retries", None),
+                request_id=request_id,
             )
     else:
         if send_completed:
@@ -87,4 +94,5 @@ def send_scheduled_email(self, event_id, queue_id):
                 backend="exhibition",
                 event_id=event.pk,
                 object_id=queue_id,
+                request_id=request_id,
             )

@@ -214,7 +214,10 @@ def test_scheduled_email_logs_success_only_after_commit(monkeypatch):
 
     exhibition_tasks.send_scheduled_email.run(10, 20)
     assert calls == [
-        (("mail.send", OUTCOME_SUCCESS), {"backend": "exhibition", "event_id": 10, "object_id": 20}),
+        (
+            ("mail.send", OUTCOME_SUCCESS),
+            {"backend": "exhibition", "event_id": 10, "object_id": 20, "request_id": None},
+        ),
     ]
 
     # Commit-time failure must NOT emit a success log.
@@ -473,3 +476,77 @@ def test_api_forbidden_and_lead_scan_logging(monkeypatch):
         },
     )
     assert "secret-key" not in str(calls)
+
+
+def test_correlation_ids_and_api_reads(monkeypatch):
+    import exhibition.api as exhibition_api
+    import exhibition.models as exhibition_models
+    import exhibition.tasks as exhibition_tasks
+    import exhibition.views as exhibition_views
+
+    monkeypatch.setattr(operational_log, "_HOST_LOG_EVENT", None)
+    monkeypatch.setattr(operational_log, "_get_host_request_id", lambda: "req-abc-123")
+    monkeypatch.setattr(operational_log, "_get_host_job_id", lambda: "job-xyz-789")
+
+    records = []
+    monkeypatch.setattr(
+        logging.getLogger("eventyay.plugins"),
+        "log",
+        lambda level, action, extra=None: records.append((level, action, extra or {})),
+    )
+    log_operation("mail.send", OUTCOME_SUCCESS, backend="exhibition", event_id=1)
+    assert records[-1][2]["request_id"] == "req-abc-123"
+    assert records[-1][2]["job_id"] == "job-xyz-789"
+
+    # Explicit request_id passed to scheduled task overrides/persists across process boundary.
+    task_calls = []
+    monkeypatch.setattr(exhibition_tasks, "log_operation", lambda *a, **kw: task_calls.append((a, kw)))
+    monkeypatch.setattr(exhibition_tasks.transaction, "atomic", nullcontext)
+    monkeypatch.setattr(exhibition_tasks.Event.objects, "get", lambda pk: SimpleNamespace(pk=pk))
+
+    class FakeQS:
+        def filter(self, **kwargs):
+            return self
+
+        def first(self):
+            return SimpleNamespace(scheduled_at=exhibition_tasks.now(), send=lambda: None)
+
+    monkeypatch.setattr(
+        exhibition_models.ExhibitionEmailQueue.objects,
+        "select_for_update",
+        lambda skip_locked=True: FakeQS(),
+    )
+    exhibition_tasks.send_scheduled_email.run(10, 20, request_id="req-origin-1")
+    assert task_calls[-1][1]["request_id"] == "req-origin-1"
+
+    # _user_id handles request.user=None safely.
+    assert exhibition_views._user_id(SimpleNamespace(user=None)) is None
+
+    # API read endpoints emit result events without PII.
+    api_calls = []
+    monkeypatch.setattr(exhibition_api, "log_operation", lambda *a, **kw: api_calls.append((a, kw)))
+    event = SimpleNamespace(pk=3, locale="en")
+    exhibitor = SimpleNamespace(
+        id=55, event_id=3, event=event, allow_lead_access=True, allow_voucher_access=True, lead_scanning_enabled=True
+    )
+    monkeypatch.setattr(exhibition_api.ExhibitorInfo.objects, "get", lambda **kw: exhibitor)
+    monkeypatch.setattr(exhibition_api.Lead.objects, "filter", lambda **kw: SimpleNamespace(values=lambda *a, **k: []))
+    monkeypatch.setattr(exhibition_api, "exhibitor_voucher_redemptions", lambda ex: [])
+    monkeypatch.setattr(
+        exhibition_api.ExhibitorSettings.objects, "get_or_create", lambda **kw: (SimpleNamespace(), False)
+    )
+    monkeypatch.setattr(exhibition_api.ExhibitorTag.objects, "filter", lambda **kw: [])
+
+    req_read = SimpleNamespace(
+        headers={"Exhibitor": "k"},
+        resolver_match=SimpleNamespace(view_name="plugins:exhibition:lead-retrieve"),
+        event=event,
+    )
+    assert exhibition_api.LeadRetrieveView().get(req_read).status_code == 200
+    assert api_calls[-1][0] == ("exhibition.lead.retrieve", OUTCOME_SUCCESS)
+
+    assert exhibition_api.VoucherRedemptionRetrieveView().get(req_read, organizer="o", event="e").status_code == 200
+    assert api_calls[-1][0] == ("exhibition.voucher.redemptions", OUTCOME_SUCCESS)
+
+    assert exhibition_api.TagListView().get(req_read, organizer="o", event="e").status_code == 200
+    assert api_calls[-1][0] == ("exhibition.tag.list", OUTCOME_SUCCESS)

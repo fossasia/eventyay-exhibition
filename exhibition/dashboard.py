@@ -307,7 +307,7 @@ class MyExhibitionEditView(LoginRequiredMixin, ExhibitorLinkFormsetMixin, Update
             backend="exhibition",
             event_id=self.object.event_id,
             object_id=self.object.pk,
-            user_id=self.request.user.pk,
+            user_id=getattr(self.request.user, "pk", None),
         )
         messages.success(self.request, _("Your changes have been saved."))
         return response

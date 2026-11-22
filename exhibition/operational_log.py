@@ -4,7 +4,7 @@ Delegates to the host logger when it is importable. Otherwise uses
 ``eventyay.plugins``. Logging never raises into product code.
 
 Emails, names, tokens, secrets, and request or response bodies are dropped.
-Only opaque IDs, status codes, counts, and safe error codes are kept.
+Only opaque IDs, correlation IDs, status codes, counts, and safe error codes are kept.
 """
 
 from __future__ import annotations
@@ -13,9 +13,15 @@ import logging
 import re
 
 try:
-    from eventyay.base.operational_logging import log_event as _HOST_LOG_EVENT
+    from eventyay.base.operational_logging import (
+        get_job_id as _get_host_job_id,
+        get_request_id as _get_host_request_id,
+        log_event as _HOST_LOG_EVENT,
+    )
 except ImportError:
     _HOST_LOG_EVENT = None
+    _get_host_request_id = None
+    _get_host_job_id = None
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILURE = "failure"
@@ -41,6 +47,8 @@ _IDENTIFIER_FIELDS = frozenset(
         "mail_type",
         "payment_provider",
         "order_code",
+        "request_id",
+        "job_id",
     }
 )
 
@@ -55,6 +63,19 @@ def _safe_route(value):
     if isinstance(value, str) and _SAFE_ROUTE.fullmatch(value):
         return value
     return None
+
+
+def current_request_id():
+    """Return the active sanitized request correlation ID, if any."""
+    if _get_host_request_id is None:
+        return None
+    return _safe_identifier(_get_host_request_id())
+
+
+def _current_job_id():
+    if _get_host_job_id is None:
+        return None
+    return _safe_identifier(_get_host_job_id())
 
 
 def _clean(fields):
@@ -105,6 +126,8 @@ def log_operation(action, outcome, **fields):
             "component": "plugins",
             "outcome": outcome,
             "action": action,
+            "request_id": payload.get("request_id") or current_request_id(),
+            "job_id": payload.get("job_id") or _current_job_id(),
             **payload,
         }
         _LOGGER.log(level, action, extra=extra)

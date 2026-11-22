@@ -748,5 +748,15 @@ class ShopOrderPayChangeView(ShopOrderMixin, TemplateView):
         try:
             self.order.change_payment_provider(payment)
         except ExhibitionOrderStateError:
+            log_operation(
+                "exhibition.order.payment_changed",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="invalid_state",
+                event_id=request.event.pk,
+                order_id=self.order.pk,
+                order_code=self.order.code,
+                user_id=request.user.pk if request.user.is_authenticated else None,
+            )
             messages.error(request, _("This order is not awaiting a payment."))
         return redirect(self.order_url())
