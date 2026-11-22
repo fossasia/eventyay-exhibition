@@ -182,7 +182,16 @@ document.addEventListener("DOMContentLoaded", () => {
             closeTooltip();
         }
     });
+    
+    window.addEventListener("scroll", (event) => {
+        if (!activeToggle) return;
 
-    window.addEventListener("scroll", positionTooltip, true);
+        const box = tooltips.get(activeToggle);
+
+        if (box && box.contains(event.target)) return;
+
+        positionTooltip();
+    }, true);
+
     window.addEventListener("resize", closeTooltip);
 });
