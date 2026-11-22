@@ -19,6 +19,7 @@ from .models import (
     ExhibitionProduct,
     reserve_quota_capacity,
 )
+from .operational_log import OUTCOME_SUCCESS, log_operation
 
 SUPPORTED_PAYMENT_PROVIDERS = ("manual", "banktransfer")
 FREE_PAYMENT_PROVIDER = "free"
@@ -220,6 +221,16 @@ def place_exhibition_order(
             order.mark_paid(provider=FREE_PAYMENT_PROVIDER, user=user)
         elif paid:
             order.mark_paid(provider=payment_provider, reference=payment_reference, user=user)
+    log_operation(
+        "exhibition.order.place",
+        OUTCOME_SUCCESS,
+        backend="exhibition",
+        event_id=event.pk,
+        order_id=order.pk,
+        order_code=order.code,
+        payment_provider=order.payment_provider or FREE_PAYMENT_PROVIDER,
+        user_id=getattr(user, "pk", None),
+    )
     return order
 
 

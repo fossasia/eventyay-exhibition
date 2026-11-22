@@ -22,6 +22,7 @@ from eventyay.common.utils.language import localize_event_text
 from i18nfield.fields import I18nCharField, I18nTextField
 from i18nfield.strings import LazyI18nString
 
+from .operational_log import OUTCOME_SUCCESS, log_operation
 from .social_links import SOCIAL_LINK_CHOICES, get_social_link_spec
 
 
@@ -971,14 +972,13 @@ class ExhibitionRequest(LoggedModel):
             data={"from": previous, "to": self.state, "code": self.code},
             user=requestor,
         )
-        from .operational_log import OUTCOME_SUCCESS, log_operation
-
         log_operation(
-            "exhibition.request",
+            f"exhibition.request.{action}",
             OUTCOME_SUCCESS,
             backend="exhibition",
             event_id=self.event_id,
             object_id=self.pk,
+            user_id=getattr(requestor, "pk", None),
         )
 
     def approve(self, requestor=None):
@@ -1825,6 +1825,16 @@ class ExhibitionOrder(LoggedModel):
             self.payment_provider = provider
             self.save(update_fields=["payment_provider"])
             self.log_action(LOG_ORDER_PAYMENT_CHANGED, data={"old_provider": previous, "provider": provider}, user=user)
+        log_operation(
+            "exhibition.order.payment_changed",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.event_id,
+            order_id=self.pk,
+            order_code=self.code,
+            payment_provider=provider or None,
+            user_id=getattr(user, "pk", None),
+        )
 
     def link_organization(self, user=None):
         """Create or reuse the organisation of a paid order and give it the roles its products come with."""
@@ -1898,6 +1908,12 @@ class ExhibitionOrder(LoggedModel):
         if current.status == ExhibitionOrderStatus.EXPIRED:
             reserve_quota_capacity([position.product for position in self.positions.select_related("product")])
 
+    _TRANSITION_OPERATION_ACTIONS = {
+        LOG_ORDER_PAID: "exhibition.order.paid",
+        LOG_ORDER_CANCELLED: "exhibition.order.cancelled",
+        LOG_ORDER_EXPIRED: "exhibition.order.expired",
+    }
+
     def _transition(self, allowed_from, status, action, user, check=None, **fields):
         with transaction.atomic():
             current = type(self).objects.select_for_update().get(pk=self.pk)
@@ -1913,6 +1929,18 @@ class ExhibitionOrder(LoggedModel):
                 action,
                 data={key: str(value) for key, value in fields.items() if key != "status"},
                 user=user,
+            )
+        op_action = self._TRANSITION_OPERATION_ACTIONS.get(action)
+        if op_action:
+            log_operation(
+                op_action,
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=self.event_id,
+                order_id=self.pk,
+                order_code=self.code,
+                payment_provider=self.payment_provider or None,
+                user_id=getattr(user, "pk", None),
             )
 
     def __str__(self):

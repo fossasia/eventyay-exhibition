@@ -103,6 +103,7 @@ from .models import (
     clear_dependencies_on,
     prune_dependency_option,
 )
+from .operational_log import OUTCOME_SUCCESS, log_operation
 from .orders import expire_overdue_orders, payment_instructions
 from .utils import (
     add_external_image_csp_sources,
@@ -516,10 +517,20 @@ def release_exhibitor_vouchers(sender, instance, **kwargs):
 
 @receiver(pre_delete, sender=ExhibitorInfo, dispatch_uid="exhibition_exhibitor_device_cleanup")
 def revoke_exhibitor_devices(sender, instance, **kwargs):
+    revoked_count = 0
     for link in ExhibitorDevice.objects.filter(exhibitor=instance).select_related("device"):
         device = link.device
         device.revoked = True
         device.save(update_fields=["revoked"])
+        revoked_count += 1
+    if revoked_count:
+        log_operation(
+            "exhibition.device.revoke",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=instance.event_id,
+            object_id=instance.pk,
+        )
 
 
 @receiver(user_menu_items, dispatch_uid="exhibition_user_menu_item")

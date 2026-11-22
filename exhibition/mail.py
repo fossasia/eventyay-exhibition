@@ -20,6 +20,8 @@ from eventyay.base.models import PriceModeChoices
 from eventyay.base.services.mail import mail
 from i18nfield.strings import LazyI18nString
 
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
+
 logger = logging.getLogger(__name__)
 
 REQUEST_NEW = "request_new"
@@ -626,7 +628,42 @@ def queue_request_email(event, exhibition_request, role, *, send_now=False, requ
         locale=locale or "",
     )
     if send_now:
-        queued.send(requestor=requestor)
+        try:
+            queued.send(requestor=requestor)
+        except Exception:
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="send_failed",
+                event_id=event.pk,
+                object_id=queued.pk,
+                mail_type=role,
+                recipient_count=1,
+                user_id=getattr(requestor, "pk", None),
+            )
+            raise
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            object_id=queued.pk,
+            mail_type=role,
+            recipient_count=1,
+            user_id=getattr(requestor, "pk", None),
+        )
+    else:
+        log_operation(
+            "mail.queue",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            object_id=queued.pk,
+            mail_type=role,
+            recipient_count=1,
+            user_id=getattr(requestor, "pk", None),
+        )
     return queued
 
 
@@ -652,7 +689,48 @@ def queue_order_email(event, order, role, *, send_now=False, requestor=None):
         locale=locale or "",
     )
     if send_now:
-        queued.send(requestor=requestor)
+        try:
+            queued.send(requestor=requestor)
+        except Exception:
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="send_failed",
+                event_id=event.pk,
+                order_id=order.pk,
+                order_code=order.code,
+                object_id=queued.pk,
+                mail_type=role,
+                recipient_count=1,
+                user_id=getattr(requestor, "pk", None),
+            )
+            raise
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            order_id=order.pk,
+            order_code=order.code,
+            object_id=queued.pk,
+            mail_type=role,
+            recipient_count=1,
+            user_id=getattr(requestor, "pk", None),
+        )
+    else:
+        log_operation(
+            "mail.queue",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            order_id=order.pk,
+            order_code=order.code,
+            object_id=queued.pk,
+            mail_type=role,
+            recipient_count=1,
+            user_id=getattr(requestor, "pk", None),
+        )
     return queued
 
 
@@ -702,6 +780,8 @@ def send_request_organizer_emails(event, request, action):
         }
     )
 
+    sent_count = 0
+    failed_count = 0
     for member in members:
         locale = recipient_locale(event, member)
         with override(locale):
@@ -723,10 +803,34 @@ def send_request_organizer_emails(event, request, action):
                 auto_email=False,
             )
         except Exception:
+            failed_count += 1
             logger.exception(
                 "Failed to send organizer notification to member %s",
                 member.pk,
             )
+        else:
+            sent_count += 1
+    if failed_count:
+        log_operation(
+            "mail.send",
+            OUTCOME_FAILURE,
+            backend="exhibition",
+            error_code="send_failed",
+            event_id=event.pk,
+            object_id=request.pk,
+            mail_type=REQUEST_ORGANIZER,
+            recipient_count=sent_count,
+        )
+    elif sent_count:
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            object_id=request.pk,
+            mail_type=REQUEST_ORGANIZER,
+            recipient_count=sent_count,
+        )
 
 
 def compose_recipients(event, states=None, organization_type=None, sponsor_group=None):
@@ -896,7 +1000,7 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
     locale = recipient_locale(event)
     context = build_exhibitor_context(event, exhibitor)
 
-    return ExhibitionEmailQueue.objects.create(
+    queued = ExhibitionEmailQueue.objects.create(
         event=event,
         exhibitor=exhibitor,
         role=EXHIBITOR_ACCESS,
@@ -905,6 +1009,17 @@ def queue_exhibitor_access_email(event, exhibitor, *, requestor=None):
         body=_render(body_tpl, context, locale),
         locale=locale or "",
     )
+    log_operation(
+        "mail.queue",
+        OUTCOME_SUCCESS,
+        backend="exhibition",
+        event_id=event.pk,
+        object_id=queued.pk,
+        mail_type=EXHIBITOR_ACCESS,
+        recipient_count=1,
+        user_id=getattr(requestor, "pk", None),
+    )
+    return queued
 
 
 def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_now=False, requestor=None):
@@ -936,7 +1051,42 @@ def queue_exhibitor_profile_email(event, exhibitor, *, invited_user=None, send_n
         locale=locale or "",
     )
     if send_now:
-        queued.send(requestor=requestor)
+        try:
+            queued.send(requestor=requestor)
+        except Exception:
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="send_failed",
+                event_id=event.pk,
+                object_id=queued.pk,
+                mail_type=role,
+                recipient_count=1,
+                user_id=getattr(requestor, "pk", None),
+            )
+            raise
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            object_id=queued.pk,
+            mail_type=role,
+            recipient_count=1,
+            user_id=getattr(requestor, "pk", None),
+        )
+    else:
+        log_operation(
+            "mail.queue",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            object_id=queued.pk,
+            mail_type=role,
+            recipient_count=1,
+            user_id=getattr(requestor, "pk", None),
+        )
     return queued
 
 

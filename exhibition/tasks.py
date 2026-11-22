@@ -35,6 +35,7 @@ def send_scheduled_email(self, event_id, queue_id):
             )
             return
 
+    send_completed = False
     try:
         with transaction.atomic():
             queued = (
@@ -53,7 +54,7 @@ def send_scheduled_email(self, event_id, queue_id):
                 return
 
             queued.send()
-            log_operation("mail.send", OUTCOME_SUCCESS, backend="exhibition", event_id=event.pk, object_id=queue_id)
+            send_completed = True
     except Exception as exc:
         logger.exception("[Exhibition] Failed to send scheduled email %s", queue_id)
         log_operation(
@@ -63,8 +64,27 @@ def send_scheduled_email(self, event_id, queue_id):
             error_code="send_failed",
             event_id=event.pk,
             object_id=queue_id,
+            retry_count=getattr(self.request, "retries", None),
         )
         try:
             self.retry(exc=exc, args=[original_event_id, queue_id])
         except MaxRetriesExceededError:
             logger.error("[Exhibition] Max retries exceeded for scheduled email %s", queue_id)
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="max_retries_exceeded",
+                event_id=event.pk,
+                object_id=queue_id,
+                retry_count=getattr(self.request, "retries", None),
+            )
+    else:
+        if send_completed:
+            log_operation(
+                "mail.send",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=event.pk,
+                object_id=queue_id,
+            )
