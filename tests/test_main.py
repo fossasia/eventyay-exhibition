@@ -1148,8 +1148,10 @@ def test_sidebar_highlights_the_list_on_its_confirmation_pages(client, event, se
     )
 
     assert response.status_code == 200
-    list_url = reverse(f"plugins:exhibition:{highlighted}", kwargs=kwargs)
-    assert f'href="{list_url}" class="active"' in response.content.decode()
+    content = response.content.decode()
+    for name in ("exhibitors", "sponsors"):
+        list_url = reverse(f"plugins:exhibition:{name}", kwargs=kwargs)
+        assert (f'href="{list_url}" class="active"' in content) == (name == highlighted)
 
 
 @pytest.mark.django_db
@@ -1160,5 +1162,7 @@ def test_sidebar_highlights_orders_on_the_new_order_page(client, event, settings
     response = client.get(reverse("plugins:exhibition:orders.add", kwargs=kwargs))
 
     assert response.status_code == 200
-    orders_url = reverse("plugins:exhibition:orders", kwargs=kwargs)
-    assert f'href="{orders_url}" class="active"' in response.content.decode()
+    content = response.content.decode()
+    for name in ("orders", "exhibitors", "sponsors"):
+        url = reverse(f"plugins:exhibition:{name}", kwargs=kwargs)
+        assert (f'href="{url}" class="active"' in content) == (name == "orders")
