@@ -1,32 +1,47 @@
-/* Responsive required-field information messages */
+/* Responsive required-field information tooltips */
 @media (max-width: 768px) {
     .dragsort-table .info-toggle-header {
         position: relative;
     }
-
-    .dragsort-table .inline-info-box {
-        position: absolute;
-        top: 100%;
-        bottom: auto;
-        left: 0;
-        right: auto;
-
+    
+    .dragsort-table .inline-info-box,
+    .exhibition-mobile-tooltip {
         width: min(320px, calc(100vw - 32px));
         min-width: 0;
         max-width: calc(100vw - 32px);
-
         box-sizing: border-box;
+    }
+
+    .exhibition-mobile-tooltip {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: auto;
+        bottom: auto;
+        max-height: calc(100dvh - 32px);
+        overflow-x: hidden;
+        overflow-y: auto;
         z-index: 1050;
     }
 
-    .dragsort-table .talk-info-content {
+    .dragsort-table .talk-info-box,
+    .exhibition-mobile-tooltip .talk-info-box {
+        display: flex;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    .dragsort-table .talk-info-content,
+    .exhibition-mobile-tooltip .talk-info-content {
         flex: 1 1 auto;
         min-width: 0;
+        padding: 12px;
         white-space: normal;
         overflow-wrap: anywhere;
     }
 
-    .dragsort-table .talk-info-icon {
+    .dragsort-table .talk-info-icon,
+    .exhibition-mobile-tooltip .talk-info-icon {
         flex: 0 0 48px;
         min-width: 48px;
     }
