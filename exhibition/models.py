@@ -641,6 +641,11 @@ class ExhibitorInfo(LoggedModel):
         return _("No group")
 
     @property
+    def missing_public_images(self):
+        """Exhibitors need both a logo and a banner before the public Exhibition page lists them."""
+        return self.is_exhibitor and not (self.logo and self.banner)
+
+    @property
     def visible_logo_url(self):
         return self.logo.url if self.logo else ""
 
