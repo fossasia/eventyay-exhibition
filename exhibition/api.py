@@ -124,10 +124,7 @@ class ExhibitorAuthView(views.APIView):
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
             if not _exhibitor_belongs_to_event(exhibitor, organizer, event):
-                return Response(
-                    {"detail": "Forbidden: API key does not belong to this event."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+                return _forbidden("Forbidden: API key does not belong to this event.")
 
             locale = _get_exhibitor_locale(exhibitor)
             return Response(
@@ -488,19 +485,8 @@ class LeadCreateView(views.APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        exhibitor_event = exhibitor.event
-        if (
-            not organizer
-            or not event
-            or exhibitor_event is None
-            or exhibitor_event.organizer is None
-            or str(exhibitor_event.slug) != str(event)
-            or str(exhibitor_event.organizer.slug) != str(organizer)
-        ):
-            return Response(
-                {"detail": "Forbidden: API key does not belong to this event."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if not _exhibitor_belongs_to_event(exhibitor, organizer, event):
+            return _forbidden("Forbidden: API key does not belong to this event.")
 
         if not exhibitor.lead_scanning_enabled:
             return _forbidden(LEAD_SCANNING_DISABLED_ERROR)
@@ -572,10 +558,7 @@ class LeadRetrieveView(views.APIView):
             )
 
         if not _exhibitor_belongs_to_event(exhibitor, organizer, event):
-            return Response(
-                {"detail": "Forbidden: API key does not belong to this event."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return _forbidden("Forbidden: API key does not belong to this event.")
 
         if not exhibitor.allow_lead_access:
             return _forbidden(LEAD_ACCESS_DISABLED_ERROR)
@@ -642,10 +625,7 @@ class TagListView(views.APIView):
             )
 
         if not _exhibitor_belongs_to_event(exhibitor, organizer, event):
-            return Response(
-                {"detail": "Forbidden: API key does not belong to this event."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return _forbidden("Forbidden: API key does not belong to this event.")
 
         if not exhibitor.lead_scanning_enabled:
             return _forbidden(LEAD_SCANNING_DISABLED_ERROR)
@@ -669,10 +649,7 @@ class LeadUpdateView(views.APIView):
             )
 
         if not _exhibitor_belongs_to_event(exhibitor, organizer, event):
-            return Response(
-                {"detail": "Forbidden: API key does not belong to this event."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return _forbidden("Forbidden: API key does not belong to this event.")
 
         if not exhibitor.lead_scanning_enabled:
             return _forbidden(LEAD_SCANNING_DISABLED_ERROR)

@@ -173,7 +173,10 @@ def test_exhibitor_api_keys_are_scoped_to_the_requested_event(event):
 
     for view_name, response in responses:
         assert response.status_code == 403, f"{view_name} returned {response.status_code}"
-        assert response.data == {"detail": "Forbidden: API key does not belong to this event."}
+        assert response.data == {
+            "success": False,
+            "error": "Forbidden: API key does not belong to this event.",
+        }
 
 
 @pytest.mark.django_db
@@ -200,7 +203,10 @@ def test_exhibitor_api_keys_are_forbidden_when_event_parameters_are_missing(even
 
     for view_name, response in responses:
         assert response.status_code == 403, f"{view_name} returned {response.status_code}"
-        assert response.data == {"detail": "Forbidden: API key does not belong to this event."}
+        assert response.data == {
+            "success": False,
+            "error": "Forbidden: API key does not belong to this event.",
+        }
 
 
 @pytest.mark.django_db
