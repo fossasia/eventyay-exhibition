@@ -55,6 +55,8 @@ from .forms import (
     ExhibitionProductAddOnsFormSet,
     ExhibitionProductCategoryForm,
     ExhibitionProductForm,
+    ExhibitionProductVariationForm,
+    ExhibitionProductVariationsFormSet,
     ExhibitionQuestionForm,
     ExhibitionQuestionOptionFormSet,
     ExhibitionQuotaForm,
@@ -122,6 +124,7 @@ from .models import (
     ExhibitionProduct,
     ExhibitionProductAddOn,
     ExhibitionProductCategory,
+    ExhibitionProductVariation,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuota,
@@ -938,7 +941,12 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         context["private_call_access"] = settings.call_private and self.has_private_call_access(settings)
         cart = self.request.session.get(checkout_session_key(self.request.event), {})
         context["products_by_category"] = group_by_category(self.packages)
-        context["selected"] = {str(pk) for pk in cart.get("products", [])}
+        context["selected"] = {
+            str(pk)
+            for pk, variation_id in zip(cart.get("products", []), cart.get("variations", []), strict=False)
+            if not variation_id
+        }
+        context["selected_variations"] = {str(pk) for pk in cart.get("variations", []) if pk}
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -2010,9 +2018,32 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
             prefix="addons",
         )
 
+    @cached_property
+    def variations_formset(self):
+        formset_cls = inlineformset_factory(
+            ExhibitionProduct,
+            ExhibitionProductVariation,
+            form=ExhibitionProductVariationForm,
+            formset=ExhibitionProductVariationsFormSet,
+            can_order=True,
+            can_delete=True,
+            extra=0,
+        )
+        return formset_cls(
+            self.request.POST if self.request.method == "POST" else None,
+            queryset=(
+                ExhibitionProductVariation.objects.filter(product=self.object)
+                if getattr(self, "object", None) and self.object.pk
+                else ExhibitionProductVariation.objects.none()
+            ),
+            event=self.request.event,
+            prefix="variations",
+        )
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["addons_formset"] = self.addons_formset
+        ctx["variations_formset"] = self.variations_formset
         return ctx
 
     def is_valid(self, form):
@@ -2021,27 +2052,44 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
 
         category = form.cleaned_data.get("category")
         becoming_addon = bool(category and category.is_addon)
+        formsets_ok = True
+
+        if "variations-TOTAL_FORMS" in self.request.POST:
+            if not self.variations_formset.is_valid():
+                formsets_ok = False
 
         if "addons-TOTAL_FORMS" in self.request.POST:
             if not self.addons_formset.is_valid():
-                return False
-            if becoming_addon and self.addons_formset.ordered_forms:
+                formsets_ok = False
+            elif becoming_addon and self.addons_formset.ordered_forms:
                 messages.error(
                     self.request,
                     _("You cannot add add-ons to a product that is only available as an add-on itself."),
                 )
-                return False
-            return True
+                formsets_ok = False
+        else:
+            # Formset omitted from POST: existing DB rules would stay attached to an add-on product.
+            product = getattr(self, "object", None)
+            if becoming_addon and product and product.pk and product.addons.exists():
+                messages.error(
+                    self.request,
+                    _("You cannot add add-ons to a product that is only available as an add-on itself."),
+                )
+                formsets_ok = False
+        return formsets_ok
 
-        # Formset omitted from POST: existing DB rules would stay attached to an add-on product.
-        product = getattr(self, "object", None)
-        if becoming_addon and product and product.pk and product.addons.exists():
-            messages.error(
-                self.request,
-                _("You cannot add add-ons to a product that is only available as an add-on itself."),
-            )
-            return False
-        return True
+    def save_variations(self):
+        if "variations-TOTAL_FORMS" not in self.request.POST:
+            return
+        for form in self.variations_formset.deleted_forms:
+            if not form.instance.pk:
+                continue
+            form.instance.delete()
+            form.instance.pk = None
+        for i, form in enumerate(self.variations_formset.ordered_forms):
+            form.instance.position = i
+            form.instance.product = self.object
+            form.save()
 
     def save_addons(self):
         if "addons-TOTAL_FORMS" in self.request.POST:
@@ -2122,6 +2170,7 @@ class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
         form.instance.event = self.request.event
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_variations()
             self.save_addons()
             self.object.log_action(
                 LOG_PRODUCT_ADDED,
@@ -2143,6 +2192,7 @@ class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
     def form_valid(self, form):
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_variations()
             self.save_addons()
             if form.has_changed():
                 self.object.log_action(
@@ -2419,7 +2469,7 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
         if self.request.method == "POST":
             data = self.request.POST
         else:
-            data = self.request.GET if "products" in self.request.GET else None
+            data = self.request.GET if "products" in self.request.GET or "variations" in self.request.GET else None
         return ExhibitionOrderProductsForm(data=data, event=self.request.event)
 
     def get_details_forms(self, products, data=None, files=None):
@@ -2433,8 +2483,10 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
         products_form = self.get_products_form()
         context = self.get_context_data(products_form=products_form)
         if products_form.is_bound and products_form.is_valid():
-            products = list(products_form.cleaned_data["products"])
+            products = list(products_form.cleaned_data["line_products"])
+            variations = list(products_form.cleaned_data["line_variations"])
             context["products"] = products
+            context["line_items"] = list(zip(products, variations, strict=True))
             context["order_form"], context["booking_form"] = self.get_details_forms(products)
         return self.render_to_response(context)
 
@@ -2443,10 +2495,15 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
         if not products_form.is_valid():
             messages.error(request, _("Please select at least one product."))
             return redirect("plugins:exhibition:orders.add", **event_kwargs(request.event))
-        products = list(products_form.cleaned_data["products"])
+        products = list(products_form.cleaned_data["line_products"])
+        variations = list(products_form.cleaned_data["line_variations"])
         order_form, booking_form = self.get_details_forms(products, request.POST, request.FILES)
         context = self.get_context_data(
-            products_form=products_form, products=products, order_form=order_form, booking_form=booking_form
+            products_form=products_form,
+            products=products,
+            line_items=list(zip(products, variations, strict=True)),
+            order_form=order_form,
+            booking_form=booking_form,
         )
         if not (order_form.is_valid() and booking_form.is_valid()):
             return self.render_to_response(context)
@@ -2454,6 +2511,7 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
             order = place_exhibition_order(
                 request.event,
                 products,
+                variations=variations,
                 **order_form.order_details(),
                 order_form=order_form,
                 payment_provider=booking_form.cleaned_data["payment_provider"],

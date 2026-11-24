@@ -17,6 +17,7 @@ from .models import (
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    ExhibitionProductVariation,
     reserve_quota_capacity,
 )
 
@@ -124,10 +125,34 @@ def resolve_public_addon_list(products, addon_list):
     return resolved
 
 
+def normalize_order_items(products, variations=None):
+    """Turn products plus an optional parallel variations list into ``(product, variation)`` pairs."""
+    products = list(products)
+    if variations is None:
+        return [(product, None) for product in products]
+    variations = list(variations)
+    if len(variations) != len(products):
+        raise ExhibitionOrderError("Each product needs a matching variation selection.")
+    items = []
+    for product, variation in zip(products, variations, strict=True):
+        if variation is not None and not isinstance(variation, ExhibitionProductVariation):
+            raise ExhibitionOrderError("Invalid variation selection.")
+        if variation is not None and variation.product_id != product.pk:
+            raise ExhibitionOrderError("Variation does not belong to the selected product.")
+        if product.active_variations().exists():
+            if variation is None or not variation.active:
+                raise ExhibitionOrderError(f"Please choose a variation for {product}.")
+        elif variation is not None:
+            raise ExhibitionOrderError(f"{product} has no variations.")
+        items.append((product, variation))
+    return items
+
+
 def place_exhibition_order(
     event,
     products,
     *,
+    variations=None,
     addons=None,
     name,
     email,
@@ -144,18 +169,21 @@ def place_exhibition_order(
     payment_reference="",
 ):
     """Place an order at current prices; organisers skip the sale checks and may book it as paid, quotas still apply."""
-    products = list(products)
-    if not products:
+    items = normalize_order_items(products, variations)
+    if not items:
         raise ExhibitionOrderError("An order needs at least one product.")
     if order_form is not None and not order_form.is_valid():
         raise ExhibitionOrderError("The order form has errors.")
 
     addon_list = list(addons or [])
+    products = [product for product, _variation in items]
 
     now = timezone.now()
-    for product in products:
+    for product, variation in items:
         if product.event_id != event.pk or (check_availability and not product.is_available(now)):
             raise ExhibitionOrderError(f"{product} is not on sale.")
+        if variation is not None and variation.product_id != product.pk:
+            raise ExhibitionOrderError("Variation does not belong to the selected product.")
 
     for _base_idx, addon_prod, _price in addon_list:
         if addon_prod.event_id != event.pk or (check_availability and not addon_prod.is_available(now)):
@@ -164,8 +192,11 @@ def place_exhibition_order(
     if check_availability:
         addon_list = resolve_public_addon_list(products, addon_list)
 
-    all_products = products + [p for _base_idx, p, _price in addon_list]
-    base_total = sum((product.price for product in products), Decimal("0.00"))
+    all_items = items + [(addon_prod, None) for _base_idx, addon_prod, _price in addon_list]
+    base_total = sum(
+        (variation.display_price if variation is not None else product.price for product, variation in items),
+        Decimal("0.00"),
+    )
     addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
     total = base_total + addons_total
 
@@ -173,7 +204,7 @@ def place_exhibition_order(
         raise ExhibitionOrderError("The payment method is not available for this event.")
 
     with transaction.atomic():
-        reserve_quota_capacity(all_products)
+        reserve_quota_capacity(all_items)
         order = ExhibitionOrder.objects.create(
             event=event,
             organization_name=organization_name,
@@ -192,7 +223,7 @@ def place_exhibition_order(
             ),
         )
         base_positions = ExhibitionOrderPosition.objects.bulk_create(
-            [ExhibitionOrderPosition.for_product(order, product) for product in products]
+            [ExhibitionOrderPosition.for_product(order, product, variation=variation) for product, variation in items]
         )
         addon_positions = []
         for a_base_idx, addon_product, price in addon_list:
@@ -213,7 +244,11 @@ def place_exhibition_order(
             order_form.save_exhibition_questions(order)
         order.log_action(
             LOG_ORDER_PLACED,
-            data={"total": str(total), "products": [product.pk for product in all_products]},
+            data={
+                "total": str(total),
+                "products": [product.pk for product, _variation in all_items],
+                "variations": [variation.pk if variation else None for _product, variation in all_items],
+            },
             user=user,
         )
         if not total:

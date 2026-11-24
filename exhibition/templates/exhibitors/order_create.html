@@ -29,15 +29,23 @@
     {% else %}
         <form action="" method="post" class="form-horizontal" enctype="multipart/form-data">
             {% csrf_token %}
-            {% for product in products %}
-                <input type="hidden" name="products" value="{{ product.pk }}">
+            {% for product, variation in line_items %}
+                {% if variation %}
+                    <input type="hidden" name="variations" value="{{ variation.pk }}">
+                {% else %}
+                    <input type="hidden" name="products" value="{{ product.pk }}">
+                {% endif %}
             {% endfor %}
             <fieldset>
                 <legend>{% trans "Products" %}</legend>
                 <ul>
-                    {% for product in products %}
+                    {% for product, variation in line_items %}
                         <li>
-                            {{ product }} ({{ product.price|money:request.event.currency }})
+                            {% if variation %}
+                                {{ product }} – {{ variation }} ({{ variation.display_price|money:request.event.currency }})
+                            {% else %}
+                                {{ product }} ({{ product.price|money:request.event.currency }})
+                            {% endif %}
                             {% if not product.active %}<span class="label label-default">{% trans "Inactive" %}</span>{% endif %}
                         </li>
                     {% endfor %}
