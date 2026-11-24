@@ -9,7 +9,6 @@
 {% endblock %}
 
 {% block exhibitors_content %}
-    {% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug as cancel_url %}
     <p>
         {% blocktrans trimmed %}
             Provision check-in app devices for this organization. Each device gets its own single-use setup
