@@ -121,8 +121,10 @@ shown. Buyers do not need an account. The steps are:
 2. fill in the order form;
 3. choose a payment method (skipped when the order is free or needs approval);
 4. review the order and place it;
-5. see the confirmation page. An email links back to this page. Payment
-   instructions appear once the order is approved, if it needed approval.
+5. see the confirmation page. An email links back to this page. If the order
+   needed approval, the buyer waits for the organizer, then opens the order
+   link, chooses **Re-try payment or choose another payment method**, and
+   picks a method. Payment instructions appear after that.
 
 Free products
 -------------
@@ -178,18 +180,26 @@ never hidden or reactivated by an order; its visibility stays as you set it.
 Emails
 ------
 
-There are two buyer email templates. You can edit both under
+There are several buyer email templates for orders. You can edit them under
 **Exhibition → Message center → Templates**:
 
 - **Order placed (awaiting payment)**, with the products, the total and how
   to pay;
+- **Order placed (awaiting approval)**, when a product requires organizer
+  approval;
+- **Order approved**, after you approve a paid order that still needs payment;
+- **Order denied**, when you deny an order awaiting approval;
 - **Order confirmed**, for an order that is paid or free.
 
 When each one is sent:
 
 - An order placed on the public page always sends one of them: **Order
-  confirmed** for a free order, otherwise **Order placed (awaiting
-  payment)**.
+  confirmed** for a free order that does not need approval, **Order placed
+  (awaiting approval)** when approval is required, otherwise **Order placed
+  (awaiting payment)**.
+- Approving a free order sends **Order confirmed**. Approving a paid order
+  sends **Order approved**; the buyer then chooses a payment method on their
+  order page. Denying an order sends **Order denied**.
 - An order you create yourself sends one only if **Send the order email to
   the buyer** is ticked; which one depends on the payment status you chose.
 - Marking an order as paid sends **Order confirmed** only if **Send the order

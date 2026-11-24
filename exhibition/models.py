@@ -1534,6 +1534,7 @@ class ExhibitionProduct(LoggedModel):
     )
     require_approval = models.BooleanField(
         default=False,
+        db_default=False,
         verbose_name=_("Buying this product requires approval"),
         help_text=_(
             "If this product is part of an order, the order stays pending approval until you confirm "
@@ -1739,6 +1740,7 @@ class ExhibitionOrder(LoggedModel):
     expires = models.DateTimeField(null=True, blank=True, verbose_name=_("Expiration date"))
     require_approval = models.BooleanField(
         default=False,
+        db_default=False,
         verbose_name=_("Requires approval"),
         help_text=_("This order must be approved by an organizer before it can be paid or completed."),
     )
