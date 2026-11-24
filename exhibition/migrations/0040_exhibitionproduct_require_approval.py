@@ -14,7 +14,12 @@ class Migration(migrations.Migration):
             name="require_approval",
             field=models.BooleanField(
                 default=False,
-                help_text="If this product is part of an order, the order stays pending approval until you confirm it. Payment and completion are blocked until then. Use this for packages that only selected applicants should receive.",
+                db_default=False,
+                help_text=(
+                    "If this product is part of an order, the order stays pending approval until you "
+                    "confirm it. Payment and completion are blocked until then. Use this for packages "
+                    "that only selected applicants should receive."
+                ),
                 verbose_name="Buying this product requires approval",
             ),
         ),
@@ -23,7 +28,8 @@ class Migration(migrations.Migration):
             name="require_approval",
             field=models.BooleanField(
                 default=False,
-                help_text="This order must be approved by an organizer before it can be paid or completed.",
+                db_default=False,
+                help_text=("This order must be approved by an organizer before it can be paid or completed."),
                 verbose_name="Requires approval",
             ),
         ),

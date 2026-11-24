@@ -618,6 +618,9 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
         if self.order_form is None or not self.order_form.is_valid():
             messages.error(self.request, _("Please check your details."))
             return redirect(shop_url(self.request.event, "shop.checkout.details"))
+        if self.total and not usable_payment_providers(self.request.event):
+            messages.error(self.request, _("No payment method is available for this event."))
+            return redirect(packages_url(self.request.event))
         if self.total and not self.needs_approval and self.payment_provider is None:
             messages.error(self.request, _("Please select a payment method."))
             return redirect(shop_url(self.request.event, "shop.checkout.payment"))

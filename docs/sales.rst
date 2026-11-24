@@ -119,20 +119,21 @@ shown. Buyers do not need an account. The steps are:
 1. select the packages; each one shows its price, its purpose and whether it
    includes an exhibition booth;
 2. fill in the order form;
-3. choose a payment method (skipped when the order is free);
+3. choose a payment method (skipped when the order is free or needs approval);
 4. review the order and place it;
-5. see the confirmation page with the payment instructions. An email links
-   back to this page.
+5. see the confirmation page. An email links back to this page. Payment
+   instructions appear once the order is approved, if it needed approval.
 
 Free products
 -------------
 
 A product with a price of 0 has no payment step. Its order is confirmed at
-once, but otherwise works like a paid order: the buyer fills in the order
-form, the order takes its quota place, it creates the organisation profile,
-and a buyer ordering on the public page gets the **Order confirmed** email
-(see `Emails`_ for orders you create yourself). Use free products for
-community booths.
+once, unless **Buying this product requires approval** is on — then it waits
+for approval like a paid gated order. Otherwise it works like a paid order:
+the buyer fills in the order form, the order takes its quota place, it creates
+the organisation profile, and a buyer ordering on the public page gets the
+**Order confirmed** email (see `Emails`_ for orders you create yourself). Use
+free products for community booths.
 
 Creating orders yourself
 ------------------------

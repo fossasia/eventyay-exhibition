@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -15,7 +16,7 @@ from exhibition.models import (
     ExhibitionOrderStatus,
     ExhibitionProduct,
 )
-from exhibition.orders import expire_overdue_orders, place_exhibition_order
+from exhibition.orders import ExhibitionOrderError, expire_overdue_orders, place_exhibition_order
 
 
 def _product(event, name="Gold Sponsor", price="1500.00", **kwargs):
@@ -103,14 +104,25 @@ def test_approve_paid_order_starts_payment_term(event):
         product = _product(event, require_approval=True)
         order = _order(event, product)
 
+        before = now()
         order.approve()
+        after = now()
         order.refresh_from_db()
 
         assert order.require_approval is False
         assert order.status == ExhibitionOrderStatus.PENDING
         assert order.expires is not None
+        assert before + timedelta(days=10) <= order.expires <= after + timedelta(days=10)
         assert order.can_be_marked_paid is True
         assert LogEntry.objects.filter(action_type=LOG_ORDER_APPROVED, object_id=order.pk).exists()
+
+
+@pytest.mark.django_db
+def test_paid_approval_order_needs_a_usable_payment_method(event):
+    with scopes_disabled():
+        product = _product(event, require_approval=True)
+        with pytest.raises(ExhibitionOrderError):
+            _order(event, product)
 
 
 @pytest.mark.django_db
@@ -166,6 +178,11 @@ def test_organizer_can_approve_and_deny_from_order_page(event):
         deny_product = _product(event, "Also needs approval", price="800.00", require_approval=True)
         to_approve = _order(event, approve_product)
         to_deny = _order(event, deny_product, email="bob@example.com", organization_name="Beta LLC")
+
+    pending = client.get(_url(event, "orders.detail", code=to_approve.code))
+    assert pending.status_code == 200
+    assert b"Approve" in pending.content
+    assert b"Deny" in pending.content
 
     response = client.post(_url(event, "orders.approve", code=to_approve.code))
     assert response.status_code == 302

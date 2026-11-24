@@ -176,8 +176,13 @@ def place_exhibition_order(
     total = base_total + addons_total
     # Organiser-created paid orders bypass approval; public and unpaid bookings do not.
     needs_approval = (not paid) and any(product.require_approval for product in all_products)
+    providers = usable_payment_providers(event)
 
-    if check_availability and total and not needs_approval and payment_provider not in usable_payment_providers(event):
+    # Paid approval-gated orders skip choosing a method at checkout, but a usable method must
+    # still exist so the buyer can pay after approval.
+    if check_availability and total and not providers:
+        raise ExhibitionOrderError("The payment method is not available for this event.")
+    if check_availability and total and not needs_approval and payment_provider not in providers:
         raise ExhibitionOrderError("The payment method is not available for this event.")
 
     with transaction.atomic():
