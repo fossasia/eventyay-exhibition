@@ -164,12 +164,16 @@ def test_publish_view_omits_error_code_on_success(monkeypatch):
     monkeypatch.setattr(exhibition_views, "redirect", lambda url: url)
 
     view = exhibition_views.ExhibitorPublishView()
-    view.apply = lambda *a, **kw: []
+    view.apply = lambda *a, **kw: ([], [])
+    view.scoped_queryset = lambda: SimpleNamespace(filter=lambda **kw: [])
+    view.confirmed_ids = lambda: []
     view.unpublished_approved = lambda: []
     view.selected = lambda: []
     view.list_url = lambda: "/list"
+    view.report_blocked = lambda *a, **kw: None
 
     request = SimpleNamespace(event=SimpleNamespace(pk=5), user=SimpleNamespace(pk=8))
+    view.request = request
     view.publish_all(SimpleNamespace(**vars(request), POST={"confirmed": "1"}))
     view.publish_selected(request, published=True)
     view.publish_selected(request, published=False)
