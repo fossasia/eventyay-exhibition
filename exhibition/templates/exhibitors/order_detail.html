@@ -52,7 +52,7 @@
                         <dd>{{ order.code }}</dd>
                         <dt>{% trans "Order date" %}</dt>
                         <dd>{{ order.created|date:"SHORT_DATETIME_FORMAT" }}</dd>
-                        {% if order.require_approval %}
+                        {% if order.can_be_approved %}
                             <dt>{% trans "Approval" %}</dt>
                             <dd><span class="label label-warning">{% trans "Awaiting approval" %}</span></dd>
                         {% endif %}

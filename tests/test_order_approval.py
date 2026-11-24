@@ -208,3 +208,27 @@ def test_product_form_exposes_require_approval(event):
     assert response.status_code == 200
     assert b"require_approval" in response.content
     assert b"Buying this product requires approval" in response.content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_cancelled_approval_order_hides_awaiting_approval_on_buyer_page(event):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save()
+        _enable_manual_payment(event)
+        product = _product(event, require_approval=True)
+        order = _order(event, product)
+        order.cancel()
+        order.refresh_from_db()
+        assert order.require_approval is True
+        assert order.can_be_approved is False
+        secret = order.secret
+        code = order.code
+
+    client = Client()
+    response = client.get(_url(event, "shop.order", code=code, secret=secret) + "?thanks=1")
+    assert response.status_code == 200
+    assert b"awaiting organizer approval" not in response.content.lower()
+    assert b"Approval pending" not in response.content
+    assert b"This order is awaiting organizer approval" not in response.content

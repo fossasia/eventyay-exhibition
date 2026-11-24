@@ -701,12 +701,12 @@ class ShopOrderView(ShopOrderMixin, TemplateView):
         context["thanks"] = "thanks" in self.request.GET
         context["is_pending"] = order.status == ExhibitionOrderStatus.PENDING
         context["is_paid"] = order.status == ExhibitionOrderStatus.PAID
-        context["requires_approval"] = order.require_approval
+        context["requires_approval"] = order.can_be_approved
         context["payment_instructions"] = payment_instructions(order)
         provider = self.request.event.get_payment_providers().get(order.payment_provider)
         context["payment_method"] = provider.public_name if provider else ""
         context["can_change_payment"] = (
-            context["is_pending"] and not order.require_approval and bool(usable_payment_providers(self.request.event))
+            context["is_pending"] and not order.can_be_approved and bool(usable_payment_providers(self.request.event))
         )
         return context
 
