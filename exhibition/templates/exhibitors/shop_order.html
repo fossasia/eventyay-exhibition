@@ -8,25 +8,45 @@
 {% block content %}
     <main aria-label="{% trans 'Order details' %}">
         {% if thanks %}
-            <div class="thank-you">
-                <span class="fa fa-check-circle" aria-hidden="true"></span>
-                <h2>{% trans "Thank you!" %}</h2>
-                {% if requires_approval %}
+            {% if requires_approval %}
+                <div class="thank-you thank-you-pending">
+                    <span class="fa fa-exclamation-circle" aria-hidden="true"></span>
+                    <h2>{% trans "Pending" %}</h2>
                     <p>
-                        {% trans "Your order has been placed successfully. See below for details." %}<br>
-                        <strong>{% trans "Please note that your order is awaiting organizer approval before it can be completed." %}</strong>
+                        {% blocktrans trimmed %}
+                            Your request has been submitted and is awaiting approval by the event organizer. See below for details.
+                        {% endblocktrans %}
+                        <br>
+                        <strong>
+                            {% if order.total == 0 %}
+                                {% trans "After approval, your registration will be completed automatically." as approval_suffix %}
+                            {% else %}
+                                {% trans "After approval, you can proceed with payment to complete your registration." as approval_suffix %}
+                            {% endif %}
+                            {% blocktrans trimmed with suffix=approval_suffix %}
+                                You will receive an email once your request has been reviewed. {{ suffix }}
+                            {% endblocktrans %}
+                        </strong>
                     </p>
-                {% elif is_pending %}
-                    <p>
-                        {% trans "Your order has been placed successfully. See below for details." %}<br>
-                        <strong>{% trans "Please note that we still await your payment to complete the process." %}</strong>
-                    </p>
-                {% else %}
-                    <p>{% trans "Your order has been processed successfully! See below for details." %}</p>
-                {% endif %}
-                <p>{% trans "We have sent you an email with a link to this page." %}</p>
-                <div class="clearfix"></div>
-            </div>
+                    <p>{% trans "We have sent you an email with a link to this page." %}</p>
+                    <div class="clearfix"></div>
+                </div>
+            {% else %}
+                <div class="thank-you">
+                    <span class="fa fa-check-circle" aria-hidden="true"></span>
+                    <h2>{% trans "Thank you!" %}</h2>
+                    {% if is_pending %}
+                        <p>
+                            {% trans "Your order has been placed successfully. See below for details." %}<br>
+                            <strong>{% trans "Please note that we still await your payment to complete the process." %}</strong>
+                        </p>
+                    {% else %}
+                        <p>{% trans "Your order has been processed successfully! See below for details." %}</p>
+                    {% endif %}
+                    <p>{% trans "We have sent you an email with a link to this page." %}</p>
+                    <div class="clearfix"></div>
+                </div>
+            {% endif %}
         {% endif %}
         <h2>
             {% blocktrans trimmed with code=order.code %}

@@ -2,7 +2,7 @@
 {% if order.status == "paid" %}
     <span class="label label-success">{{ order.get_status_display }}</span>
 {% elif order.status == "pending" and order.require_approval %}
-    <span class="label label-info">{% trans "Approval pending" %}</span>
+    <span class="label label-warning">{% trans "Approval pending" %}</span>
 {% elif order.status == "pending" %}
     <span class="label label-warning">{{ order.get_status_display }}</span>
 {% elif order.status == "cancelled" %}

@@ -54,7 +54,7 @@
                         <dd>{{ order.created|date:"SHORT_DATETIME_FORMAT" }}</dd>
                         {% if order.require_approval %}
                             <dt>{% trans "Approval" %}</dt>
-                            <dd><span class="label label-info">{% trans "Awaiting approval" %}</span></dd>
+                            <dd><span class="label label-warning">{% trans "Awaiting approval" %}</span></dd>
                         {% endif %}
                         <dt>{% trans "Buyer's order page" %}</dt>
                         <dd><a href="{{ buyer_url }}" target="_blank" rel="noopener">{% trans "Open" %}</a></dd>
