@@ -1792,8 +1792,7 @@ class ExhibitionOrder(LoggedModel):
     @property
     def can_be_marked_paid(self):
         return (
-            self.status in (ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED)
-            and not self.require_approval
+            self.status in (ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED) and not self.require_approval
         )
 
     @property
