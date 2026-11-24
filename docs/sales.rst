@@ -27,12 +27,22 @@ product has:
 - **Active**, and an optional **Available from** / **Available until** window.
   The public page only lists active products inside their window;
 - a **Product purpose**: *Sponsorship* or *Exhibition*;
-- **Includes exhibition booth**.
+- **Includes exhibition booth**;
+- **Buying this product requires approval**, when only selected buyers should
+  receive the package.
 
 Exhibition products always include a booth. Sponsorship products include a
 booth by default, because most sponsorship packages come with a stand. Turn
 **Includes exhibition booth** off for packages without physical space, such
 as a digital or logo-only sponsorship.
+
+When **Buying this product requires approval** is on, a public order that
+includes that product stays pending until you approve it on the order page.
+The buyer cannot pay or complete the order before then, and free orders are
+not confirmed automatically either. Approving a paid order starts the usual
+payment term; approving a free order confirms it immediately. Denying the
+order cancels it and emails the buyer. Orders you create yourself as an
+organiser and mark as already paid skip this approval step.
 
 What a paid order turns the buyer into:
 

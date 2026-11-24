@@ -49,7 +49,7 @@ def paid_products_lack_payment_method(event):
 
 def payment_instructions(exhibition_order):
     """How to pay a pending order, as plain text from its payment method's settings."""
-    if exhibition_order.status != ExhibitionOrderStatus.PENDING:
+    if exhibition_order.status != ExhibitionOrderStatus.PENDING or exhibition_order.require_approval:
         return ""
     provider = exhibition_order.event.get_payment_providers().get(exhibition_order.payment_provider)
     if provider is None:
@@ -80,9 +80,15 @@ def payment_instructions(exhibition_order):
     )
 
 
-def send_order_email(order, *, user=None):
-    """Email the buyer after commit: the confirmation once paid, otherwise the order with how to pay it."""
-    role = mail.ORDER_PAID if order.status == ExhibitionOrderStatus.PAID else mail.ORDER_PLACED
+def send_order_email(order, *, user=None, role=None):
+    """Email the buyer after commit: paid confirmation, approval-needed, or payment instructions."""
+    if role is None:
+        if order.status == ExhibitionOrderStatus.PAID:
+            role = mail.ORDER_PAID
+        elif order.require_approval:
+            role = mail.ORDER_PLACED_REQUIRE_APPROVAL
+        else:
+            role = mail.ORDER_PLACED
     transaction.on_commit(
         lambda: mail.queue_order_email(order.event, order, role, send_now=True, requestor=user),
         robust=True,
@@ -168,8 +174,10 @@ def place_exhibition_order(
     base_total = sum((product.price for product in products), Decimal("0.00"))
     addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
     total = base_total + addons_total
+    # Organiser-created paid orders bypass approval; public and unpaid bookings do not.
+    needs_approval = (not paid) and any(product.require_approval for product in all_products)
 
-    if check_availability and total and payment_provider not in usable_payment_providers(event):
+    if check_availability and total and not needs_approval and payment_provider not in usable_payment_providers(event):
         raise ExhibitionOrderError("The payment method is not available for this event.")
 
     with transaction.atomic():
@@ -184,10 +192,11 @@ def place_exhibition_order(
             billing_address=billing_address,
             vat_id=vat_id,
             total=total,
-            payment_provider=payment_provider if total else "",
+            payment_provider=payment_provider if total and not needs_approval else "",
+            require_approval=needs_approval,
             expires=(
                 now + timedelta(days=event.settings.get("payment_term_days", as_type=int))
-                if total and not paid
+                if total and not paid and not needs_approval
                 else None
             ),
         )
@@ -213,10 +222,16 @@ def place_exhibition_order(
             order_form.save_exhibition_questions(order)
         order.log_action(
             LOG_ORDER_PLACED,
-            data={"total": str(total), "products": [product.pk for product in all_products]},
+            data={
+                "total": str(total),
+                "products": [product.pk for product in all_products],
+                "require_approval": needs_approval,
+            },
             user=user,
         )
-        if not total:
+        if needs_approval:
+            pass
+        elif not total:
             order.mark_paid(provider=FREE_PAYMENT_PROVIDER, user=user)
         elif paid:
             order.mark_paid(provider=payment_provider, reference=payment_reference, user=user)
@@ -227,6 +242,7 @@ def expire_overdue_orders(now=None):
     """Expire pending orders whose payment term has passed and return how many were expired."""
     overdue = ExhibitionOrder.objects.filter(
         status=ExhibitionOrderStatus.PENDING,
+        require_approval=False,
         expires__lt=now or timezone.now(),
     ).select_related("event")
     expired = 0

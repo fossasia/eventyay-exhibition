@@ -2678,6 +2678,7 @@ class ExhibitionProductForm(I18nModelForm):
             "active",
             "available_from",
             "available_until",
+            "require_approval",
         ]
         field_classes = {
             "available_from": SplitDateTimeField,

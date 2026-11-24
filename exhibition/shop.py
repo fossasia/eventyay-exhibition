@@ -259,6 +259,10 @@ class ShopCheckoutMixin:
         addons_total = sum((price for _, _, price in self.addon_items), Decimal("0.00"))
         return base_total + addons_total
 
+    @cached_property
+    def needs_approval(self):
+        return any(product.require_approval for product in self.all_products)
+
     def dispatch(self, request, *args, **kwargs):
         if not self.cart.get("products"):
             messages.info(request, _("Please select the products you want to order."))
@@ -299,7 +303,8 @@ class ShopCheckoutMixin:
         if self.has_addons_step:
             steps.append(("addons", _("Add-ons"), "shop.checkout.addons"))
         steps.append(("details", _("Your details"), "shop.checkout.details"))
-        if self.total:
+        # Payment is chosen after approval for packages that need organizer review.
+        if self.total and not self.needs_approval:
             steps.append(("payment", _("Payment"), "shop.checkout.payment"))
         steps.append(("confirm", _("Review order"), "shop.checkout.confirm"))
         identifiers = [identifier for identifier, label, name in steps]
@@ -549,7 +554,7 @@ class ShopDetailsView(ShopCheckoutMixin, TemplateView):
             stored[name] = {"path": path, "name": upload.name}
         details = {key: values for key, values in request.POST.lists() if key != "csrfmiddlewaretoken"}
         self.save_cart(details=details, files=stored)
-        next_step = "shop.checkout.payment" if self.total else "shop.checkout.confirm"
+        next_step = "shop.checkout.payment" if self.total and not self.needs_approval else "shop.checkout.confirm"
         return redirect(shop_url(request.event, next_step))
 
 
@@ -567,7 +572,7 @@ class ShopPaymentView(ShopCheckoutMixin, TemplateView):
         redirect_response = self.check_addons_ready()
         if redirect_response:
             return redirect_response
-        if not self.total:
+        if not self.total or self.needs_approval:
             return redirect(shop_url(self.request.event, "shop.checkout.confirm"))
         return None
 
@@ -602,7 +607,9 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
 
     @cached_property
     def payment_provider(self):
-        return usable_payment_providers(self.request.event).get(self.cart.get("payment")) if self.total else None
+        if not self.total or self.needs_approval:
+            return None
+        return usable_payment_providers(self.request.event).get(self.cart.get("payment"))
 
     def check_step(self):
         redirect_response = self.check_addons_ready()
@@ -611,7 +618,7 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
         if self.order_form is None or not self.order_form.is_valid():
             messages.error(self.request, _("Please check your details."))
             return redirect(shop_url(self.request.event, "shop.checkout.details"))
-        if self.total and self.payment_provider is None:
+        if self.total and not self.needs_approval and self.payment_provider is None:
             messages.error(self.request, _("Please select a payment method."))
             return redirect(shop_url(self.request.event, "shop.checkout.payment"))
         return None
@@ -627,11 +634,13 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
             for name, field in form.question_fields()
             if name not in form.hidden_question_fields and form.cleaned_data.get(name) not in (None, "", [], False)
         ]
+        context["needs_approval"] = self.needs_approval
         context["payment_provider"] = self.payment_provider
         if self.payment_provider is not None:
             context["payment"] = self.payment_provider.checkout_confirm_render(self.request)
         context["prev_url"] = shop_url(
-            self.request.event, "shop.checkout.payment" if self.total else "shop.checkout.details"
+            self.request.event,
+            "shop.checkout.payment" if self.total and not self.needs_approval else "shop.checkout.details",
         )
         return context
 
@@ -689,10 +698,13 @@ class ShopOrderView(ShopOrderMixin, TemplateView):
         context["thanks"] = "thanks" in self.request.GET
         context["is_pending"] = order.status == ExhibitionOrderStatus.PENDING
         context["is_paid"] = order.status == ExhibitionOrderStatus.PAID
+        context["requires_approval"] = order.require_approval
         context["payment_instructions"] = payment_instructions(order)
         provider = self.request.event.get_payment_providers().get(order.payment_provider)
         context["payment_method"] = provider.public_name if provider else ""
-        context["can_change_payment"] = context["is_pending"] and bool(usable_payment_providers(self.request.event))
+        context["can_change_payment"] = (
+            context["is_pending"] and not order.require_approval and bool(usable_payment_providers(self.request.event))
+        )
         return context
 
 
@@ -706,7 +718,7 @@ class ShopOrderPayChangeView(ShopOrderMixin, TemplateView):
         return usable_payment_providers(self.request.event)
 
     def dispatch(self, request, *args, **kwargs):
-        if self.order.status != ExhibitionOrderStatus.PENDING:
+        if self.order.status != ExhibitionOrderStatus.PENDING or self.order.require_approval:
             messages.error(request, _("This order is not awaiting a payment."))
             return redirect(self.order_url())
         return super().dispatch(request, *args, **kwargs)

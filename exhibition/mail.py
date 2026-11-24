@@ -32,6 +32,9 @@ EXHIBITOR_PROFILE = "exhibitor_profile"
 EXHIBITOR_PROFILE_NEW_ACCOUNT = "exhibitor_profile_new_account"
 REQUEST_MESSAGE = "request_message"
 ORDER_PLACED = "order_placed"
+ORDER_PLACED_REQUIRE_APPROVAL = "order_placed_require_approval"
+ORDER_APPROVED = "order_approved"
+ORDER_DENIED = "order_denied"
 ORDER_PAID = "order_paid"
 
 LIFECYCLE_ROLES = (
@@ -44,6 +47,9 @@ LIFECYCLE_ROLES = (
     EXHIBITOR_PROFILE,
     EXHIBITOR_PROFILE_NEW_ACCOUNT,
     ORDER_PLACED,
+    ORDER_PLACED_REQUIRE_APPROVAL,
+    ORDER_APPROVED,
+    ORDER_DENIED,
     ORDER_PAID,
 )
 TEMPLATE_ROLES = (*LIFECYCLE_ROLES, REQUEST_MESSAGE)
@@ -226,6 +232,48 @@ DEFAULT_TEMPLATE_SOURCES = {
             "The {event_name} team"
         ),
     ),
+    ORDER_PLACED_REQUIRE_APPROVAL: (
+        gettext_noop("Your order {order_code} for {event_name} is awaiting approval"),
+        gettext_noop(
+            "Hello {order_contact_name},\n\n"
+            "thank you for your order for {event_name}. We have received it and it is now "
+            "awaiting organizer approval.\n\n"
+            "Order: {order_code}\n"
+            "Total: {order_total}\n\n"
+            "{order_products}\n\n"
+            "We will email you once your order has been approved or if we cannot accept it. "
+            "You can view your order here:\n{order_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    ),
+    ORDER_APPROVED: (
+        gettext_noop("Your order {order_code} for {event_name} was approved"),
+        gettext_noop(
+            "Hello {order_contact_name},\n\n"
+            "your order {order_code} for {event_name} has been approved.\n\n"
+            "Total: {order_total}\n\n"
+            "{order_products}\n\n"
+            "{order_payment_info}\n\n"
+            "You can view your order here:\n{order_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    ),
+    ORDER_DENIED: (
+        gettext_noop("Your order {order_code} for {event_name} was not approved"),
+        gettext_noop(
+            "Hello {order_contact_name},\n\n"
+            "unfortunately your order {order_code} for {event_name} was not approved and has "
+            "been cancelled.\n\n"
+            "Total: {order_total}\n\n"
+            "{order_products}\n\n"
+            "If you have questions, please contact the organizers. You can still view the "
+            "cancelled order here:\n{order_url}\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    ),
     ORDER_PAID: (
         gettext_noop("Your order {order_code} for {event_name} is confirmed"),
         gettext_noop(
@@ -327,6 +375,9 @@ ROLE_PLACEHOLDER_CONTEXT = {
     EXHIBITOR_PROFILE_NEW_ACCOUNT: [*EXHIBITOR_PLACEHOLDER_CONTEXT, "invited_user"],
     REQUEST_MESSAGE: REQUEST_PLACEHOLDER_CONTEXT,
     ORDER_PLACED: ORDER_PLACEHOLDER_CONTEXT,
+    ORDER_PLACED_REQUIRE_APPROVAL: ORDER_PLACEHOLDER_CONTEXT,
+    ORDER_APPROVED: ORDER_PLACEHOLDER_CONTEXT,
+    ORDER_DENIED: ORDER_PLACEHOLDER_CONTEXT,
     ORDER_PAID: ORDER_PLACEHOLDER_CONTEXT,
 }
 
