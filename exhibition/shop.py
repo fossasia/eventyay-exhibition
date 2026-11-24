@@ -44,10 +44,8 @@ def shop_products(event):
         .prefetch_related("variations")
     )
     for product in products:
-        variations = [variation for variation in product.variations.all() if variation.active]
+        variations = list(product.active_variations())
         product.shop_variations = variations
-        # Avoid assigning to the model property; templates and checkout read this flag.
-        product.__dict__["has_variations"] = bool(variations)
         if variations:
             for variation in variations:
                 variation.remaining = variation.remaining_capacity()
@@ -357,7 +355,7 @@ class ShopCheckoutMixin:
         for product, variation in zip(self.products, self.variations, strict=False):
             if not product:
                 continue
-            if product.active_variations().exists() and (variation is None or not variation.active):
+            if product.has_variations and (variation is None or not variation.active):
                 messages.error(
                     request,
                     _("Please choose a variation for {product}.").format(product=product),

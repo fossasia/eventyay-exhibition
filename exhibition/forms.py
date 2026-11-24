@@ -2646,6 +2646,12 @@ class ExhibitionProductVariationForm(I18nModelForm):
             change_decimal_field(self.fields["price"], self.event.currency)
         self.fields["price"].required = False
 
+    def clean_price(self):
+        price = self.cleaned_data.get("price")
+        if price is not None and price < 0:
+            raise ValidationError(_("The price must not be negative."))
+        return price
+
 
 class ExhibitionProductAddOnsFormSet(I18nFormSet):
     title = _("Add-ons")
@@ -2762,12 +2768,21 @@ class ExhibitionProductForm(I18nModelForm):
             "includes_booth"
         )
         if drops_booth and self.instance.pk:
-            booth_quotas = list(self.instance.quotas.filter(booth_capacity=True))
+            booth_quotas = {
+                quota.pk: quota
+                for quota in list(self.instance.quotas.filter(booth_capacity=True))
+                + list(
+                    ExhibitionQuota.objects.filter(
+                        booth_capacity=True,
+                        variations__product=self.instance,
+                    )
+                )
+            }
             if booth_quotas:
                 self.add_error(
                     "includes_booth",
                     _("This product is on the booth capacity quota {quotas}. Remove it from there first.").format(
-                        quotas=", ".join(quota.name for quota in booth_quotas)
+                        quotas=", ".join(quota.name for quota in booth_quotas.values())
                     ),
                 )
         return cleaned_data
@@ -2808,7 +2823,7 @@ class ExhibitionOrderProductsForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.event = event
         products = ExhibitionProduct.objects.filter(event=event).in_sales_order().prefetch_related("variations")
-        without_variations = [product for product in products if not product.active_variations().exists()]
+        without_variations = [product for product in products if not product.has_variations]
         self.fields["products"].queryset = ExhibitionProduct.objects.filter(
             pk__in=[product.pk for product in without_variations]
         ).in_sales_order()

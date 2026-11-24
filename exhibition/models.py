@@ -2,10 +2,11 @@ import os
 import secrets
 import string
 from collections import defaultdict
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import FileExtensionValidator, MaxValueValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
@@ -1577,7 +1578,8 @@ class ExhibitionProduct(LoggedModel):
 
     @property
     def has_variations(self):
-        return self.variations.exists()
+        """Whether buyers must pick a variation (only active ones count)."""
+        return self.active_variations().exists()
 
     def active_variations(self):
         return self.variations.filter(active=True)
@@ -1621,6 +1623,7 @@ class ExhibitionProductVariation(models.Model):
         blank=True,
         verbose_name=_("Price"),
         help_text=_("Leave empty to use the product's price."),
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
     class Meta:

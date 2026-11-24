@@ -129,8 +129,9 @@ def normalize_order_items(products, variations=None):
     """Turn products plus an optional parallel variations list into ``(product, variation)`` pairs."""
     products = list(products)
     if variations is None:
-        return [(product, None) for product in products]
-    variations = list(variations)
+        variations = [None] * len(products)
+    else:
+        variations = list(variations)
     if len(variations) != len(products):
         raise ExhibitionOrderError("Each product needs a matching variation selection.")
     items = []
@@ -139,7 +140,7 @@ def normalize_order_items(products, variations=None):
             raise ExhibitionOrderError("Invalid variation selection.")
         if variation is not None and variation.product_id != product.pk:
             raise ExhibitionOrderError("Variation does not belong to the selected product.")
-        if product.active_variations().exists():
+        if product.has_variations:
             if variation is None or not variation.active:
                 raise ExhibitionOrderError(f"Please choose a variation for {product}.")
         elif variation is not None:

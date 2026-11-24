@@ -63,7 +63,8 @@ Go to **Exhibition → Products → Quotas** and create a quota:
    for an unlimited quota.
 3. Tick **Booth capacity**. A booth capacity quota only accepts products that
    include a booth.
-4. Select every product that takes a booth from this space.
+4. Select every product without variations that takes a booth from this space,
+   and every variation of a booth product that should count against it.
 
 Pending and paid orders take up a place. When an order is cancelled or
 expires, its place is free again. Once a quota is full, its products show as

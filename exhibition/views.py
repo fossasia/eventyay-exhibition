@@ -941,12 +941,14 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         context["private_call_access"] = settings.call_private and self.has_private_call_access(settings)
         cart = self.request.session.get(checkout_session_key(self.request.event), {})
         context["products_by_category"] = group_by_category(self.packages)
+        cart_products = list(cart.get("products", []))
+        cart_variations = list(cart.get("variations") or [])
+        if len(cart_variations) < len(cart_products):
+            cart_variations.extend([None] * (len(cart_products) - len(cart_variations)))
         context["selected"] = {
-            str(pk)
-            for pk, variation_id in zip(cart.get("products", []), cart.get("variations", []), strict=False)
-            if not variation_id
+            str(pk) for pk, variation_id in zip(cart_products, cart_variations, strict=False) if not variation_id
         }
-        context["selected_variations"] = {str(pk) for pk in cart.get("variations", []) if pk}
+        context["selected_variations"] = {str(pk) for pk in cart_variations if pk}
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
