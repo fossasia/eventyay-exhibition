@@ -418,6 +418,7 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         exhibitor = serializer.save()
         queue_profile_invitation(self.request.event, exhibitor)
+        user = getattr(self.request, "user", None)
         log_operation(
             "exhibition.organization.create",
             OUTCOME_SUCCESS,
@@ -426,12 +427,13 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
             event_id=_request_event_id(self.request),
             object_id=exhibitor.pk,
             model="organization",
-            user_id=getattr(self.request.user, "pk", None),
+            user_id=getattr(user, "pk", None),
             route=_request_route(self.request),
         )
 
     def perform_update(self, serializer):
         exhibitor = serializer.save()
+        user = getattr(self.request, "user", None)
         log_operation(
             "exhibition.organization.update",
             OUTCOME_SUCCESS,
@@ -440,13 +442,14 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
             event_id=_request_event_id(self.request),
             object_id=exhibitor.pk,
             model="organization",
-            user_id=getattr(self.request.user, "pk", None),
+            user_id=getattr(user, "pk", None),
             route=_request_route(self.request),
         )
 
     def perform_destroy(self, instance):
         org_pk = instance.pk
         super().perform_destroy(instance)
+        user = getattr(self.request, "user", None)
         log_operation(
             "exhibition.organization.delete",
             OUTCOME_SUCCESS,
@@ -455,7 +458,7 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
             event_id=_request_event_id(self.request),
             object_id=org_pk,
             model="organization",
-            user_id=getattr(self.request.user, "pk", None),
+            user_id=getattr(user, "pk", None),
             route=_request_route(self.request),
         )
 
