@@ -34,13 +34,30 @@
                 </tbody>
             </table>
         </div>
-    {% else %}
+    {% elif not missing_images %}
         <p>{% trans "Every approved organization is already published." %}</p>
+    {% endif %}
+    {% if missing_images %}
+        <div class="alert alert-warning">
+            <p>
+                {% blocktrans trimmed count count=missing_images|length %}
+                    {{ count }} approved exhibitor stays unpublished because it is missing a logo or banner:
+                {% plural %}
+                    {{ count }} approved exhibitors stay unpublished because they are missing a logo or banner:
+                {% endblocktrans %}
+            </p>
+            <ul>
+                {% for organization in missing_images %}
+                    <li>{{ organization.name }}</li>
+                {% endfor %}
+            </ul>
+        </div>
     {% endif %}
 
     <form action="?{{ query_string }}" method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="publish_all">
+        <input type="hidden" name="organizations" value="{{ waiting_ids }}">
         <div class="form-group submit-group">
             <a class="btn btn-default btn-lg" href="{{ list_url }}">{% trans "Cancel" %}</a>
             {% if waiting %}

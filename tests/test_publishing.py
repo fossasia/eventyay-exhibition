@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.backends.db import SessionStore
@@ -8,6 +10,7 @@ from eventyay.base.models import Team
 from eventyay.base.models.auth import StaffSession, User
 
 from exhibition.filters import ExhibitorFilterForm
+from exhibition.forms import ExhibitorInfoForm
 from exhibition.models import ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo, SponsorGroup
 from exhibition.utils import create_exhibitor_from_request, public_exhibitors_queryset
 from exhibition.views import ExhibitorPublishView
@@ -72,20 +75,24 @@ def test_preview_includes_unpublished_exhibitors(event):
 
 
 @pytest.mark.django_db
-def test_publish_all_reveals_every_approved_organization(event):
+def test_publish_all_reveals_the_confirmed_organizations(event):
     with scopes_disabled():
         first = _exhibitor(event, name="First")
         second = _exhibitor(event, name="Second")
         withdrawn = _exhibitor(event, name="Withdrawn", active=False)
+        approved_later = _exhibitor(event, name="Approved later")
 
-        view, request = _publish_view(event, {"action": "publish_all", "confirmed": "1"})
+        confirmed = f"{first.pk},{second.pk},{withdrawn.pk}"
+        view, request = _publish_view(event, {"action": "publish_all", "confirmed": "1", "organizations": confirmed})
         view.post(request)
 
         first.refresh_from_db()
         second.refresh_from_db()
         withdrawn.refresh_from_db()
+        approved_later.refresh_from_db()
         assert first.published is True
         assert second.published is True
+        assert approved_later.published is False
         assert withdrawn.published is False
 
 
@@ -467,3 +474,198 @@ def test_search_results_come_back_in_the_block_the_page_swaps_in(event):
     assert "public-exhibitor-search.js" in html
     assert _public_url(event, "public_detail", pk=match.pk) in results
     assert _public_url(event, "public_detail", pk=other.pk) not in results
+
+
+def _messages(request):
+    return [str(message) for message in request._messages]
+
+
+@pytest.mark.django_db
+def test_publishing_skips_exhibitors_missing_a_logo_or_banner(event):
+    with scopes_disabled():
+        complete = _exhibitor(event, name="Complete")
+        no_banner = _exhibitor(event, name="No banner", banner="")
+
+        view, request = _publish_view(event, {"action": "publish", "selected": [str(complete.pk), str(no_banner.pk)]})
+        view.post(request)
+
+        complete.refresh_from_db()
+        no_banner.refresh_from_db()
+        assert complete.published is True
+        assert no_banner.published is False
+        assert "1 exhibitor could not be published because it is missing a logo or banner." in _messages(request)
+
+
+@pytest.mark.django_db
+def test_publish_all_leaves_out_exhibitors_missing_images(event, settings):
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        complete = _exhibitor(event, name="Complete")
+        no_logo = _exhibitor(event, name="No logo", logo="")
+        client = _client(_organizer_with_settings_access(event))
+    url = reverse(
+        "plugins:exhibition:exhibitors.publish",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+
+    preview = client.post(url, {"action": "publish_all"})
+    assert preview.context["waiting"] == [complete]
+    assert preview.context["missing_images"] == [no_logo]
+    listed = re.search(r'name="organizations" value="([^"]*)"', preview.content.decode())[1]
+    assert listed == str(complete.pk)
+
+    with scopes_disabled():
+        no_logo.logo = _IMAGES["logo"]
+        no_logo.save(update_fields=["logo"])
+    client.post(url, {"action": "publish_all", "confirmed": "1", "organizations": listed})
+
+    with scopes_disabled():
+        complete.refresh_from_db()
+        no_logo.refresh_from_db()
+    assert complete.published is True
+    assert no_logo.published is False
+
+
+@pytest.mark.django_db
+def test_publish_all_rechecks_images_and_ignores_malformed_ids(event):
+    with scopes_disabled():
+        complete = _exhibitor(event, name="Complete")
+        no_logo = _exhibitor(event, name="No logo", logo="")
+
+        confirmed = f"{complete.pk},{no_logo.pk},\u00b2,{2**64},{'9' * 5000},abc"
+        view, request = _publish_view(event, {"action": "publish_all", "confirmed": "1", "organizations": confirmed})
+        view.post(request)
+
+        complete.refresh_from_db()
+        no_logo.refresh_from_db()
+        assert complete.published is True
+        assert no_logo.published is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("is_exhibitor", "published"), [(False, True), (True, False)])
+def test_only_sponsor_only_organizations_publish_without_a_banner(event, is_exhibitor, published):
+    with scopes_disabled():
+        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=True)
+        sponsor = _exhibitor(
+            event, name="Sponsor", is_exhibitor=is_exhibitor, is_sponsor=True, sponsor_group=group, banner=""
+        )
+
+        view, request = _publish_view(event, {"action": "publish", "selected": [str(sponsor.pk)]}, "sponsor")
+        view.post(request)
+
+        sponsor.refresh_from_db()
+        assert sponsor.published is published
+
+
+def _edit_form(event, exhibitor, **data):
+    return ExhibitorInfoForm(
+        data={"name_0": exhibitor.name, "exhibitor_group": "paid", **data},
+        instance=exhibitor,
+        event=event,
+        organization_type="exhibitor",
+    )
+
+
+@pytest.mark.django_db
+def test_form_cannot_publish_an_exhibitor_without_images(event):
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", exhibitor_group="paid")
+        form = _edit_form(event, exhibitor, published="on")
+
+        assert not form.is_valid()
+        assert {"logo", "banner"} <= set(form.errors)
+        assert "published" not in form.errors
+
+
+@pytest.mark.django_db
+def test_form_blocks_publishing_without_images_when_they_are_optional(event, monkeypatch):
+    monkeypatch.setattr(ExhibitorInfoForm, "profile_key_is_required", lambda form, key: False)
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme", exhibitor_group="paid")
+
+        assert "published" in _edit_form(event, exhibitor, published="on").errors
+        assert _edit_form(event, exhibitor).is_valid()
+
+
+@pytest.mark.django_db
+def test_form_requires_a_banner_for_an_exhibitor_that_also_sponsors(event, monkeypatch):
+    monkeypatch.setattr(ExhibitorInfoForm, "profile_key_is_required", lambda form, key: False)
+    with scopes_disabled():
+        group = SponsorGroup.objects.create(event=event, name="Gold", show_on_front_page=True)
+        exhibitor = _exhibitor(event, exhibitor_group="paid", is_sponsor=True, sponsor_group=group, banner="")
+        form = ExhibitorInfoForm(
+            data={
+                "name_0": "Acme",
+                "exhibitor_group": "paid",
+                "is_exhibitor": "on",
+                "published": "on",
+                "sponsor_group": group.pk,
+            },
+            instance=exhibitor,
+            event=event,
+            organization_type="sponsor",
+        )
+
+        assert "published" in form.errors
+
+
+@pytest.mark.django_db
+def test_a_false_clear_flag_keeps_the_stored_banner(event):
+    with scopes_disabled():
+        exhibitor = _exhibitor(event, exhibitor_group="paid")
+        form = _edit_form(event, exhibitor, **{"banner-clear": "false"})
+        assert form.is_valid(), form.errors
+
+        form.save()
+        exhibitor.refresh_from_db()
+        assert exhibitor.banner
+
+
+@pytest.mark.django_db
+def test_a_clear_flag_for_a_field_not_on_the_form_is_ignored(event):
+    with scopes_disabled():
+        exhibitor = _exhibitor(event, exhibitor_group="paid", slides="exhibitors/slides/Acme/deck.pdf")
+        form = _edit_form(event, exhibitor, **{"slides-clear": "on"})
+        assert "slides" not in form.fields
+        assert form.is_valid(), form.errors
+
+        form.save()
+        exhibitor.refresh_from_db()
+        assert exhibitor.slides
+
+
+@pytest.mark.django_db
+def test_banner_help_text_keeps_the_display_guidance(event):
+    with scopes_disabled():
+        help_text = str(ExhibitorInfoForm(event=event, organization_type="exhibitor").fields["banner"].help_text)
+
+    assert "List cards crop it to fill." in help_text
+    assert "1200 × 400" in help_text
+
+
+@pytest.mark.django_db
+def test_organizer_is_warned_about_exhibitors_missing_images(event, settings):
+    with scopes_disabled():
+        event.plugins = "exhibition"
+        event.save(update_fields=["plugins"])
+        exhibitor = _exhibitor(event, name="Acme", published=True, banner="")
+        _exhibitor(event, name="Waiting", logo="")
+        organizer = _organizer_with_settings_access(event)
+    client = _client(organizer)
+
+    list_html = _organization_list(client, event, "exhibitors", settings).content.decode()
+    edit_url = reverse(
+        "plugins:exhibition:edit",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": exhibitor.pk},
+    )
+    edit_html = client.get(edit_url).content.decode()
+
+    assert "Published, missing images" in list_html
+    assert "label label-success" not in list_html
+    assert "fa fa-exclamation-triangle text-warning" in list_html
+    assert "it does not appear on the public Exhibition page" in edit_html
