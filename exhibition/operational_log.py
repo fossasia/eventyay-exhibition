@@ -51,6 +51,7 @@ _IDENTIFIER_FIELDS = frozenset(
         "order_code",
         "request_id",
         "job_id",
+        "model",
     }
 )
 
@@ -88,9 +89,10 @@ def _current_job_id():
 
 def _clean(fields):
     extra = {}
-    for key, value in fields.items():
+    for raw_key, value in fields.items():
         if value is None or value == "":
             continue
+        key = "model" if raw_key == "resource_type" and "model" not in fields else raw_key
         if key in _INT_FIELDS:
             if isinstance(value, bool) or not isinstance(value, int):
                 continue

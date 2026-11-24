@@ -37,7 +37,7 @@ def test_drops_email_token_and_unknown_fields(captured):
         token="secret-token",
         body="{raw}",
         webhook_id=99,
-        model="Order",
+        raw_meta="Order",
         event_id=12,
         order_id=34,
         order_code="EXH-1",
@@ -65,7 +65,7 @@ def test_drops_email_token_and_unknown_fields(captured):
     assert extra["mail_type"] == "vouchers"
     assert extra["route"] == "plugins:exhibition:exhibitor-auth"
     assert extra["outcome"] == "success"
-    for forbidden in ("email", "token", "body", "webhook_id", "model"):
+    for forbidden in ("email", "token", "body", "webhook_id", "raw_meta"):
         assert forbidden not in extra
     blob = str(extra)
     assert "person@example.com" not in blob
@@ -233,7 +233,7 @@ def test_scheduled_email_logs_success_only_after_commit(monkeypatch):
     )
 
     exhibition_tasks.send_scheduled_email.run(10, 20)
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert calls[0] == (
         ("job.start", OUTCOME_SUCCESS),
         {
@@ -248,6 +248,12 @@ def test_scheduled_email_logs_success_only_after_commit(monkeypatch):
     assert calls[1][1]["backend"] == "exhibition"
     assert calls[1][1]["event_id"] == 10
     assert calls[1][1]["object_id"] == 20
+    assert calls[2][0] == ("job.finish", OUTCOME_SUCCESS)
+    assert calls[2][1]["backend"] == "exhibition"
+    assert calls[2][1]["job_name"] == "exhibition.send_scheduled_email"
+    assert calls[2][1]["event_id"] == 10
+    assert calls[2][1]["object_id"] == 20
+    assert "duration_ms" in calls[2][1]
     assert calls[1][1]["request_id"] is None
     assert isinstance(calls[1][1]["duration_ms"], int)
 
@@ -269,7 +275,7 @@ def test_scheduled_email_logs_success_only_after_commit(monkeypatch):
     )
     exhibition_tasks.send_scheduled_email.run(10, 20)
     assert calls[0][0] == ("job.start", OUTCOME_SUCCESS)
-    failure_calls = calls[1:]
+    failure_calls = [c for c in calls[1:] if c[0][0] == "mail.send"]
     assert [kw["error_code"] for _, kw in failure_calls] == ["send_failed", "max_retries_exceeded"]
     assert all(args[1] == OUTCOME_FAILURE for args, _ in failure_calls)
     assert all(isinstance(kw["duration_ms"], int) for _, kw in failure_calls)
@@ -625,16 +631,102 @@ def test_email_send_view_logs_failure_and_reraises(monkeypatch):
     with pytest.raises(RuntimeError, match="smtp down"):
         exhibition_views.EmailSendView().post(request, pk=11)
 
-    assert calls == [
-        (
-            ("mail.send", OUTCOME_FAILURE),
-            {
-                "backend": "exhibition",
-                "error_code": "send_failed",
-                "event_id": 5,
-                "object_id": 11,
-                "recipient_count": 1,
-                "user_id": 8,
-            },
-        )
-    ]
+    assert len(calls) == 1
+    (action, outcome), payload = calls[0]
+    assert action == "mail.send"
+    assert outcome == OUTCOME_FAILURE
+    assert payload["backend"] == "exhibition"
+    assert payload["error_code"] == "send_failed"
+    assert payload["event_id"] == 5
+    assert payload["object_id"] == 11
+    assert payload["recipient_count"] == 1
+    assert payload["user_id"] == 8
+    assert payload["retry_count"] == 0
+    assert payload["status"] == 500
+    assert "duration_ms" in payload
+
+
+def test_viewset_writes_and_task_finish_logs(monkeypatch):
+    import exhibition.api as exhibition_api
+    import exhibition.models as exhibition_models
+    import exhibition.tasks as exhibition_tasks
+
+    # 1. Test ExhibitorInfoViewSet writes
+    api_calls = []
+    monkeypatch.setattr(exhibition_api, "log_operation", lambda *a, **kw: api_calls.append((a, kw)))
+    monkeypatch.setattr(exhibition_api, "queue_profile_invitation", lambda *a, **kw: None)
+
+    viewset = exhibition_api.ExhibitorInfoViewSet()
+    event = SimpleNamespace(pk=9)
+    user = SimpleNamespace(pk=42)
+    viewset.request = SimpleNamespace(
+        event=event,
+        user=user,
+        resolver_match=SimpleNamespace(view_name="api:exhibitor-detail"),
+    )
+
+    serializer_mock = SimpleNamespace(save=lambda: SimpleNamespace(pk=101))
+    perform_create_fn = getattr(viewset.perform_create, "__wrapped__", viewset.perform_create)
+    perform_create_fn(viewset, serializer_mock)
+    assert api_calls[-1] == (
+        ("exhibition.organization.create", OUTCOME_SUCCESS),
+        {
+            "backend": "exhibition",
+            "status": 201,
+            "event_id": 9,
+            "object_id": 101,
+            "model": "organization",
+            "user_id": 42,
+            "route": "api:exhibitor-detail",
+        },
+    )
+
+    viewset.perform_update(serializer_mock)
+    assert api_calls[-1] == (
+        ("exhibition.organization.update", OUTCOME_SUCCESS),
+        {
+            "backend": "exhibition",
+            "status": 200,
+            "event_id": 9,
+            "object_id": 101,
+            "model": "organization",
+            "user_id": 42,
+            "route": "api:exhibitor-detail",
+        },
+    )
+
+    instance_mock = SimpleNamespace(pk=101, delete=lambda: None)
+    viewset.perform_destroy(instance_mock)
+    assert api_calls[-1] == (
+        ("exhibition.organization.delete", OUTCOME_SUCCESS),
+        {
+            "backend": "exhibition",
+            "status": 204,
+            "event_id": 9,
+            "object_id": 101,
+            "model": "organization",
+            "user_id": 42,
+            "route": "api:exhibitor-detail",
+        },
+    )
+
+    # 2. Test send_scheduled_email task early returns emit job.finish
+    task_calls = []
+    monkeypatch.setattr(exhibition_tasks, "log_operation", lambda *a, **kw: task_calls.append((a, kw)))
+    monkeypatch.setattr(exhibition_tasks.transaction, "atomic", nullcontext)
+    monkeypatch.setattr(exhibition_tasks.Event.objects, "get", lambda pk: SimpleNamespace(pk=pk))
+
+    class EmptyQS:
+        def filter(self, **kwargs):
+            return self
+
+        def first(self):
+            return None
+
+    monkeypatch.setattr(
+        exhibition_models.ExhibitionEmailQueue.objects,
+        "select_for_update",
+        lambda skip_locked=True: EmptyQS(),
+    )
+    exhibition_tasks.send_scheduled_email.run(10, 20, request_id="req-early-1")
+    assert any(action == "job.finish" and outcome == OUTCOME_SUCCESS for (action, outcome), _ in task_calls)

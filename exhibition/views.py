@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 import uuid
 from urllib.parse import quote, urlencode
 
@@ -175,17 +176,27 @@ def _user_id(request):
     return getattr(getattr(request, "user", None), "pk", None)
 
 
-def _log_permission_denied(request, error_code):
+def _log_permission_denied(request, error_code, *, model=None, object_id=None):
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
         return
+    kwargs = {
+        "backend": "exhibition",
+        "error_code": error_code,
+        "event_id": getattr(getattr(request, "event", None), "pk", None),
+        "user_id": getattr(user, "pk", None),
+    }
+    if model:
+        kwargs["model"] = model
+    if object_id is not None:
+        kwargs["object_id"] = object_id
+    route = getattr(getattr(request, "resolver_match", None), "view_name", None)
+    if route:
+        kwargs["route"] = route
     log_operation(
         "permission.denied",
         OUTCOME_FAILURE,
-        backend="exhibition",
-        error_code=error_code,
-        event_id=getattr(getattr(request, "event", None), "pk", None),
-        user_id=getattr(user, "pk", None),
+        **kwargs,
     )
 
 
@@ -590,6 +601,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     error_code="validation_failed",
                     event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
                     user_id=_user_id(request),
                 )
                 settings.allowed_fields = allowed_fields
@@ -623,6 +636,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     error_code="validation_failed",
                     event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
                     user_id=_user_id(request),
                 )
                 return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
@@ -655,6 +670,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     error_code="validation_failed",
                     event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
                     user_id=_user_id(request),
                 )
                 return self.render_to_response(self.get_context_data(voucher_defaults_form=voucher_defaults_form))
@@ -669,6 +686,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 OUTCOME_SUCCESS,
                 backend="exhibition",
                 event_id=request.event.pk,
+                object_id=getattr(settings, "pk", None),
+                model="settings",
                 user_id=_user_id(request),
             )
             messages.success(self.request, _("Settings have been saved."))
@@ -692,6 +711,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     OUTCOME_SUCCESS,
                     backend="exhibition",
                     event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
                     user_id=_user_id(request),
                 )
                 messages.success(self.request, _("Call settings have been saved."))
@@ -702,6 +723,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 backend="exhibition",
                 error_code="validation_failed",
                 event_id=request.event.pk,
+                object_id=getattr(settings, "pk", None),
+                model="settings",
                 user_id=_user_id(request),
             )
             return self.render_to_response(self.get_context_data(call_settings_form=form))
@@ -713,6 +736,8 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 OUTCOME_SUCCESS,
                 backend="exhibition",
                 event_id=request.event.pk,
+                object_id=getattr(settings, "pk", None),
+                model="settings",
                 user_id=_user_id(request),
             )
             messages.success(
@@ -738,6 +763,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     event_id=request.event.pk,
                     object_id=group.pk,
+                    model="sponsor_group",
                     user_id=_user_id(request),
                 )
                 messages.success(self.request, _("Sponsor group added."))
@@ -749,6 +775,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 backend="exhibition",
                 error_code="validation_failed",
                 event_id=request.event.pk,
+                model="sponsor_group",
                 user_id=_user_id(request),
             )
             messages.error(self.request, _("We could not save your changes. See below for details."))
@@ -776,6 +803,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     backend="exhibition",
                     event_id=request.event.pk,
                     object_id=group.pk,
+                    model="sponsor_group",
                     user_id=_user_id(request),
                 )
                 messages.success(self.request, _("Sponsor group updated."))
@@ -788,6 +816,7 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 error_code="validation_failed",
                 event_id=request.event.pk,
                 object_id=group.pk,
+                model="sponsor_group",
                 user_id=_user_id(request),
             )
             messages.error(self.request, _("We could not save your changes. See below for details."))
@@ -833,7 +862,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
             if not request.user.has_event_permission(
                 request.event.organizer, request.event, "can_change_event_settings", request=request
             ):
-                _log_permission_denied(request, "event_settings")
+                _log_permission_denied(request, "event_settings", model="settings")
                 raise PermissionDenied()
             return self.download()
         return super().get(request, *args, **kwargs)
@@ -1930,7 +1959,12 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
         action = self.request.POST.get("action", "save")
         if action in REQUEST_REVIEW_ACTIONS:
             if not self.can_manage():
-                _log_permission_denied(self.request, "review")
+                _log_permission_denied(
+                    self.request,
+                    "review",
+                    model="request",
+                    object_id=getattr(self.object, "pk", None),
+                )
                 raise PermissionDenied()
             if not self.object.can_apply_action(action):
                 log_operation(
@@ -4266,7 +4300,12 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         if not self.can_provision():
-            _log_permission_denied(request, "provision")
+            _log_permission_denied(
+                request,
+                "provision",
+                model="organization",
+                object_id=getattr(self.object, "pk", None),
+            )
             raise PermissionDenied()
         if request.POST.get("action") == "reset":
             return self.reset_tokens(request)
@@ -4857,6 +4896,7 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 self.release_replaced_attachments(previous_ids, attachment)
             if "_send" in self.request.POST:
                 count = 0
+                send_started = time.monotonic()
                 for row in rows:
                     row.subject = subject
                     row.body = body
@@ -4864,11 +4904,15 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                     try:
                         row.send(requestor=self.request.user)
                     except Exception:
+                        duration_ms = int((time.monotonic() - send_started) * 1000)
                         log_operation(
                             "mail.send",
                             OUTCOME_FAILURE,
                             backend="exhibition",
                             error_code="send_failed",
+                            duration_ms=duration_ms,
+                            retry_count=0,
+                            status=500,
                             event_id=self.request.event.pk,
                             object_id=self.object.pk,
                             recipient_count=count,
@@ -4876,10 +4920,14 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                         )
                         raise
                     count += 1
+                duration_ms = int((time.monotonic() - send_started) * 1000)
                 log_operation(
                     "mail.send",
                     OUTCOME_SUCCESS,
                     backend="exhibition",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=200,
                     event_id=self.request.event.pk,
                     object_id=self.object.pk,
                     recipient_count=count,
@@ -4908,24 +4956,33 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             self.release_replaced_attachments(previous_ids, attachment)
             self.object = locked
         if "_send" in self.request.POST:
+            send_started = time.monotonic()
             try:
                 self.object.send(requestor=self.request.user)
             except Exception:
+                duration_ms = int((time.monotonic() - send_started) * 1000)
                 log_operation(
                     "mail.send",
                     OUTCOME_FAILURE,
                     backend="exhibition",
                     error_code="send_failed",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=500,
                     event_id=self.request.event.pk,
                     object_id=self.object.pk,
                     recipient_count=0,
                     user_id=_user_id(self.request),
                 )
                 raise
+            duration_ms = int((time.monotonic() - send_started) * 1000)
             log_operation(
                 "mail.send",
                 OUTCOME_SUCCESS,
                 backend="exhibition",
+                duration_ms=duration_ms,
+                retry_count=0,
+                status=200,
                 event_id=self.request.event.pk,
                 object_id=self.object.pk,
                 recipient_count=1,
@@ -4988,15 +5045,20 @@ class EmailSendView(EventPermissionRequiredMixin, View):
         else:
             rows = [email]
         count = 0
+        send_started = time.monotonic()
         for row in rows:
             try:
                 row.send(requestor=request.user)
             except Exception:
+                duration_ms = int((time.monotonic() - send_started) * 1000)
                 log_operation(
                     "mail.send",
                     OUTCOME_FAILURE,
                     backend="exhibition",
                     error_code="send_failed",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=500,
                     event_id=request.event.pk,
                     object_id=email.pk,
                     recipient_count=count,
@@ -5004,10 +5066,14 @@ class EmailSendView(EventPermissionRequiredMixin, View):
                 )
                 raise
             count += 1
+        duration_ms = int((time.monotonic() - send_started) * 1000)
         log_operation(
             "mail.send",
             OUTCOME_SUCCESS,
             backend="exhibition",
+            duration_ms=duration_ms,
+            retry_count=0,
+            status=200,
             event_id=request.event.pk,
             object_id=email.pk,
             recipient_count=count,
@@ -5119,15 +5185,20 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
 
         if action == "send":
             count = 0
+            send_started = time.monotonic()
             for row in rows:
                 try:
                     row.send(requestor=request.user)
                 except Exception:
+                    duration_ms = int((time.monotonic() - send_started) * 1000)
                     log_operation(
                         "mail.send",
                         OUTCOME_FAILURE,
                         backend="exhibition",
                         error_code="send_failed",
+                        duration_ms=duration_ms,
+                        retry_count=0,
+                        status=500,
                         event_id=request.event.pk,
                         recipient_count=count,
                         user_id=_user_id(request),
@@ -5135,10 +5206,14 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
                     raise
                 count += 1
             if count:
+                duration_ms = int((time.monotonic() - send_started) * 1000)
                 log_operation(
                     "mail.send",
                     OUTCOME_SUCCESS,
                     backend="exhibition",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=200,
                     event_id=request.event.pk,
                     recipient_count=count,
                     user_id=_user_id(request),

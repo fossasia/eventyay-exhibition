@@ -56,9 +56,29 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
                 .first()
             )
             if queued is None:
+                log_operation(
+                    "job.finish",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    job_name="exhibition.send_scheduled_email",
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    event_id=event.pk,
+                    object_id=queue_id,
+                    request_id=request_id,
+                )
                 return
 
             if queued.scheduled_at is None:
+                log_operation(
+                    "job.finish",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    job_name="exhibition.send_scheduled_email",
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    event_id=event.pk,
+                    object_id=queue_id,
+                    request_id=request_id,
+                )
                 return
 
             if queued.scheduled_at > now():
@@ -66,6 +86,25 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
                 if request_id:
                     async_kwargs["kwargs"] = {"request_id": request_id}
                 send_scheduled_email.apply_async(**async_kwargs)
+                log_operation(
+                    "job.enqueue",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    job_name="exhibition.send_scheduled_email",
+                    event_id=event.pk,
+                    object_id=queue_id,
+                    request_id=request_id,
+                )
+                log_operation(
+                    "job.finish",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    job_name="exhibition.send_scheduled_email",
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    event_id=event.pk,
+                    object_id=queue_id,
+                    request_id=request_id,
+                )
                 return
 
             queued.send()
@@ -77,6 +116,18 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
             "mail.send",
             OUTCOME_FAILURE,
             backend="exhibition",
+            error_code="send_failed",
+            duration_ms=duration_ms,
+            event_id=event.pk,
+            object_id=queue_id,
+            retry_count=getattr(self.request, "retries", None),
+            request_id=request_id,
+        )
+        log_operation(
+            "job.finish",
+            OUTCOME_FAILURE,
+            backend="exhibition",
+            job_name="exhibition.send_scheduled_email",
             error_code="send_failed",
             duration_ms=duration_ms,
             event_id=event.pk,
@@ -102,11 +153,22 @@ def send_scheduled_email(self, event_id, queue_id, request_id=None):
             )
     else:
         if send_completed:
+            duration_ms = int((time.monotonic() - started) * 1000)
             log_operation(
                 "mail.send",
                 OUTCOME_SUCCESS,
                 backend="exhibition",
-                duration_ms=int((time.monotonic() - started) * 1000),
+                duration_ms=duration_ms,
+                event_id=event.pk,
+                object_id=queue_id,
+                request_id=request_id,
+            )
+            log_operation(
+                "job.finish",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                job_name="exhibition.send_scheduled_email",
+                duration_ms=duration_ms,
                 event_id=event.pk,
                 object_id=queue_id,
                 request_id=request_id,
