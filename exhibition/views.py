@@ -2450,7 +2450,12 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         products_form = self.get_products_form()
         if not products_form.is_valid():
-            for error in products_form.non_field_errors() or [_("Please select at least one product.")]:
+            field_errors = [
+                f"{products_form.fields[name].label}: {error}" if name in products_form.fields else error
+                for name, errors in products_form.errors.items()
+                for error in errors
+            ]
+            for error in field_errors or [_("Please select at least one product.")]:
                 messages.error(request, error)
             return redirect("plugins:exhibition:orders.add", **event_kwargs(request.event))
         products = products_form.cleaned_data["products"]

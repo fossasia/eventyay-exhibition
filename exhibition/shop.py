@@ -51,9 +51,10 @@ def shop_products(event):
     )
     for product in products:
         product.remaining = product.remaining_capacity()
-        product.sold_out = product.remaining == 0
-        limits = [limit for limit in (product.max_per_order or None, product.remaining) if limit is not None]
-        product.max_quantity = min(limits) if limits else None
+        # A product whose quota cannot cover its minimum per order can never be ordered.
+        product.sold_out = product.remaining is not None and product.remaining < max(product.min_per_order or 1, 1)
+        limits = [limit for limit in (product.effective_max_per_order, product.remaining) if limit is not None]
+        product.max_quantity = min(limits)
     return products
 
 
@@ -137,12 +138,12 @@ class ShopIndexView(View):
                 _("{products} is sold out.").format(products=", ".join(str(product) for product in sold_out)),
             )
             return redirect(packages_url(request.event))
-        chosen = [product for product in self.products for _unit in range(counts.get(str(product.pk), 0))]
-        limit_errors = order_limit_errors(chosen)
+        limit_errors = [error for pk, count in counts.items() if (error := on_sale[pk].order_limit_error(count))]
         if limit_errors:
             for error in limit_errors:
                 messages.error(request, error)
             return redirect(packages_url(request.event))
+        chosen = [product for product in self.products for _unit in range(counts.get(str(product.pk), 0))]
         key = checkout_session_key(request.event)
         cart = request.session.get(key, {})
         cart["products"] = [product.pk for product in chosen]
@@ -527,6 +528,13 @@ class ShopAddOnsView(ShopCheckoutMixin, TemplateView):
                                 }
                             )
 
+        addon_products = ExhibitionProduct.objects.in_bulk({item["product_id"] for item in chosen_addons})
+        errors.extend(
+            order_limit_errors(
+                [product for product in self.products if product]
+                + [addon_products[item["product_id"]] for item in chosen_addons]
+            )
+        )
         if errors:
             for err in errors:
                 messages.error(request, err)

@@ -1466,6 +1466,11 @@ def get_next_product_position(event):
     return (max_position if max_position is not None else -1) + 1
 
 
+# Upper bound on units of one product per order when the organizer sets no maximum, so a crafted
+# request cannot make the checkout build an unbounded list of order positions.
+MAX_UNITS_PER_PRODUCT = 100
+
+
 class ExhibitionProduct(LoggedModel):
     """An exhibition or sponsorship package the event sells.
 
@@ -1588,11 +1593,16 @@ class ExhibitionProduct(LoggedModel):
         remaining = [quota.remaining for quota in self.quotas.with_usage() if quota.size is not None]
         return min(remaining) if remaining else None
 
+    @property
+    def effective_max_per_order(self):
+        """The organizer's maximum per order, or the platform ceiling when none is set."""
+        return self.max_per_order or MAX_UNITS_PER_PRODUCT
+
     def order_limit_error(self, count):
         """Why ``count`` of this product cannot be in one order, or None when the amount is allowed."""
-        if count and self.max_per_order and count > self.max_per_order:
+        if count and count > self.effective_max_per_order:
             return _("You cannot select more than %(max)s products of the product %(product)s.") % {
-                "max": self.max_per_order,
+                "max": self.effective_max_per_order,
                 "product": self,
             }
         if count and self.min_per_order and count < self.min_per_order:

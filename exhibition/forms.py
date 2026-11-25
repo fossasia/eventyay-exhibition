@@ -88,7 +88,7 @@ from .models import (
     get_next_sponsor_group_level,
     order_questions_for,
 )
-from .orders import order_limit_errors, usable_payment_providers
+from .orders import usable_payment_providers
 from .social_links import (
     SOCIAL_LINK_CHOICES,
     SOCIAL_LINK_SPECS,
@@ -2758,7 +2758,7 @@ class ExhibitionOrderProductsForm(forms.Form):
             self.fields[self.quantity_field_name(product)] = forms.IntegerField(
                 label=f"{product} ({money_filter(product.price, event.currency)})",
                 min_value=0,
-                max_value=product.max_per_order or None,
+                max_value=product.effective_max_per_order,
                 required=False,
                 widget=forms.NumberInput(attrs={"placeholder": "0"}),
             )
@@ -2782,13 +2782,14 @@ class ExhibitionOrderProductsForm(forms.Form):
             counts[pk] += 1
         for product in self.products:
             counts[str(product.pk)] += cleaned_data.get(self.quantity_field_name(product)) or 0
-        chosen = [product for product in self.products for _unit in range(counts[str(product.pk)])]
-        if not chosen:
+        if not any(counts.values()):
             raise ValidationError(_("Please select at least one product."))
-        limit_errors = order_limit_errors(chosen)
+        limit_errors = [
+            str(error) for product in self.products if (error := product.order_limit_error(counts[str(product.pk)]))
+        ]
         if limit_errors:
             raise ValidationError(limit_errors)
-        cleaned_data["products"] = chosen
+        cleaned_data["products"] = [product for product in self.products for _unit in range(counts[str(product.pk)])]
         return cleaned_data
 
 

@@ -6,7 +6,15 @@ from django.urls import reverse
 from django_scopes import scopes_disabled
 from eventyay.base.models.auth import User
 
-from exhibition.models import ExhibitionOrder, ExhibitionOrderError, ExhibitionProduct, ExhibitionQuota
+from exhibition.models import (
+    MAX_UNITS_PER_PRODUCT,
+    ExhibitionOrder,
+    ExhibitionOrderError,
+    ExhibitionProduct,
+    ExhibitionProductAddOn,
+    ExhibitionProductCategory,
+    ExhibitionQuota,
+)
 from exhibition.orders import place_exhibition_order
 from exhibition.shop import checkout_session_key
 
@@ -187,3 +195,52 @@ def test_the_back_office_form_rejects_too_many_through_the_chosen_products(event
 
     with scopes_disabled():
         assert not ExhibitionOrder.objects.exists()
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_a_huge_quantity_is_rejected_without_building_the_order(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        product = _product(event)
+    client = Client()
+
+    response = client.post(_url(event, "shop"), {f"quantity_{product.pk}": str(10**12)})
+
+    assert response.url.startswith(_url(event, "public_call"))
+    assert _cart_products(client, event) == []
+    content = Client().get(_url(event, "public_call")).content.decode()
+    assert f'max="{MAX_UNITS_PER_PRODUCT}"' in content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_a_product_whose_quota_cannot_cover_its_minimum_is_sold_out(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        product = _product(event, min_per_order=3)
+        quota = ExhibitionQuota.objects.create(event=event, name="Badges", size=2)
+        quota.products.set([product])
+
+    content = Client().get(_url(event, "public_call")).content.decode()
+
+    assert "SOLD OUT" in content
+    assert f'name="quantity_{product.pk}"' not in content
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL="https://testserver")
+def test_the_add_on_step_reports_an_add_on_below_its_minimum(event):
+    _enable_plugin(event)
+    with scopes_disabled():
+        passes = ExhibitionProductCategory.objects.create(event=event, name={"en": "Passes"}, is_addon=True)
+        base = _product(event, "Main Booth", max_per_order=1)
+        addon = _product(event, "Staff Pass", category=passes, min_per_order=2)
+        rule = ExhibitionProductAddOn.objects.create(base_product=base, addon_category=passes, max_count=1)
+    client = Client()
+    client.post(_url(event, "shop"), {"product": [base.pk]})
+
+    response = client.post(_url(event, "shop.checkout.addons"), {f"addon_0_{rule.pk}": str(addon.pk)})
+
+    assert response.status_code == 200
+    assert "You need to select at least 2 products of the product Staff Pass." in response.content.decode()
