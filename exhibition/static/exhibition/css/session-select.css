@@ -113,8 +113,14 @@
 }
 
 .exhibition-session-option:hover,
-.exhibition-session-option:focus {
+.exhibition-session-option:focus,
+.exhibition-session-option:focus-within {
     background: #f5f5f5;
+}
+
+.exhibition-session-option:focus-within {
+    outline: 2px solid var(--color-primary, #337ab7);
+    outline-offset: -2px;
 }
 
 .exhibition-session-option input[type="checkbox"] {
