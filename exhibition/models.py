@@ -2324,7 +2324,7 @@ class ExhibitionEmailDraft(models.Model):
     )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    
+
     FORM_FIELDS = (
         "states",
         "organization_type",
@@ -2335,7 +2335,7 @@ class ExhibitionEmailDraft(models.Model):
         "scheduled_at",
         "attachment",
     )
-    
+
     class Meta:
         verbose_name = _("Email draft")
         verbose_name_plural = _("Email drafts")
@@ -2386,7 +2386,7 @@ class ExhibitionCustomEmailTemplate(models.Model):
     body = I18nTextField(verbose_name=_("Body"), blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         verbose_name = _("Custom email template")
         verbose_name_plural = _("Custom email templates")
