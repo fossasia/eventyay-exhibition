@@ -1,5 +1,5 @@
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
 
 from django.contrib import messages
@@ -25,7 +25,15 @@ from .models import (
     ExhibitionProduct,
     ExhibitionQuotaExceeded,
 )
-from .orders import payment_instructions, place_exhibition_order, send_order_email, usable_payment_providers
+from .orders import (
+    order_limit_errors,
+    payment_instructions,
+    place_exhibition_order,
+    send_order_email,
+    usable_payment_providers,
+)
+
+QUANTITY_FIELD_PREFIX = "quantity_"
 
 
 def checkout_session_key(event):
@@ -44,6 +52,8 @@ def shop_products(event):
     for product in products:
         product.remaining = product.remaining_capacity()
         product.sold_out = product.remaining == 0
+        limits = [limit for limit in (product.max_per_order or None, product.remaining) if limit is not None]
+        product.max_quantity = min(limits) if limits else None
     return products
 
 
@@ -97,26 +107,48 @@ class ShopIndexView(View):
 
     def post(self, request, *args, **kwargs):
         on_sale = {str(product.pk): product for product in self.products}
-        chosen = [on_sale.get(pk) for pk in request.POST.getlist("product")]
-        if not chosen:
+        counts = Counter(request.POST.getlist("product"))
+        for key, value in request.POST.items():
+            if not key.startswith(QUANTITY_FIELD_PREFIX) or not value.strip():
+                continue
+            try:
+                quantity = int(value)
+            except ValueError:
+                quantity = -1
+            if quantity < 0:
+                messages.error(request, _("Please enter a valid quantity."))
+                return redirect(packages_url(request.event))
+            counts[key.removeprefix(QUANTITY_FIELD_PREFIX)] += quantity
+        counts = {pk: count for pk, count in counts.items() if count}
+        if not counts:
             messages.error(request, _("Please select at least one product."))
             return redirect(packages_url(request.event))
-        if None in chosen:
+        if any(pk not in on_sale for pk in counts):
             messages.error(request, _("One of the selected products is no longer on sale."))
             return redirect(packages_url(request.event))
-        sold_out = [product for product in chosen if product.sold_out]
+        sold_out = [
+            on_sale[pk]
+            for pk, count in counts.items()
+            if on_sale[pk].sold_out or (on_sale[pk].remaining is not None and count > on_sale[pk].remaining)
+        ]
         if sold_out:
             messages.error(
                 request,
                 _("{products} is sold out.").format(products=", ".join(str(product) for product in sold_out)),
             )
             return redirect(packages_url(request.event))
+        chosen = [product for product in self.products for _unit in range(counts.get(str(product.pk), 0))]
+        limit_errors = order_limit_errors(chosen)
+        if limit_errors:
+            for error in limit_errors:
+                messages.error(request, error)
+            return redirect(packages_url(request.event))
         key = checkout_session_key(request.event)
         cart = request.session.get(key, {})
         cart["products"] = [product.pk for product in chosen]
         cart.pop("addons", None)
         request.session[key] = cart
-        if any(p.addons.exists() for p in chosen):
+        if any(p.addons.exists() for p in set(chosen)):
             return redirect(shop_url(request.event, "shop.checkout.addons"))
         return redirect(shop_url(request.event, "shop.checkout.details"))
 

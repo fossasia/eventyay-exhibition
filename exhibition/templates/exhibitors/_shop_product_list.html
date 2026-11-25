@@ -58,11 +58,27 @@
                     </div>
                 {% else %}
                     <div class="col-md-2 col-xs-6 availability-box available">
-                        <label class="item-checkbox-label">
-                            <input type="checkbox" name="product" value="{{ product.pk }}"
-                                   id="exhibition_product_{{ product.pk }}"
-                                   {% if product.pk|stringformat:"s" in selected %}checked{% endif %}>
-                        </label>
+                        {% if product.max_quantity == 1 %}
+                            <label class="item-checkbox-label">
+                                <input type="checkbox" name="product" value="{{ product.pk }}"
+                                       id="exhibition_product_{{ product.pk }}"
+                                       {% if product.selected_count %}checked{% endif %}>
+                            </label>
+                        {% else %}
+                            <input type="number" class="form-control input-item-count text-center"
+                                   name="quantity_{{ product.pk }}" id="exhibition_product_{{ product.pk }}"
+                                   min="0"{% if product.max_quantity %} max="{{ product.max_quantity }}"{% endif %}
+                                   value="{{ product.selected_count|default:0 }}" placeholder="0">
+                        {% endif %}
+                        {% if product.min_per_order > 1 %}
+                            <p class="help-block">
+                                <small>
+                                    {% blocktrans trimmed with num=product.min_per_order %}
+                                        minimum amount to order: {{ num }}
+                                    {% endblocktrans %}
+                                </small>
+                            </p>
+                        {% endif %}
                     </div>
                 {% endif %}
                 <div class="clearfix"></div>

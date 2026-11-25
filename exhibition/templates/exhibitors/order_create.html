@@ -18,7 +18,10 @@
     </p>
     {% if not products %}
         <form action="" method="get" class="form-horizontal">
-            {% bootstrap_form products_form layout="control" %}
+            <fieldset>
+                <legend>{% trans "Products" %}</legend>
+                {% bootstrap_form products_form layout="control" %}
+            </fieldset>
             <div class="form-group submit-group">
                 <button type="submit" class="btn btn-primary btn-save">{% trans "Continue" %}</button>
                 <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:orders' organizer=request.event.organizer.slug event=request.event.slug %}">
@@ -35,9 +38,9 @@
             <fieldset>
                 <legend>{% trans "Products" %}</legend>
                 <ul>
-                    {% for product in products %}
+                    {% for product, count in product_lines %}
                         <li>
-                            {{ product }} ({{ product.price|money:request.event.currency }})
+                            {% if count > 1 %}{{ count }} &times; {% endif %}{{ product }} ({{ product.price|money:request.event.currency }})
                             {% if not product.active %}<span class="label label-default">{% trans "Inactive" %}</span>{% endif %}
                         </li>
                     {% endfor %}

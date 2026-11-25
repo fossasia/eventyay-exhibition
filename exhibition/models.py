@@ -1530,6 +1530,24 @@ class ExhibitionProduct(LoggedModel):
             "digital package. Exhibition products always include one."
         ),
     )
+    min_per_order = models.PositiveIntegerField(
+        verbose_name=_("Minimum amount per order"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "This product can only be bought if it is added to the order at least this many times. If you keep "
+            "the field empty or set it to 0, there is no special limit for this product."
+        ),
+    )
+    max_per_order = models.PositiveIntegerField(
+        verbose_name=_("Maximum amount per order"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "This product can only be bought at most this many times within one order. If you keep the field "
+            "empty or set it to 0, there is no special limit for this product."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Exhibition product")
@@ -1569,6 +1587,20 @@ class ExhibitionProduct(LoggedModel):
         """How many more can be sold going by the product's quotas, or None when nothing limits it."""
         remaining = [quota.remaining for quota in self.quotas.with_usage() if quota.size is not None]
         return min(remaining) if remaining else None
+
+    def order_limit_error(self, count):
+        """Why ``count`` of this product cannot be in one order, or None when the amount is allowed."""
+        if count and self.max_per_order and count > self.max_per_order:
+            return _("You cannot select more than %(max)s products of the product %(product)s.") % {
+                "max": self.max_per_order,
+                "product": self,
+            }
+        if count and self.min_per_order and count < self.min_per_order:
+            return _("You need to select at least %(min)s products of the product %(product)s.") % {
+                "min": self.min_per_order,
+                "product": self,
+            }
+        return None
 
     def save(self, *args, **kwargs):
         """Saving settles the booth rule, so no caller can store another answer."""

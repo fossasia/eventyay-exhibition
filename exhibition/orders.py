@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import timedelta
 from decimal import Decimal
 
@@ -124,6 +124,12 @@ def resolve_public_addon_list(products, addon_list):
     return resolved
 
 
+def order_limit_errors(products):
+    """The min/max per order rules that a list of products, repeated once per unit, breaks."""
+    counts = Counter(products)
+    return [str(error) for product, count in counts.items() if (error := product.order_limit_error(count))]
+
+
 def place_exhibition_order(
     event,
     products,
@@ -165,6 +171,9 @@ def place_exhibition_order(
         addon_list = resolve_public_addon_list(products, addon_list)
 
     all_products = products + [p for _base_idx, p, _price in addon_list]
+    limit_errors = order_limit_errors(all_products)
+    if limit_errors:
+        raise ExhibitionOrderError(" ".join(limit_errors))
     base_total = sum((product.price for product in products), Decimal("0.00"))
     addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
     total = base_total + addons_total
