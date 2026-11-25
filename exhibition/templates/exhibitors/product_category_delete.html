@@ -15,7 +15,15 @@
                 Are you sure you want to delete the category <strong>{{ name }}</strong>?
             {% endblocktrans %}
         </p>
-        {% if product_count %}
+        {% if object.is_addon and product_count %}
+            <p class="text-danger">
+                {% blocktrans trimmed count count=product_count %}
+                    This add-on category still contains a product. Move or delete it before deleting the category.
+                {% plural %}
+                    This add-on category still contains {{ count }} products. Move or delete them before deleting the category.
+                {% endblocktrans %}
+            </p>
+        {% elif product_count %}
             <p>
                 {% blocktrans trimmed count count=product_count %}
                     The product in this category will not be deleted. It will be left without a category.
@@ -25,7 +33,9 @@
             </p>
         {% endif %}
         <div class="form-group submit-group">
-            <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+            {% if not object.is_addon or not product_count %}
+                <button type="submit" class="btn btn-danger btn-lg">{% trans "Delete" %}</button>
+            {% endif %}
             <a class="btn btn-default btn-lg" href="{% url 'plugins:exhibition:products.categories' organizer=request.event.organizer.slug event=request.event.slug %}">
                 {% trans "Cancel" %}
             </a>
