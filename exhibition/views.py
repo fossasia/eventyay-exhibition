@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from urllib.parse import quote, urlencode
 
 from django.conf import settings as django_settings
@@ -8,6 +9,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
+from django.forms.models import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.response import TemplateResponse
@@ -49,6 +51,8 @@ from .forms import (
     ExhibitionOrderProductsForm,
     ExhibitionOrderQuestionForm,
     ExhibitionOrderQuestionOptionFormSet,
+    ExhibitionProductAddOnForm,
+    ExhibitionProductAddOnsFormSet,
     ExhibitionProductCategoryForm,
     ExhibitionProductForm,
     ExhibitionQuestionForm,
@@ -116,6 +120,7 @@ from .models import (
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    ExhibitionProductAddOn,
     ExhibitionProductCategory,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
@@ -1981,14 +1986,143 @@ class ExhibitionProductFormMixin(ExhibitionProductMixin):
 
     def form_invalid(self, form):
         messages.error(self.request, _("We could not save your changes. See below for details."))
-        return super().form_invalid(form)
+        return self.render_to_response(self.get_context_data(form=form))
+
+    @cached_property
+    def addons_formset(self):
+        formset_cls = inlineformset_factory(
+            ExhibitionProduct,
+            ExhibitionProductAddOn,
+            form=ExhibitionProductAddOnForm,
+            formset=ExhibitionProductAddOnsFormSet,
+            can_order=True,
+            can_delete=True,
+            extra=0,
+        )
+        return formset_cls(
+            self.request.POST if self.request.method == "POST" else None,
+            queryset=(
+                ExhibitionProductAddOn.objects.filter(base_product=self.object)
+                if getattr(self, "object", None) and self.object.pk
+                else ExhibitionProductAddOn.objects.none()
+            ),
+            event=self.request.event,
+            prefix="addons",
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["addons_formset"] = self.addons_formset
+        return ctx
+
+    def is_valid(self, form):
+        if not form.is_valid():
+            return False
+
+        category = form.cleaned_data.get("category")
+        becoming_addon = bool(category and category.is_addon)
+
+        if "addons-TOTAL_FORMS" in self.request.POST:
+            if not self.addons_formset.is_valid():
+                return False
+            if becoming_addon and self.addons_formset.ordered_forms:
+                messages.error(
+                    self.request,
+                    _("You cannot add add-ons to a product that is only available as an add-on itself."),
+                )
+                return False
+            return True
+
+        # Formset omitted from POST: existing DB rules would stay attached to an add-on product.
+        product = getattr(self, "object", None)
+        if becoming_addon and product and product.pk and product.addons.exists():
+            messages.error(
+                self.request,
+                _("You cannot add add-ons to a product that is only available as an add-on itself."),
+            )
+            return False
+        return True
+
+    def save_addons(self):
+        if "addons-TOTAL_FORMS" in self.request.POST:
+            for form in self.addons_formset.deleted_forms:
+                if not form.instance.pk:
+                    continue
+                form.instance.delete()
+                form.instance.pk = None
+
+            ordered_forms = list(self.addons_formset.ordered_forms)
+            # Move category-changing rules onto temporary categories first so a
+            # swap cannot collide with a sibling that still holds the target.
+            # Cart selections key off rule_id, so existing primary keys must stay.
+            # Compare against the DB value — form validation may already have
+            # written the new category onto form.instance in memory.
+            temp_categories = []
+            try:
+                for form in ordered_forms:
+                    instance = form.instance
+                    if not instance.pk:
+                        continue
+                    new_category = form.cleaned_data.get("addon_category")
+                    if not new_category:
+                        continue
+                    db_category_id = (
+                        ExhibitionProductAddOn.objects.filter(pk=instance.pk)
+                        .values_list("addon_category_id", flat=True)
+                        .first()
+                    )
+                    if db_category_id == new_category.pk:
+                        continue
+                    temp = ExhibitionProductCategory.objects.create(
+                        event=self.request.event,
+                        name={"en": f".addon-swap-{uuid.uuid4().hex}"},
+                        is_addon=True,
+                    )
+                    temp_categories.append(temp)
+                    ExhibitionProductAddOn.objects.filter(pk=instance.pk).update(addon_category=temp)
+
+                for i, form in enumerate(ordered_forms):
+                    form.instance.position = i
+                    form.instance.base_product = self.object
+                    new_category = form.cleaned_data.get("addon_category")
+                    if new_category:
+                        form.instance.addon_category = new_category
+                    form.save()
+            finally:
+                for temp in temp_categories:
+                    temp.delete()
+
+        self.clear_orphaned_addons()
+
+    def clear_orphaned_addons(self):
+        """Drop add-on rules if this product is itself only available as an add-on."""
+        category = self.object.category
+        if category is None or not category.is_addon:
+            return
+        orphaned = list(self.object.addons.values_list("pk", flat=True))
+        if not orphaned:
+            return
+        self.object.addons.all().delete()
+        self.object.log_action(
+            LOG_PRODUCT_CHANGED,
+            data={"cleared_addons": orphaned, "reason": "product_moved_to_addon_category"},
+            user=self.request.user,
+        )
 
 
 class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
+    def post(self, request, *args, **kwargs):
+        self.object = None
+        form = self.get_form()
+        if self.is_valid(form):
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
     def form_valid(self, form):
         form.instance.event = self.request.event
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_addons()
             self.object.log_action(
                 LOG_PRODUCT_ADDED,
                 data={"name": self.object.localized_name},
@@ -1999,9 +2133,17 @@ class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
 
 
 class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        if self.is_valid(form):
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
     def form_valid(self, form):
         with transaction.atomic():
             response = super().form_valid(form)
+            self.save_addons()
             if form.has_changed():
                 self.object.log_action(
                     LOG_PRODUCT_CHANGED,
@@ -2104,6 +2246,15 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
         return context
 
     def form_valid(self, form):
+        if self.object.is_addon and self.object.products.exists():
+            messages.error(
+                self.request,
+                _(
+                    "You cannot delete an add-on category that still contains products. "
+                    "Move or delete those products first."
+                ),
+            )
+            return redirect(self.get_success_url())
         self.object.log_action(
             LOG_PRODUCT_CATEGORY_DELETED,
             data={"name": self.object.localized_name, "uncategorised_products": self.object.products.count()},
@@ -2241,6 +2392,7 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["order"] = self.order
+        context["positions"] = self.order.nested_positions()
         context["can_change_orders"] = self.can_change_orders()
         context["payment_method_name"] = payment_method_names(self.request.event).get(
             self.order.payment_provider, self.order.payment_provider
@@ -3340,20 +3492,28 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
         return self.scoped_queryset().filter(active=True, published=False)
 
     def apply(self, queryset, published, requestor):
-        """Write the flag against the current database state, so a concurrent withdrawal still wins."""
+        """Write the flag against the current database state, so a concurrent withdrawal still wins.
+
+        Returns the changed organizations and the exhibitors left unpublished for lack of a logo or banner.
+        """
         with transaction.atomic():
             rows = queryset.select_for_update().filter(published=not published)
             if published:
                 rows = rows.filter(active=True)
-            changed = list(rows)
+            changed, blocked = [], []
+            for organization in rows:
+                if published and organization.missing_public_images:
+                    blocked.append(organization)
+                else:
+                    changed.append(organization)
             if not changed:
-                return []
+                return [], blocked
             ExhibitorInfo.objects.filter(pk__in=[o.pk for o in changed]).update(published=published)
             action = LOG_ORGANIZATION_PUBLISHED if published else LOG_ORGANIZATION_UNPUBLISHED
             for organization in changed:
                 organization.published = published
                 organization.log_action(action, user=requestor)
-        return changed
+        return changed, blocked
 
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
@@ -3366,32 +3526,64 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_all(self, request):
         if not request.POST.get("confirmed"):
+            waiting = list(self.unpublished_approved())
             return TemplateResponse(
                 request,
                 "exhibitors/publish_confirm.html",
                 {
                     "organization_type": self.organization_type,
-                    "waiting": list(self.unpublished_approved()),
+                    "waiting": [o for o in waiting if not o.missing_public_images],
+                    "missing_images": [o for o in waiting if o.missing_public_images],
+                    "waiting_ids": ",".join(str(o.pk) for o in waiting if not o.missing_public_images),
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
             )
-        published = self.apply(self.unpublished_approved(), True, request.user)
-        if not published:
-            messages.info(request, _("Every approved organization is already published."))
-            return redirect(self.list_url())
-        messages.success(request, self.published_message(len(published)))
+        # Publish only what the confirmation page listed; apply() re-checks each row under the lock.
+        confirmed = self.scoped_queryset().filter(pk__in=self.confirmed_ids())
+        published, blocked = self.apply(confirmed, True, request.user)
+        self.report_blocked(request, blocked)
+        if published:
+            messages.success(request, self.published_message(len(published)))
+        elif not blocked:
+            messages.info(
+                request,
+                _(
+                    "None of the confirmed organizations can be published any more. "
+                    "Open the preview again to see the current list."
+                ),
+            )
         return redirect(self.list_url())
 
+    def confirmed_ids(self):
+        """IDs the confirmation page listed, sent as one field to stay under Django's POST field limit."""
+        values = self.request.POST.get("organizations", "").split(",")
+        ids = (int(value) for value in values if value.isascii() and value.isdigit() and len(value) <= 19)
+        return [pk for pk in ids if pk < 2**63]
+
     def publish_selected(self, request, *, published):
-        changed = self.apply(self.selected(), published, request.user)
-        if not changed:
+        changed, blocked = self.apply(self.selected(), published, request.user)
+        self.report_blocked(request, blocked)
+        if changed:
+            message = self.published_message if published else self.unpublished_message
+            messages.success(request, message(len(changed)))
+        elif not blocked:
             messages.info(request, _("Nothing changed: the selected organizations already had that status."))
-        elif published:
-            messages.success(request, self.published_message(len(changed)))
-        else:
-            messages.success(request, self.unpublished_message(len(changed)))
         return redirect(self.list_url())
+
+    @staticmethod
+    def report_blocked(request, blocked):
+        if not blocked:
+            return
+        messages.warning(
+            request,
+            ngettext(
+                "%(count)d exhibitor could not be published because it is missing a logo or banner.",
+                "%(count)d exhibitors could not be published because they are missing a logo or banner.",
+                len(blocked),
+            )
+            % {"count": len(blocked)},
+        )
 
     @staticmethod
     def published_message(count):
