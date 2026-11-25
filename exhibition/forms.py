@@ -2386,6 +2386,12 @@ class OrganizationSelectWidget(SearchableSelectWidget):
     empty_text = _("No organizations match your search.")
 
 
+class ApplicationStateSelectWidget(SearchableSelectWidget):
+    placeholder = _("Any state")
+    search_placeholder = _("Search states…")
+    empty_text = _("No states match your search.")
+
+
 REQUEST_CHOICE_PREFIX = mail_helpers.REQUEST_CHOICE_PREFIX
 PROFILE_CHOICE_PREFIX = mail_helpers.PROFILE_CHOICE_PREFIX
 
@@ -2399,13 +2405,14 @@ class ExhibitionComposeForm(forms.Form):
         ("sponsor", _("Sponsors only")),
     )
 
-    state = forms.ChoiceField(
+    states = forms.MultipleChoiceField(
         label=_("Application state"),
         choices=[
-            ("", _("Any state")),
-            *((state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT),
+            (state.value, state.label) for state in ExhibitionRequestState if state != ExhibitionRequestState.DRAFT
         ],
+        widget=ApplicationStateSelectWidget,
         required=False,
+        help_text=_("Leave empty to include every state."),
     )
     organization_type = forms.ChoiceField(
         label=_("Organization type"),
@@ -2442,7 +2449,7 @@ class ExhibitionComposeForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.fields["sponsor_group"].queryset = SponsorGroup.objects.filter(event=self.event).order_by("level", "pk")
         if single_recipient:
-            for name in ("state", "organization_type", "sponsor_group", "organizations"):
+            for name in ("states", "organization_type", "sponsor_group", "organizations"):
                 self.fields.pop(name)
         else:
             self.set_organization_choices(show_emails)
@@ -2456,7 +2463,7 @@ class ExhibitionComposeForm(forms.Form):
                 self.fields[name].required = self.fields[name].one_required = False
         self.order_fields(
             [
-                "state",
+                "states",
                 "organization_type",
                 "sponsor_group",
                 "organizations",
@@ -2535,7 +2542,7 @@ class ExhibitionComposeForm(forms.Form):
         return mail_helpers.resolve_compose_recipients(
             self.event,
             organizations=self.cleaned_data.get("organizations") or (),
-            state=self.cleaned_data["state"],
+            states=self.cleaned_data["states"],
             organization_type=self.cleaned_data["organization_type"],
             sponsor_group=self.cleaned_data["sponsor_group"],
         )

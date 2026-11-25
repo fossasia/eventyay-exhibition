@@ -2301,7 +2301,7 @@ class ExhibitionEmailDraft(models.Model):
         blank=True,
         related_name="email_drafts",
     )
-    state = models.CharField(max_length=40, blank=True, default="")
+    states = models.JSONField(default=list, blank=True)
     organization_type = models.CharField(max_length=40, blank=True, default="")
     # Clearing the group would widen the draft's audience, so a group stays while drafts filter by it.
     sponsor_group = models.ForeignKey(
@@ -2326,7 +2326,7 @@ class ExhibitionEmailDraft(models.Model):
     updated = models.DateTimeField(auto_now=True)
 
     FORM_FIELDS = (
-        "state",
+        "states",
         "organization_type",
         "sponsor_group",
         "organizations",
@@ -2355,6 +2355,7 @@ class ExhibitionEmailDraft(models.Model):
                 setattr(self, name, cleaned_data[name])
         if "attachment" in cleaned_data:
             self.attachment = cleaned_data["attachment"] or None
+        self.states = list(self.states or [])
         self.organizations = list(self.organizations or [])
 
     def recipient_count(self):
@@ -2367,7 +2368,7 @@ class ExhibitionEmailDraft(models.Model):
             exhibition_requests, profiles = resolve_compose_recipients(
                 self.event,
                 organizations=self.organizations or (),
-                state=self.state,
+                states=self.states or (),
                 organization_type=self.organization_type,
                 sponsor_group=self.sponsor_group,
             )
