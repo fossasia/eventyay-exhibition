@@ -20,6 +20,7 @@ from .forms import ExhibitionOrderForm
 from .models import (
     ExhibitionOrder,
     ExhibitionOrderError,
+    ExhibitionOrderLimitError,
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
@@ -689,6 +690,9 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
             )
         except ExhibitionQuotaExceeded:
             messages.error(request, _("Sorry, one of the selected products has sold out in the meantime."))
+            return redirect(packages_url(request.event))
+        except ExhibitionOrderLimitError as error:
+            messages.error(request, str(error))
             return redirect(packages_url(request.event))
         except ExhibitionOrderError:
             messages.error(request, _("Your order could not be placed. Please check your selection."))

@@ -1536,6 +1536,7 @@ class ExhibitionProduct(LoggedModel):
         ),
     )
     min_per_order = models.PositiveIntegerField(
+        validators=[MaxValueValidator(MAX_UNITS_PER_PRODUCT)],
         verbose_name=_("Minimum amount per order"),
         null=True,
         blank=True,
@@ -1545,6 +1546,7 @@ class ExhibitionProduct(LoggedModel):
         ),
     )
     max_per_order = models.PositiveIntegerField(
+        validators=[MaxValueValidator(MAX_UNITS_PER_PRODUCT)],
         verbose_name=_("Maximum amount per order"),
         null=True,
         blank=True,
@@ -1595,8 +1597,8 @@ class ExhibitionProduct(LoggedModel):
 
     @property
     def effective_max_per_order(self):
-        """The organizer's maximum per order, or the platform ceiling when none is set."""
-        return self.max_per_order or MAX_UNITS_PER_PRODUCT
+        """The organizer's maximum per order, never above the platform ceiling."""
+        return min(self.max_per_order or MAX_UNITS_PER_PRODUCT, MAX_UNITS_PER_PRODUCT)
 
     def order_limit_error(self, count):
         """Why ``count`` of this product cannot be in one order, or None when the amount is allowed."""
@@ -1711,6 +1713,10 @@ class ExhibitionOrderError(Exception):
 
 class ExhibitionQuotaExceeded(ExhibitionOrderError):
     """A quota has no capacity left for the products asked for."""
+
+
+class ExhibitionOrderLimitError(ExhibitionOrderError):
+    """The order breaks a product's minimum or maximum amount per order; the message is shown to the buyer."""
 
 
 def generate_exhibition_order_code(event):

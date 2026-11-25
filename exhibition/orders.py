@@ -13,6 +13,7 @@ from .models import (
     LOG_ORDER_PLACED,
     ExhibitionOrder,
     ExhibitionOrderError,
+    ExhibitionOrderLimitError,
     ExhibitionOrderPosition,
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
@@ -173,7 +174,7 @@ def place_exhibition_order(
     all_products = products + [p for _base_idx, p, _price in addon_list]
     limit_errors = order_limit_errors(all_products)
     if limit_errors:
-        raise ExhibitionOrderError(" ".join(limit_errors))
+        raise ExhibitionOrderLimitError(" ".join(limit_errors))
     base_total = sum((product.price for product in products), Decimal("0.00"))
     addons_total = sum((price for _base_idx, _p, price in addon_list), Decimal("0.00"))
     total = base_total + addons_total
