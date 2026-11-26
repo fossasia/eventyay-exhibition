@@ -1396,6 +1396,11 @@ class ExhibitorLinkFormsetMixin:
     social_formset_prefix = "social_links"
     extra_formset_prefix = "extra_links"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["event"] = self.request.event
+        return kwargs
+
     @property
     def exhibition_event(self):
         return self.request.event
@@ -1694,6 +1699,15 @@ class RequestListView(EventPermissionRequiredMixin, FilteredListMixin, ListView)
         return context
 
 
+def _is_booth_number_unique_violation(exc):
+    """Return True only for the exhibitor booth-number uniqueness constraint."""
+    cause = getattr(exc, "__cause__", None)
+    diag = getattr(cause, "diag", None)
+    if diag is not None:
+        return getattr(diag, "constraint_name", None) == "exhibition_event_booth_number_uniq"
+    return "exhibition_event_booth_number_uniq" in str(exc)
+
+
 class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
     model = ExhibitionRequest
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
@@ -1760,47 +1774,40 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
 
     @transaction.atomic
     def form_valid(self, form):
-        self.object = form.save()
-        if form.changed_data:
-            self.object.log_action(
-                LOG_REQUEST_CHANGED,
-                data={"changed": form.changed_data},
-                user=self.request.user,
-            )
-        action = self.request.POST.get("action", "save")
-        if action in REQUEST_REVIEW_ACTIONS:
-            if not self.can_manage():
-                raise PermissionDenied()
-            if not self.object.can_apply_action(action):
-                messages.error(self.request, _("This request can no longer be changed to that state."))
+        try:
+            with transaction.atomic():
+                self.object = form.save()
+                if form.changed_data:
+                    self.object.log_action(
+                        LOG_REQUEST_CHANGED,
+                        data={"changed": form.changed_data},
+                        user=self.request.user,
+                    )
+                action = self.request.POST.get("action", "save")
+                if action in REQUEST_REVIEW_ACTIONS:
+                    if not self.can_manage():
+                        raise PermissionDenied()
+                    if not self.object.can_apply_action(action):
+                        messages.error(self.request, _("This request can no longer be changed to that state."))
+                        return redirect(self.get_success_url())
+                    return self.perform_review_action(action)
+
+                messages.success(self.request, _("Review details saved."))
                 return redirect(self.get_success_url())
-            return self.perform_review_action(action)
-
-        messages.success(self.request, _("Review details saved."))
-        return redirect(self.get_success_url())
-
-    def _is_booth_number_unique_violation(self, exc):
-        """Return True only for the exhibitor booth-number uniqueness constraint."""
-        cause = getattr(exc, "__cause__", None)
-        diag = getattr(cause, "diag", None)
-        if diag is not None:
-            return getattr(diag, "constraint_name", None) == "exhibition_event_booth_number_uniq"
-        return "exhibition_event_booth_number_uniq" in str(exc)
+        except IntegrityError as exc:
+            if not _is_booth_number_unique_violation(exc):
+                raise
+            self.object.refresh_from_db()
+            messages.error(
+                self.request,
+                _("Could not approve request because the booth number is already in use by another exhibitor."),
+            )
+            return redirect(self.get_success_url())
 
     def perform_review_action(self, action):
         requestor = self.request.user
         if action == "approve":
-            try:
-                with transaction.atomic():
-                    exhibitor = self.object.approve(requestor=requestor)
-            except IntegrityError as exc:
-                if not self._is_booth_number_unique_violation(exc):
-                    raise
-                messages.error(
-                    self.request,
-                    _("Could not approve request because the booth number is already in use by another exhibitor."),
-                )
-                return redirect(self.get_success_url())
+            exhibitor = self.object.approve(requestor=requestor)
             messages.success(
                 self.request,
                 _("Request approved and organization profile created. An acceptance email was placed in the outbox."),
@@ -1897,9 +1904,16 @@ class RequestActionView(EventPermissionRequiredMixin, View):
         )
 
     def apply_action(self, exhibition_request, action):
-        """Apply the action; ``False`` when a confirmation lost a race with another state change."""
+        """Apply the action; ``False`` when a confirmation lost a race or approval hits a duplicate booth."""
         if action == "approve":
-            exhibition_request.approve(requestor=self.request.user)
+            try:
+                with transaction.atomic():
+                    exhibition_request.approve(requestor=self.request.user)
+            except IntegrityError as exc:
+                if not _is_booth_number_unique_violation(exc):
+                    raise
+                exhibition_request.refresh_from_db()
+                return False
         elif action == "reject":
             exhibition_request.reject(requestor=self.request.user)
         elif action == "confirm":
@@ -3173,17 +3187,24 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
     @transaction.atomic
     def form_valid(self, form):
         form.instance.event = self.request.event
-        response = super().form_valid(form)
-        self.save_link_formsets()
-        self.object.log_action(
-            LOG_ORGANIZATION_ADDED,
-            data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
-            user=self.request.user,
-        )
-        if access_newly_granted(form.instance):
-            grant_lead_scanning_access(self.request, self.object)
-        queue_profile_invitation(self.request.event, self.object)
-        return response
+        try:
+            with transaction.atomic():
+                response = super().form_valid(form)
+                self.save_link_formsets()
+                self.object.log_action(
+                    LOG_ORGANIZATION_ADDED,
+                    data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
+                    user=self.request.user,
+                )
+                if access_newly_granted(form.instance):
+                    grant_lead_scanning_access(self.request, self.object)
+                queue_profile_invitation(self.request.event, self.object)
+                return response
+        except IntegrityError as exc:
+            if not _is_booth_number_unique_violation(exc):
+                raise
+            form.add_error("booth_number", _("This booth number is already in use."))
+            return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -3226,25 +3247,34 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             .first()
         ) or {}
 
-        response = super().form_valid(form)
-        self.save_link_formsets()
-        profile_changes = [key for key in form.changed_data if not key.startswith("question_")]
-        question_changes = [int(key.split("_", 1)[1]) for key in form.changed_data if key.startswith("question_")]
-        if profile_changes:
-            self.object.log_action(
-                LOG_ORGANIZATION_CHANGED,
-                data={"changed": profile_changes},
-                user=self.request.user,
-            )
-        if question_changes and form.linked_request:
-            form.linked_request.log_action(
-                LOG_REQUEST_CHANGED,
-                data={"changed_questions": question_changes},
-                user=self.request.user,
-            )
-        if access_newly_granted(form.instance, previous):
-            grant_lead_scanning_access(self.request, self.object)
-        return response
+        try:
+            with transaction.atomic():
+                response = super().form_valid(form)
+                self.save_link_formsets()
+                profile_changes = [key for key in form.changed_data if not key.startswith("question_")]
+                question_changes = [
+                    int(key.split("_", 1)[1]) for key in form.changed_data if key.startswith("question_")
+                ]
+                if profile_changes:
+                    self.object.log_action(
+                        LOG_ORGANIZATION_CHANGED,
+                        data={"changed": profile_changes},
+                        user=self.request.user,
+                    )
+                if question_changes and form.linked_request:
+                    form.linked_request.log_action(
+                        LOG_REQUEST_CHANGED,
+                        data={"changed_questions": question_changes},
+                        user=self.request.user,
+                    )
+                if access_newly_granted(form.instance, previous):
+                    grant_lead_scanning_access(self.request, self.object)
+                return response
+        except IntegrityError as exc:
+            if not _is_booth_number_unique_violation(exc):
+                raise
+            form.add_error("booth_number", _("This booth number is already in use."))
+            return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

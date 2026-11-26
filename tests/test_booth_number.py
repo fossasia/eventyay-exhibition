@@ -349,3 +349,228 @@ def test_exhibitor_info_form_allows_editing_same_exhibitor_own_booth(event, imag
         )
 
     assert form.is_valid(), form.errors
+
+
+def _exhibitor_view(view_cls, event, data, files, obj=None, **view_kwargs):
+    from unittest.mock import MagicMock
+
+    from django.contrib.messages.storage.fallback import FallbackStorage
+    from django.test import RequestFactory
+
+    request = RequestFactory().post("/", data={**data, **files})
+    request.user = User.objects.create_user(email=f"organizer-{User.objects.count()}@example.com", password="pw")
+    request.event = event
+    mock_session = MagicMock()
+    mock_session.session_key = "test-session"
+    request.session = mock_session
+    setattr(request, "_messages", FallbackStorage(request))
+
+    view = view_cls(**view_kwargs)
+    view.request = request
+    view.kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+    if obj is not None:
+        view.kwargs["pk"] = obj.pk
+    view.object = obj
+    view.social_media_formset = None
+    view.extra_links_formset = None
+    return view, request
+
+
+@pytest.mark.django_db
+def test_exhibitor_create_view_rejects_duplicate_booth_in_same_event(event, image_uploads):
+    from exhibition.views import ExhibitorCreateView
+
+    with scopes_disabled():
+        ExhibitorInfo.objects.create(event=event, name="Existing", is_exhibitor=True, booth_number="B-101")
+        view, request = _exhibitor_view(
+            ExhibitorCreateView,
+            event,
+            {
+                "name_0": "Duplicate",
+                "is_exhibitor": "on",
+                "booth_number": "B-101",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            organization_type="exhibitor",
+        )
+
+        assert view.get_form_kwargs()["event"] == event
+        response = view.post(request)
+
+        assert response.status_code == 200
+        assert "booth_number" in response.context_data["form"].errors
+        assert ExhibitorInfo.objects.filter(event=event).count() == 1
+
+
+@pytest.mark.django_db
+def test_exhibitor_create_view_allows_same_booth_in_another_event(event, image_uploads):
+    from exhibition.views import ExhibitorCreateView
+
+    with scopes_disabled():
+        other_event = Event.objects.create(
+            organizer=event.organizer,
+            name="Other Event",
+            slug="other-event-create",
+            live=True,
+            date_from=timezone.now(),
+        )
+        ExhibitorInfo.objects.create(event=other_event, name="Other", is_exhibitor=True, booth_number="B-101")
+        view, request = _exhibitor_view(
+            ExhibitorCreateView,
+            event,
+            {
+                "name_0": "Acme",
+                "is_exhibitor": "on",
+                "booth_number": "B-101",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            organization_type="exhibitor",
+        )
+
+        response = view.post(request)
+
+        assert response.status_code == 302
+        created = ExhibitorInfo.objects.get(event=event, booth_number="B-101")
+        assert str(created.name) == "Acme"
+
+
+@pytest.mark.django_db
+def test_exhibitor_edit_view_passes_event_and_updates_exhibitor(event, image_uploads):
+    from exhibition.views import ExhibitorEditView
+
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(
+            event=event,
+            name="Acme",
+            is_exhibitor=True,
+            booth_number="B-101",
+            exhibitor_group=ExhibitorGroup.PAID,
+        )
+        view, request = _exhibitor_view(
+            ExhibitorEditView,
+            event,
+            {
+                "name_0": "Acme Updated",
+                "is_exhibitor": "on",
+                "booth_number": "B-102",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            obj=exhibitor,
+        )
+
+        assert view.get_form_kwargs()["event"] == event
+        response = view.post(request)
+
+        assert response.status_code == 302
+        exhibitor.refresh_from_db()
+        assert str(exhibitor.name) == "Acme Updated"
+        assert exhibitor.booth_number == "B-102"
+
+
+@pytest.mark.django_db
+def test_exhibitor_create_view_handles_concurrent_booth_unique_conflict(event, image_uploads):
+    from exhibition.views import ExhibitorCreateView
+
+    with scopes_disabled():
+        view, _ = _exhibitor_view(
+            ExhibitorCreateView,
+            event,
+            {
+                "name_0": "Concurrent Create",
+                "is_exhibitor": "on",
+                "booth_number": "B-202",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            organization_type="exhibitor",
+        )
+        form = view.get_form()
+        assert form.is_valid(), form.errors
+
+        # Simulate another request winning the race after form validation
+        ExhibitorInfo.objects.create(event=event, name="Winner", is_exhibitor=True, booth_number="B-202")
+        exhibitor_count_before = ExhibitorInfo.objects.filter(event=event).count()
+
+        response = view.form_valid(form)
+
+        assert response.status_code == 200
+        assert "booth_number" in form.errors
+        assert "already in use" in form.errors["booth_number"][0]
+        assert ExhibitorInfo.objects.filter(event=event).count() == exhibitor_count_before
+
+
+@pytest.mark.django_db
+def test_exhibitor_edit_view_handles_concurrent_booth_unique_conflict(event, image_uploads):
+    from exhibition.views import ExhibitorEditView
+
+    with scopes_disabled():
+        exhibitor = ExhibitorInfo.objects.create(
+            event=event,
+            name="Acme",
+            is_exhibitor=True,
+            booth_number="B-101",
+            exhibitor_group=ExhibitorGroup.PAID,
+        )
+        view, _ = _exhibitor_view(
+            ExhibitorEditView,
+            event,
+            {
+                "name_0": "Acme",
+                "is_exhibitor": "on",
+                "booth_number": "B-202",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            obj=exhibitor,
+        )
+        form = view.get_form()
+        assert form.is_valid(), form.errors
+
+        # Simulate another request claiming B-202 after form validation
+        ExhibitorInfo.objects.create(event=event, name="Winner", is_exhibitor=True, booth_number="B-202")
+
+        response = view.form_valid(form)
+
+        assert response.status_code == 200
+        assert "booth_number" in form.errors
+        assert "already in use" in form.errors["booth_number"][0]
+        exhibitor.refresh_from_db()
+        assert exhibitor.booth_number == "B-101"
+
+
+@pytest.mark.django_db
+def test_exhibitor_create_view_reraises_unrelated_integrity_error(event, image_uploads):
+    from unittest.mock import patch
+
+    from django.db import IntegrityError
+
+    from exhibition.views import ExhibitorCreateView
+
+    with scopes_disabled():
+        view, _ = _exhibitor_view(
+            ExhibitorCreateView,
+            event,
+            {
+                "name_0": "Unrelated Error",
+                "is_exhibitor": "on",
+                "booth_number": "B-303",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            organization_type="exhibitor",
+        )
+        form = view.get_form()
+        assert form.is_valid(), form.errors
+
+        with patch.object(
+            view,
+            "save_link_formsets",
+            side_effect=IntegrityError('null value in column "some_other_col" violates not-null constraint'),
+        ):
+            with pytest.raises(IntegrityError):
+                view.form_valid(form)
+
+        assert not ExhibitorInfo.objects.filter(event=event, booth_number="B-303").exists()

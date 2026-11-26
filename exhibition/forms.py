@@ -859,7 +859,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             self.add_error("exhibitor_group", _("Please choose whether this is a paid or a non-paid exhibitor."))
 
     def _validate_booth_number(self, cleaned_data):
-        if "booth_number" not in self.fields or not getattr(self, "_resolved_is_exhibitor", False):
+        if "booth_number" not in self.fields or not getattr(self, "_resolved_is_exhibitor", False) or not self.event:
             return
         booth_number = normalize_booth_number(cleaned_data.get("booth_number"))
         if not booth_number:
