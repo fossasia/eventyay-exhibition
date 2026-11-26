@@ -70,6 +70,7 @@ from .models import (
     ExhibitionProductAddOn,
     ExhibitionProductCategory,
     ExhibitionProductPurpose,
+    ExhibitionProductVariation,
     ExhibitionQuestion,
     ExhibitionQuestionOption,
     ExhibitionQuestionVariant,
@@ -2597,6 +2598,61 @@ class ExhibitionProductCategoryForm(I18nModelForm):
         fields = ["name", "internal_name", "description", "is_addon"]
 
 
+class ExhibitionProductVariationsFormSet(I18nFormSet):
+    title = _("Variations")
+
+    def __init__(self, *args, event=None, **kwargs):
+        if event is not None:
+            kwargs["event"] = event
+        super().__init__(*args, **kwargs)
+
+    def _construct_form(self, i, **kwargs):
+        kwargs["event"] = self.event
+        return super()._construct_form(i, **kwargs)
+
+    def _should_delete_form(self, form):
+        should_delete = super()._should_delete_form(form)
+        if should_delete and form.instance.pk and form.instance.order_positions.exists():
+            form._delete_fail = True
+            return False
+        return should_delete
+
+    def clean(self):
+        super().clean()
+        for form in self.forms:
+            if getattr(form, "_delete_fail", False):
+                form.fields["DELETE"].initial = False
+                form.fields["DELETE"].disabled = True
+                raise ValidationError(
+                    _(
+                        'The variation "%(variation)s" cannot be deleted because it has already been ordered. '
+                        "Please set it as inactive instead."
+                    )
+                    % {"variation": form.instance}
+                )
+
+
+class ExhibitionProductVariationForm(I18nModelForm):
+    class Meta:
+        model = ExhibitionProductVariation
+        localized_fields = "__all__"
+        fields = ["value", "active", "price", "description"]
+
+    def __init__(self, *args, event=None, **kwargs):
+        if event is not None:
+            kwargs["event"] = event
+        super().__init__(*args, **kwargs)
+        if self.event:
+            change_decimal_field(self.fields["price"], self.event.currency)
+        self.fields["price"].required = False
+
+    def clean_price(self):
+        price = self.cleaned_data.get("price")
+        if price is not None and price < 0:
+            raise ValidationError(_("The price must not be negative."))
+        return price
+
+
 class ExhibitionProductAddOnsFormSet(I18nFormSet):
     title = _("Add-ons")
 
@@ -2712,12 +2768,21 @@ class ExhibitionProductForm(I18nModelForm):
             "includes_booth"
         )
         if drops_booth and self.instance.pk:
-            booth_quotas = list(self.instance.quotas.filter(booth_capacity=True))
+            booth_quotas = {
+                quota.pk: quota
+                for quota in list(self.instance.quotas.filter(booth_capacity=True))
+                + list(
+                    ExhibitionQuota.objects.filter(
+                        booth_capacity=True,
+                        variations__product=self.instance,
+                    )
+                )
+            }
             if booth_quotas:
                 self.add_error(
                     "includes_booth",
                     _("This product is on the booth capacity quota {quotas}. Remove it from there first.").format(
-                        quotas=", ".join(quota.name for quota in booth_quotas)
+                        quotas=", ".join(quota.name for quota in booth_quotas.values())
                     ),
                 )
         return cleaned_data
@@ -2744,14 +2809,45 @@ class ExhibitionOrderProductsForm(forms.Form):
         queryset=ExhibitionProduct.objects.none(),
         widget=forms.CheckboxSelectMultiple,
         label=_("Products"),
+        required=False,
+    )
+    variations = forms.ModelMultipleChoiceField(
+        queryset=ExhibitionProductVariation.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label=_("Variations"),
+        required=False,
+        help_text=_("For products that have variations, select the variation instead of the product."),
     )
 
     def __init__(self, *args, event, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=event).in_sales_order()
+        self.event = event
+        products = ExhibitionProduct.objects.filter(event=event).in_sales_order().prefetch_related("variations")
+        without_variations = [product for product in products if not product.has_variations]
+        self.fields["products"].queryset = ExhibitionProduct.objects.filter(
+            pk__in=[product.pk for product in without_variations]
+        ).in_sales_order()
         self.fields["products"].label_from_instance = lambda product: (
             f"{product} ({money_filter(product.price, event.currency)})"
         )
+        self.fields["variations"].queryset = (
+            ExhibitionProductVariation.objects.filter(product__event=event, active=True)
+            .select_related("product")
+            .order_by("product__position", "product_id", "position", "id")
+        )
+        self.fields["variations"].label_from_instance = lambda variation: (
+            f"{variation.product} – {variation} ({money_filter(variation.display_price, event.currency)})"
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        products = list(cleaned.get("products") or [])
+        variations = list(cleaned.get("variations") or [])
+        if not products and not variations:
+            raise ValidationError(_("Please select at least one product or variation."))
+        cleaned["line_products"] = products + [variation.product for variation in variations]
+        cleaned["line_variations"] = [None] * len(products) + variations
+        return cleaned
 
 
 class ExhibitionOrderBookingForm(forms.Form):
@@ -2797,19 +2893,36 @@ class ExhibitionOrderBookingForm(forms.Form):
 class ExhibitionQuotaForm(I18nModelForm):
     class Meta:
         model = ExhibitionQuota
-        fields = ["name", "size", "booth_capacity", "products"]
+        fields = ["name", "size", "booth_capacity", "products", "variations"]
         widgets = {
             "products": forms.CheckboxSelectMultiple,
+            "variations": forms.CheckboxSelectMultiple,
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=self.event).in_sales_order()
+        self.fields["variations"].queryset = (
+            ExhibitionProductVariation.objects.filter(product__event=self.event)
+            .select_related("product")
+            .order_by("product__position", "product_id", "position", "id")
+        )
+        self.fields["variations"].label_from_instance = lambda variation: f"{variation.product} – {variation}"
+        self.fields["variations"].help_text = _(
+            "For products with variations, select the variations this quota applies to. "
+            "Products without variations are selected in the products list above."
+        )
 
     def clean(self):
         cleaned_data = super().clean()
         if cleaned_data.get("booth_capacity"):
             without_booth = [product for product in cleaned_data.get("products") or [] if not product.includes_booth]
+            variation_products = [
+                variation.product
+                for variation in cleaned_data.get("variations") or []
+                if not variation.product.includes_booth
+            ]
+            without_booth = list({*without_booth, *variation_products})
             if without_booth:
                 self.add_error(
                     "products",

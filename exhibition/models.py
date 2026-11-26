@@ -2,10 +2,11 @@ import os
 import secrets
 import string
 from collections import defaultdict
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import FileExtensionValidator, MaxValueValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
@@ -1566,9 +1567,22 @@ class ExhibitionProduct(LoggedModel):
         return self.active and self.is_available_by_time(now_dt)
 
     def remaining_capacity(self):
-        """How many more can be sold going by the product's quotas, or None when nothing limits it."""
+        """How many more can be sold going by the product's quotas, or None when nothing limits it.
+
+        Products with variations are limited through each variation's quotas instead.
+        """
+        if self.has_variations:
+            return None
         remaining = [quota.remaining for quota in self.quotas.with_usage() if quota.size is not None]
         return min(remaining) if remaining else None
+
+    @property
+    def has_variations(self):
+        """Whether buyers must pick a variation (only active ones count)."""
+        return self.active_variations().exists()
+
+    def active_variations(self):
+        return self.variations.filter(active=True)
 
     def save(self, *args, **kwargs):
         """Saving settles the booth rule, so no caller can store another answer."""
@@ -1583,6 +1597,55 @@ class ExhibitionProduct(LoggedModel):
 
     def __str__(self):
         return self.localized_name or str(self.name)
+
+
+class ExhibitionProductVariation(models.Model):
+    """A named option under an exhibition product, such as booth size or package tier."""
+
+    product = models.ForeignKey(
+        ExhibitionProduct,
+        on_delete=models.CASCADE,
+        related_name="variations",
+    )
+    value = I18nCharField(max_length=255, verbose_name=_("Variation name"))
+    description = I18nTextField(
+        verbose_name=_("Description"),
+        help_text=_("This is shown below the variation name in lists."),
+        null=True,
+        blank=True,
+    )
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+    position = models.PositiveIntegerField(default=0, verbose_name=_("Position"))
+    price = models.DecimalField(
+        decimal_places=2,
+        max_digits=13,
+        null=True,
+        blank=True,
+        verbose_name=_("Price"),
+        help_text=_("Leave empty to use the product's price."),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+
+    class Meta:
+        verbose_name = _("Exhibition product variation")
+        verbose_name_plural = _("Exhibition product variations")
+        ordering = ("position", "id")
+
+    @property
+    def localized_name(self):
+        return localize_event_text(self.value) or ""
+
+    @property
+    def display_price(self):
+        return self.price if self.price is not None else self.product.price
+
+    def remaining_capacity(self):
+        """How many more of this variation can be sold, or None when nothing limits it."""
+        remaining = [quota.remaining for quota in self.quotas.with_usage() if quota.size is not None]
+        return min(remaining) if remaining else None
+
+    def __str__(self):
+        return self.localized_name or str(self.value)
 
 
 class ExhibitionProductAddOn(models.Model):
@@ -1887,7 +1950,12 @@ class ExhibitionOrder(LoggedModel):
     def _reclaim_quota_capacity(self, current):
         """An expired order released its quota capacity, so reviving it needs that capacity back."""
         if current.status == ExhibitionOrderStatus.EXPIRED:
-            reserve_quota_capacity([position.product for position in self.positions.select_related("product")])
+            reserve_quota_capacity(
+                [
+                    (position.product, position.variation)
+                    for position in self.positions.select_related("product", "variation")
+                ]
+            )
 
     def _transition(self, allowed_from, status, action, user, check=None, **fields):
         with transaction.atomic():
@@ -1924,6 +1992,14 @@ class ExhibitionOrderPosition(models.Model):
         related_name="order_positions",
         verbose_name=_("Product"),
     )
+    variation = models.ForeignKey(
+        ExhibitionProductVariation,
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        related_name="order_positions",
+        verbose_name=_("Variation"),
+    )
     name = I18nCharField(max_length=255, verbose_name=_("Product name"))
     purpose = models.CharField(
         max_length=16,
@@ -1945,14 +2021,38 @@ class ExhibitionOrderPosition(models.Model):
         ordering = ("order", "id")
 
     @classmethod
-    def for_product(cls, order, product, *, addon_to=None, price=None):
+    def _position_name(cls, product, variation=None):
+        if variation is None:
+            return product.name
+        product_data = getattr(product.name, "data", None) or {"en": str(product.name)}
+        variation_data = getattr(variation.value, "data", None) or {"en": str(variation.value)}
+        combined = {}
+        for locale in set(product_data) | set(variation_data):
+            product_label = product_data.get(locale) or product_data.get("en") or next(iter(product_data.values()), "")
+            variation_label = (
+                variation_data.get(locale) or variation_data.get("en") or next(iter(variation_data.values()), "")
+            )
+            combined[locale] = (
+                f"{product_label} – {variation_label}"
+                if product_label and variation_label
+                else (product_label or variation_label)
+            )
+        return LazyI18nString(combined)
+
+    @classmethod
+    def for_product(cls, order, product, *, variation=None, addon_to=None, price=None):
+        if variation is not None and variation.product_id != product.pk:
+            raise ExhibitionOrderError("Variation does not belong to the selected product.")
+        if price is None:
+            price = variation.display_price if variation is not None else product.price
         return cls(
             order=order,
             product=product,
-            name=product.name,
+            variation=variation,
+            name=cls._position_name(product, variation),
             purpose=product.purpose,
             includes_booth=product.includes_booth,
-            price=product.price if price is None else price,
+            price=price,
             addon_to=addon_to,
         )
 
@@ -2040,9 +2140,10 @@ def order_questions_for(products):
 
 class ExhibitionQuotaQuerySet(models.QuerySet):
     def with_usage(self):
-        """Annotate ``used``: the products sold against each quota by orders that still hold their place."""
-        sold = (
+        """Annotate ``used``: positions that still hold a place against each quota."""
+        product_sold = (
             ExhibitionOrderPosition.objects.filter(
+                variation__isnull=True,
                 product__quotas=OuterRef("pk"),
                 order__status__in=RESERVING_ORDER_STATUSES,
             )
@@ -2051,7 +2152,20 @@ class ExhibitionQuotaQuerySet(models.QuerySet):
             .annotate(count=Count("pk"))
             .values("count")
         )
-        return self.annotate(used=Coalesce(Subquery(sold), 0))
+        variation_sold = (
+            ExhibitionOrderPosition.objects.filter(
+                variation__quotas=OuterRef("pk"),
+                order__status__in=RESERVING_ORDER_STATUSES,
+            )
+            .order_by()
+            .values("variation__quotas")
+            .annotate(count=Count("pk"))
+            .values("count")
+        )
+        return self.annotate(
+            _product_used=Coalesce(Subquery(product_sold), 0),
+            _variation_used=Coalesce(Subquery(variation_sold), 0),
+        ).annotate(used=F("_product_used") + F("_variation_used"))
 
 
 class ExhibitionQuota(LoggedModel):
@@ -2085,17 +2199,32 @@ class ExhibitionQuota(LoggedModel):
         blank=True,
         verbose_name=_("Products"),
     )
+    variations = models.ManyToManyField(
+        ExhibitionProductVariation,
+        related_name="quotas",
+        blank=True,
+        verbose_name=_("Variations"),
+    )
 
     class Meta:
         verbose_name = _("Exhibition quota")
         verbose_name_plural = _("Exhibition quotas")
         ordering = ("name", "id")
 
-    def count_used(self):
+    def positions_against_quota(self):
+        """Positions that consume a place in this quota (ticket-style product vs variation rules)."""
         return ExhibitionOrderPosition.objects.filter(
-            product__quotas=self,
             order__status__in=RESERVING_ORDER_STATUSES,
-        ).count()
+        ).filter(Q(variation__isnull=True, product__in=self.products.all()) | Q(variation__in=self.variations.all()))
+
+    def count_used(self):
+        return self.positions_against_quota().count()
+
+    def matches_item(self, product, variation=None):
+        """Whether a product/variation selection consumes a place in this quota."""
+        if variation is not None:
+            return self.variations.filter(pk=variation.pk).exists()
+        return self.products.filter(pk=product.pk).exists()
 
     @property
     def remaining(self):
@@ -2109,14 +2238,33 @@ class ExhibitionQuota(LoggedModel):
         return self.name
 
 
-def reserve_quota_capacity(products):
-    """Lock the products' quotas inside the caller's transaction and raise if one lacks room for them."""
-    product_ids = [product.pk for product in products]
+def reserve_quota_capacity(items):
+    """Lock quotas for the selected products/variations and raise if one lacks room.
+
+    ``items`` is a sequence of products or ``(product, variation)`` pairs. A bare product
+    means no variation. Add-ons are passed as products without variations.
+    """
+    normalized = []
+    for item in items:
+        if isinstance(item, tuple):
+            product, variation = item
+        else:
+            product, variation = item, None
+        normalized.append((product, variation))
+
+    product_ids = [product.pk for product, _variation in normalized]
+    variation_ids = [variation.pk for _product, variation in normalized if variation is not None]
     quota_ids = set(
         ExhibitionQuota.products.through.objects.filter(exhibitionproduct_id__in=product_ids).values_list(
             "exhibitionquota_id", flat=True
         )
     )
+    if variation_ids:
+        quota_ids |= set(
+            ExhibitionQuota.variations.through.objects.filter(
+                exhibitionproductvariation_id__in=variation_ids
+            ).values_list("exhibitionquota_id", flat=True)
+        )
     if not quota_ids:
         return
     quotas = ExhibitionQuota.objects.select_for_update().filter(pk__in=quota_ids).order_by("pk")
@@ -2124,10 +2272,19 @@ def reserve_quota_capacity(products):
         if quota.size is None:
             continue
         quota_product_ids = set(quota.products.values_list("pk", flat=True))
-        needed = sum(1 for product_id in product_ids if product_id in quota_product_ids)
-        if quota.count_used() + needed > quota.size:
-            names = ", ".join(str(product) for product in products if product.pk in quota_product_ids)
-            raise ExhibitionQuotaExceeded(f"{names} is sold out.")
+        quota_variation_ids = set(quota.variations.values_list("pk", flat=True))
+        needed = 0
+        names = []
+        for product, variation in normalized:
+            if variation is not None:
+                if variation.pk in quota_variation_ids:
+                    needed += 1
+                    names.append(f"{product} – {variation}")
+            elif product.pk in quota_product_ids:
+                needed += 1
+                names.append(str(product))
+        if needed and quota.count_used() + needed > quota.size:
+            raise ExhibitionQuotaExceeded(f"{', '.join(names)} is sold out.")
 
 
 class ExhibitorTag(models.Model):

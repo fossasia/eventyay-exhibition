@@ -17,7 +17,11 @@
                 <div class="col-md-8 col-xs-12">
                     <div class="product-description">
                         <h4>
-                            <label for="exhibition_product_{{ product.pk }}">{{ product.name|event_localize }}</label>
+                            {% if product.has_variations %}
+                                {{ product.name|event_localize }}
+                            {% else %}
+                                <label for="exhibition_product_{{ product.pk }}">{{ product.name|event_localize }}</label>
+                            {% endif %}
                         </h4>
                         {% if product.description %}
                             <div class="product-description">
@@ -43,27 +47,70 @@
                                 </small>
                             </p>
                         {% endif %}
+                        {% if product.has_variations %}
+                            <div class="variations">
+                                {% for variation in product.shop_variations %}
+                                    <div class="row-fluid product-row variation">
+                                        <div class="col-md-8 col-xs-12">
+                                            <label for="exhibition_variation_{{ variation.pk }}">
+                                                <strong>{{ variation.value|event_localize }}</strong>
+                                            </label>
+                                            {% if variation.description %}
+                                                <div class="variation-description">
+                                                    {{ variation.description|event_localize|rich_text }}
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-md-2 col-xs-6 price">
+                                            {% if variation.display_price %}
+                                                {{ variation.display_price|money:event.currency }}
+                                            {% else %}
+                                                {% trans "FREE" context "price" %}
+                                            {% endif %}
+                                        </div>
+                                        {% if variation.sold_out %}
+                                            <div class="col-md-2 col-xs-6 availability-box gone">
+                                                <strong>{% trans "SOLD OUT" %}</strong>
+                                            </div>
+                                        {% else %}
+                                            <div class="col-md-2 col-xs-6 availability-box available">
+                                                <label class="item-checkbox-label">
+                                                    <input type="checkbox" name="variation" value="{{ variation.pk }}"
+                                                           id="exhibition_variation_{{ variation.pk }}"
+                                                           {% if variation.pk|stringformat:"s" in selected_variations %}checked{% endif %}>
+                                                </label>
+                                            </div>
+                                        {% endif %}
+                                        <div class="clearfix"></div>
+                                    </div>
+                                {% empty %}
+                                    <p class="text-muted">{% trans "No variations are currently available." %}</p>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
-                <div class="col-md-2 col-xs-6 price">
-                    {% if product.price %}
-                        {{ product.price|money:event.currency }}
+                {% if not product.has_variations %}
+                    <div class="col-md-2 col-xs-6 price">
+                        {% if product.price %}
+                            {{ product.price|money:event.currency }}
+                        {% else %}
+                            {% trans "FREE" context "price" %}
+                        {% endif %}
+                    </div>
+                    {% if product.sold_out %}
+                        <div class="col-md-2 col-xs-6 availability-box gone">
+                            <strong>{% trans "SOLD OUT" %}</strong>
+                        </div>
                     {% else %}
-                        {% trans "FREE" context "price" %}
+                        <div class="col-md-2 col-xs-6 availability-box available">
+                            <label class="item-checkbox-label">
+                                <input type="checkbox" name="product" value="{{ product.pk }}"
+                                       id="exhibition_product_{{ product.pk }}"
+                                       {% if product.pk|stringformat:"s" in selected %}checked{% endif %}>
+                            </label>
+                        </div>
                     {% endif %}
-                </div>
-                {% if product.sold_out %}
-                    <div class="col-md-2 col-xs-6 availability-box gone">
-                        <strong>{% trans "SOLD OUT" %}</strong>
-                    </div>
-                {% else %}
-                    <div class="col-md-2 col-xs-6 availability-box available">
-                        <label class="item-checkbox-label">
-                            <input type="checkbox" name="product" value="{{ product.pk }}"
-                                   id="exhibition_product_{{ product.pk }}"
-                                   {% if product.pk|stringformat:"s" in selected %}checked{% endif %}>
-                        </label>
-                    </div>
                 {% endif %}
                 <div class="clearfix"></div>
             </article>

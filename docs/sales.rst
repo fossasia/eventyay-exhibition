@@ -27,12 +27,21 @@ product has:
 - **Active**, and an optional **Available from** / **Available until** window.
   The public page only lists active products inside their window;
 - a **Product purpose**: *Sponsorship* or *Exhibition*;
-- **Includes exhibition booth**.
+- **Includes exhibition booth**;
+- optional **Variations**, such as booth sizes or package tiers, each with its
+  own name, optional price override, and active flag.
 
 Exhibition products always include a booth. Sponsorship products include a
 booth by default, because most sponsorship packages come with a stand. Turn
 **Includes exhibition booth** off for packages without physical space, such
 as a digital or logo-only sponsorship.
+
+When a product has active variations, buyers must pick one variation on the
+public page. The variation price is used when set; otherwise the product price
+applies. Quotas can include specific variations as well as whole products
+without variations: a sale of a variation counts against quotas that list that
+variation, and a sale of a product without variations counts against quotas
+that list that product.
 
 What a paid order turns the buyer into:
 
@@ -54,7 +63,8 @@ Go to **Exhibition → Products → Quotas** and create a quota:
    for an unlimited quota.
 3. Tick **Booth capacity**. A booth capacity quota only accepts products that
    include a booth.
-4. Select every product that takes a booth from this space.
+4. Select every product without variations that takes a booth from this space,
+   and every variation of a booth product that should count against it.
 
 Pending and paid orders take up a place. When an order is cancelled or
 expires, its place is free again. Once a quota is full, its products show as

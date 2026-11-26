@@ -23,6 +23,7 @@ from .models import (
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
+    ExhibitionProductVariation,
     ExhibitionQuotaExceeded,
 )
 from .orders import payment_instructions, place_exhibition_order, send_order_email, usable_payment_providers
@@ -40,10 +41,20 @@ def shop_products(event):
         .exclude(category__is_addon=True)
         .in_sales_order()
         .select_related("category")
+        .prefetch_related("variations")
     )
     for product in products:
-        product.remaining = product.remaining_capacity()
-        product.sold_out = product.remaining == 0
+        variations = list(product.active_variations())
+        product.shop_variations = variations
+        if variations:
+            for variation in variations:
+                variation.remaining = variation.remaining_capacity()
+                variation.sold_out = variation.remaining == 0
+            product.sold_out = all(variation.sold_out for variation in variations)
+            product.remaining = None
+        else:
+            product.remaining = product.remaining_capacity()
+            product.sold_out = product.remaining == 0
     return products
 
 
@@ -97,14 +108,48 @@ class ShopIndexView(View):
 
     def post(self, request, *args, **kwargs):
         on_sale = {str(product.pk): product for product in self.products}
-        chosen = [on_sale.get(pk) for pk in request.POST.getlist("product")]
-        if not chosen:
+        variations_by_id = {
+            str(variation.pk): (product, variation)
+            for product in self.products
+            for variation in getattr(product, "shop_variations", [])
+        }
+        chosen_products = []
+        chosen_variations = []
+
+        for pk in request.POST.getlist("product"):
+            product = on_sale.get(pk)
+            if product is None:
+                messages.error(request, _("One of the selected products is no longer on sale."))
+                return redirect(packages_url(request.event))
+            if product.has_variations:
+                messages.error(request, _("Please choose a variation for {product}.").format(product=product))
+                return redirect(packages_url(request.event))
+            chosen_products.append(product)
+            chosen_variations.append(None)
+
+        for pk in request.POST.getlist("variation"):
+            item = variations_by_id.get(pk)
+            if item is None:
+                messages.error(request, _("One of the selected products is no longer on sale."))
+                return redirect(packages_url(request.event))
+            product, variation = item
+            if variation.sold_out:
+                messages.error(
+                    request,
+                    _("{products} is sold out.").format(products=f"{product} – {variation}"),
+                )
+                return redirect(packages_url(request.event))
+            chosen_products.append(product)
+            chosen_variations.append(variation)
+
+        if not chosen_products:
             messages.error(request, _("Please select at least one product."))
             return redirect(packages_url(request.event))
-        if None in chosen:
-            messages.error(request, _("One of the selected products is no longer on sale."))
-            return redirect(packages_url(request.event))
-        sold_out = [product for product in chosen if product.sold_out]
+        sold_out = [
+            product
+            for product, variation in zip(chosen_products, chosen_variations, strict=True)
+            if variation is None and product.sold_out
+        ]
         if sold_out:
             messages.error(
                 request,
@@ -113,10 +158,11 @@ class ShopIndexView(View):
             return redirect(packages_url(request.event))
         key = checkout_session_key(request.event)
         cart = request.session.get(key, {})
-        cart["products"] = [product.pk for product in chosen]
+        cart["products"] = [product.pk for product in chosen_products]
+        cart["variations"] = [variation.pk if variation else None for variation in chosen_variations]
         cart.pop("addons", None)
         request.session[key] = cart
-        if any(p.addons.exists() for p in chosen):
+        if any(p.addons.exists() for p in chosen_products):
             return redirect(shop_url(request.event, "shop.checkout.addons"))
         return redirect(shop_url(request.event, "shop.checkout.details"))
 
@@ -147,8 +193,34 @@ class ShopCheckoutMixin:
             .available()
             .exclude(category__is_addon=True)
             .select_related("category")
+            .prefetch_related("variations")
         }
         return [products_by_id.get(pk) for pk in pk_list]
+
+    @cached_property
+    def variations(self):
+        """Variation for each cart product slot, or ``None`` when the product has none."""
+        variation_ids = list(self.cart.get("variations") or [])
+        if len(variation_ids) < len(self.products):
+            variation_ids.extend([None] * (len(self.products) - len(variation_ids)))
+        variation_pks = [pk for pk in variation_ids if pk]
+        by_id = {
+            variation.pk: variation
+            for variation in ExhibitionProductVariation.objects.filter(
+                product__event=self.request.event, pk__in=variation_pks, active=True
+            )
+        }
+        resolved = []
+        for product, variation_id in zip(self.products, variation_ids, strict=False):
+            if not product:
+                resolved.append(None)
+                continue
+            if variation_id:
+                variation = by_id.get(variation_id)
+                resolved.append(variation if variation and variation.product_id == product.pk else None)
+            else:
+                resolved.append(None)
+        return resolved
 
     @property
     def has_addons_step(self):
@@ -245,9 +317,12 @@ class ShopCheckoutMixin:
         entries = []
         for idx, base_prod in enumerate(self.products):
             if base_prod:
+                variation = self.variations[idx] if idx < len(self.variations) else None
                 entries.append(
                     {
                         "product": base_prod,
+                        "variation": variation,
+                        "price": variation.display_price if variation is not None else base_prod.price,
                         "addons": addons_by_base.get(idx, []),
                     }
                 )
@@ -255,7 +330,18 @@ class ShopCheckoutMixin:
 
     @cached_property
     def total(self):
-        base_total = sum((product.price for product in self.products if product), Decimal("0.00"))
+        base_total = sum(
+            (
+                (
+                    self.variations[idx].display_price
+                    if idx < len(self.variations) and self.variations[idx] is not None
+                    else product.price
+                )
+                for idx, product in enumerate(self.products)
+                if product
+            ),
+            Decimal("0.00"),
+        )
         addons_total = sum((price for _, _, price in self.addon_items), Decimal("0.00"))
         return base_total + addons_total
 
@@ -266,6 +352,15 @@ class ShopCheckoutMixin:
         if None in self.products:
             messages.error(request, _("One of the selected products is no longer on sale."))
             return redirect(packages_url(request.event))
+        for product, variation in zip(self.products, self.variations, strict=False):
+            if not product:
+                continue
+            if product.has_variations and (variation is None or not variation.active):
+                messages.error(
+                    request,
+                    _("Please choose a variation for {product}.").format(product=product),
+                )
+                return redirect(packages_url(request.event))
         return self.check_step() or super().dispatch(request, *args, **kwargs)
 
     def check_step(self):
@@ -641,6 +736,7 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
             order = place_exhibition_order(
                 request.event,
                 self.products,
+                variations=self.variations,
                 addons=self.addon_items,
                 **form.order_details(),
                 order_form=form,

@@ -42,6 +42,90 @@
                         {% bootstrap_field form.available_until layout="control" %}
                     </fieldset>
                     <fieldset>
+                        <legend>{% trans "Variations" %}</legend>
+                        <p>
+                            {% blocktrans trimmed %}
+                                Variations let one product offer options such as booth sizes or package tiers.
+                                Buyers must pick one variation when any are active. Leave the variation price empty
+                                to use the product price.
+                            {% endblocktrans %}
+                        </p>
+                        <div class="formset" data-formset data-formset-prefix="{{ variations_formset.prefix }}">
+                            {{ variations_formset.management_form }}
+                            {% bootstrap_formset_errors variations_formset %}
+                            <div data-formset-body>
+                                {% for f in variations_formset %}
+                                    <div class="panel panel-default" data-formset-form>
+                                        <div class="sr-only">
+                                            {{ f.id }}
+                                            {% bootstrap_field f.ORDER form_group_class="" layout="inline" %}
+                                            {% bootstrap_field f.DELETE form_group_class="" layout="inline" %}
+                                        </div>
+                                        <div class="panel-heading">
+                                            <div class="row">
+                                                <div class="col-sm-8">
+                                                    <h3 class="panel-title">{% trans "Variation" %}</h3>
+                                                </div>
+                                                <div class="col-sm-4 text-right flip">
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-up-button aria-label="{% trans "Move up" %}">
+                                                        <i class="fa fa-arrow-up"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-down-button aria-label="{% trans "Move down" %}">
+                                                        <i class="fa fa-arrow-down"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-delete btn-danger" data-formset-delete-button aria-label="{% trans "Delete" %}">
+                                                        <i class="fa fa-trash"></i></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="panel-body form-horizontal">
+                                            {% bootstrap_form_errors f %}
+                                            {% include 'exhibitors/_i18n_language_switcher.html' %}
+                                            {% bootstrap_field f.value layout="control" %}
+                                            {% bootstrap_field f.description layout="control" %}
+                                            {% bootstrap_field f.price addon_after=request.event.currency layout="control" %}
+                                            {% bootstrap_field f.active layout="control" %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <script type="form-template" data-formset-empty-form>
+                                {% escapescript %}
+                                    <div class="panel panel-default" data-formset-form>
+                                        <div class="sr-only">
+                                            {{ variations_formset.empty_form.id }}
+                                            {% bootstrap_field variations_formset.empty_form.ORDER form_group_class="" layout="inline" %}
+                                            {% bootstrap_field variations_formset.empty_form.DELETE form_group_class="" layout="inline" %}
+                                        </div>
+                                        <div class="panel-heading">
+                                            <div class="row">
+                                                <div class="col-sm-8">
+                                                    <h3 class="panel-title">{% trans "Variation" %}</h3>
+                                                </div>
+                                                <div class="col-sm-4 text-right flip">
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-up-button aria-label="{% trans "Move up" %}">
+                                                        <i class="fa fa-arrow-up"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-default" data-formset-move-down-button aria-label="{% trans "Move down" %}">
+                                                        <i class="fa fa-arrow-down"></i></button>
+                                                    <button type="button" class="btn btn-xs btn-delete btn-danger" data-formset-delete-button aria-label="{% trans "Delete" %}">
+                                                        <i class="fa fa-trash"></i></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="panel-body form-horizontal">
+                                            {% bootstrap_field variations_formset.empty_form.value layout="control" %}
+                                            {% bootstrap_field variations_formset.empty_form.description layout="control" %}
+                                            {% bootstrap_field variations_formset.empty_form.price addon_after=request.event.currency layout="control" %}
+                                            {% bootstrap_field variations_formset.empty_form.active layout="control" %}
+                                        </div>
+                                    </div>
+                                {% endescapescript %}
+                            </script>
+                            <p>
+                                <button type="button" class="btn btn-default" data-formset-add>
+                                    <i class="fa fa-plus"></i> {% trans "Add a new variation" %}</button>
+                            </p>
+                        </div>
+                    </fieldset>
+                    <fieldset>
                         <legend>{% trans "Add-ons" %}</legend>
                         <p>
                             {% blocktrans trimmed %}

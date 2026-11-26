@@ -12,9 +12,14 @@
     <tbody>
         {% for entry in summary_entries %}
             <tr>
-                <td><strong>{{ entry.product.name|event_localize }}</strong></td>
+                <td>
+                    <strong>{{ entry.product.name|event_localize }}</strong>
+                    {% if entry.variation %}
+                        – {{ entry.variation.value|event_localize }}
+                    {% endif %}
+                </td>
                 <td>{% if entry.product.includes_booth %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
-                <td class="text-right">{{ entry.product.price|money:event.currency }}</td>
+                <td class="text-right">{{ entry.price|money:event.currency }}</td>
             </tr>
             {% for addon in entry.addons %}
                 <tr class="addon-row text-muted">
