@@ -7,7 +7,7 @@ from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
 from django.forms.models import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
@@ -1779,10 +1779,28 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
         messages.success(self.request, _("Review details saved."))
         return redirect(self.get_success_url())
 
+    def _is_booth_number_unique_violation(self, exc):
+        """Return True only for the exhibitor booth-number uniqueness constraint."""
+        cause = getattr(exc, "__cause__", None)
+        diag = getattr(cause, "diag", None)
+        if diag is not None:
+            return getattr(diag, "constraint_name", None) == "exhibition_event_booth_number_uniq"
+        return "exhibition_event_booth_number_uniq" in str(exc)
+
     def perform_review_action(self, action):
         requestor = self.request.user
         if action == "approve":
-            exhibitor = self.object.approve(requestor=requestor)
+            try:
+                with transaction.atomic():
+                    exhibitor = self.object.approve(requestor=requestor)
+            except IntegrityError as exc:
+                if not self._is_booth_number_unique_violation(exc):
+                    raise
+                messages.error(
+                    self.request,
+                    _("Could not approve request because the booth number is already in use by another exhibitor."),
+                )
+                return redirect(self.get_success_url())
             messages.success(
                 self.request,
                 _("Request approved and organization profile created. An acceptance email was placed in the outbox."),

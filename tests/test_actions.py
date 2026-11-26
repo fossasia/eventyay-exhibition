@@ -11,7 +11,7 @@ from exhibition.models import (
     ExhibitionRequestState,
     ExhibitorInfo,
 )
-from exhibition.views import RequestActionView
+from exhibition.views import RequestActionView, RequestDetailView
 
 
 def _request(event, email, state=ExhibitionRequestState.SUBMITTED, **kwargs):
@@ -157,3 +157,147 @@ def test_post_returns_updated_actions_and_bulk_actions(event):
         assert result["state"] == "accepted"
         assert set(result["actions"]) == {"confirm", "reject", "withdraw", "reopen"}
         assert result["bulk_actions"] == ["reject"]
+
+
+@pytest.mark.django_db
+def test_request_detail_view_handles_real_database_duplicate_booth_conflict(event):
+    from unittest.mock import MagicMock
+
+    from django.contrib.messages.storage.fallback import FallbackStorage
+    from eventyay.base.models import Team
+
+    from exhibition.forms import ExhibitionRequestReviewForm
+    from exhibition.models import (
+        ExhibitionRequestExtraLink,
+        ExhibitionRequestSocialLink,
+        ExhibitorExtraLink,
+        ExhibitorSocialLink,
+    )
+
+    with scopes_disabled():
+        ExhibitorInfo.objects.create(event=event, name="Existing B101", is_exhibitor=True, booth_number="B-101")
+        req = _request(event, "concurrent@example.com")
+        ExhibitionRequestSocialLink.objects.create(
+            exhibition_request=req, network="github", url="https://github.com/example"
+        )
+        ExhibitionRequestExtraLink.objects.create(exhibition_request=req, label="Website", url="https://example.com")
+
+        user = User.objects.create_user("admin_concurrent@e.com", "pw")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            can_change_event_settings=True,
+            can_change_exhibition_proposals=True,
+        )
+        team.members.add(user)
+
+        request = RequestFactory().post(
+            f"/control/event/{event.organizer.slug}/{event.slug}/exhibition/requests/{req.code}/",
+            data={
+                "action": "approve",
+                "is_exhibitor": True,
+                "booth_number": "B-202",
+            },
+        )
+        request.user = user
+        request.event = event
+        mock_session = MagicMock()
+        mock_session.session_key = "session_concurrent"
+        request.session = mock_session
+        messages_storage = FallbackStorage(request)
+        setattr(request, "_messages", messages_storage)
+
+        view = RequestDetailView()
+        view.request = request
+        view.kwargs = {"organizer": event.organizer.slug, "event": event.slug, "code": req.code}
+        view.object = req
+
+        form = ExhibitionRequestReviewForm(
+            data={"is_exhibitor": True, "booth_number": "B-202"},
+            instance=req,
+            event=event,
+        )
+        assert form.is_valid(), form.errors
+
+        # Another organizer assigns B-202 before approval runs
+        ExhibitorInfo.objects.create(event=event, name="Winner B202", is_exhibitor=True, booth_number="B-202")
+        exhibitor_count_before = ExhibitorInfo.objects.filter(event=event).count()
+        social_count_before = ExhibitorSocialLink.objects.filter(exhibitor__event=event).count()
+        extra_count_before = ExhibitorExtraLink.objects.filter(exhibitor__event=event).count()
+
+        # Execute real approval workflow without mocking approve()
+        response = view.form_valid(form)
+
+        assert response.status_code == 302
+        req.refresh_from_db()
+        assert req.state == ExhibitionRequestState.SUBMITTED
+        assert req.approved_exhibitor_id is None
+        assert ExhibitorInfo.objects.filter(event=event).count() == exhibitor_count_before
+        assert ExhibitorSocialLink.objects.filter(exhibitor__event=event).count() == social_count_before
+        assert ExhibitorExtraLink.objects.filter(exhibitor__event=event).count() == extra_count_before
+        message_texts = [str(m) for m in messages_storage]
+        assert any("already in use" in msg for msg in message_texts)
+
+
+@pytest.mark.django_db
+def test_request_detail_view_reraises_unrelated_integrity_error(event):
+    from unittest.mock import MagicMock, patch
+
+    from django.contrib.messages.storage.fallback import FallbackStorage
+    from django.db import IntegrityError
+    from eventyay.base.models import Team
+
+    from exhibition.forms import ExhibitionRequestReviewForm
+
+    with scopes_disabled():
+        req = _request(event, "negative@example.com")
+        user = User.objects.create_user("admin_negative@e.com", "pw")
+        team = Team.objects.create(
+            organizer=event.organizer,
+            all_events=True,
+            can_change_event_settings=True,
+            can_change_exhibition_proposals=True,
+        )
+        team.members.add(user)
+
+        request = RequestFactory().post(
+            f"/control/event/{event.organizer.slug}/{event.slug}/exhibition/requests/{req.code}/",
+            data={
+                "action": "approve",
+                "is_exhibitor": True,
+                "booth_number": "B-303",
+            },
+        )
+        request.user = user
+        request.event = event
+        mock_session = MagicMock()
+        mock_session.session_key = "session_negative"
+        request.session = mock_session
+        messages_storage = FallbackStorage(request)
+        setattr(request, "_messages", messages_storage)
+
+        view = RequestDetailView()
+        view.request = request
+        view.kwargs = {"organizer": event.organizer.slug, "event": event.slug, "code": req.code}
+        view.object = req
+
+        form = ExhibitionRequestReviewForm(
+            data={"is_exhibitor": True, "booth_number": "B-303"},
+            instance=req,
+            event=event,
+        )
+        assert form.is_valid(), form.errors
+
+        def _fail_after_write(requestor=None):
+            ExhibitorInfo.objects.create(event=event, name="Partial", is_exhibitor=True, booth_number="B-303")
+            raise IntegrityError('null value in column "some_other_col" violates not-null constraint')
+
+        with patch.object(req, "approve", side_effect=_fail_after_write):
+            with pytest.raises(IntegrityError):
+                view.form_valid(form)
+
+        assert not ExhibitorInfo.objects.filter(event=event, name="Partial").exists()
+        req.refresh_from_db()
+        assert req.state == ExhibitionRequestState.SUBMITTED
+        message_texts = [str(m) for m in messages_storage]
+        assert not any("already in use" in msg for msg in message_texts)

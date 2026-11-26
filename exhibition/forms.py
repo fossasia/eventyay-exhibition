@@ -85,6 +85,7 @@ from .models import (
     ExhibitorSocialLink,
     SponsorGroup,
     get_next_sponsor_group_level,
+    normalize_booth_number,
     order_questions_for,
 )
 from .orders import usable_payment_providers
@@ -825,6 +826,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         self._resolve_organization_kind(cleaned_data)
         self._validate_exhibitor_group(cleaned_data)
         self._validate_publish_images(cleaned_data)
+        self._validate_booth_number(cleaned_data)
 
         return cleaned_data
 
@@ -855,6 +857,18 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             return
         if not self.instance.pk or self.instance.exhibitor_group:
             self.add_error("exhibitor_group", _("Please choose whether this is a paid or a non-paid exhibitor."))
+
+    def _validate_booth_number(self, cleaned_data):
+        if "booth_number" not in self.fields or not getattr(self, "_resolved_is_exhibitor", False):
+            return
+        booth_number = normalize_booth_number(cleaned_data.get("booth_number"))
+        if not booth_number:
+            return
+        queryset = ExhibitorInfo.objects.filter(event=self.event, booth_number=booth_number)
+        if self.instance and self.instance.pk:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            self.add_error("booth_number", _("This booth number is already in use."))
 
     def _apply_organization_kind(self, instance):
         instance.is_exhibitor = self.cleaned_data.get("is_exhibitor", True)
@@ -1848,6 +1862,14 @@ class ExhibitionRequestReviewForm(I18nModelForm):
         if not cleaned_data.get("is_exhibitor"):
             cleaned_data["booth_number"] = None
             cleaned_data["booth_name"] = ""
+        elif "booth_number" in self.fields:
+            booth_number = normalize_booth_number(cleaned_data.get("booth_number"))
+            if booth_number:
+                queryset = ExhibitorInfo.objects.filter(event=self.event, booth_number=booth_number)
+                if self.instance and self.instance.approved_exhibitor_id:
+                    queryset = queryset.exclude(pk=self.instance.approved_exhibitor_id)
+                if queryset.exists():
+                    self.add_error("booth_number", _("This booth number is already in use."))
         return cleaned_data
 
 
