@@ -103,9 +103,11 @@ quota. To record a payment, open the order and click **Mark as paid**. You can
 also mark an expired order as paid while its quotas still have room.
 
 While an order is pending, the buyer's order page shows how to pay and a
-**Re-try payment or choose another payment method** button, the same as for
-tickets. If the buyer has lost the email, click **Resend link** next to their
-email address on the order page.
+**Choose a payment method** button when none is set yet (for example after a
+paid approval-gated order is approved), or **Re-try payment or choose another
+payment method** once a method exists, the same as for tickets. If the buyer
+has lost the email, click **Resend link** next to their email address on the
+order page.
 
 The public page and checkout
 ----------------------------
@@ -123,8 +125,8 @@ shown. Buyers do not need an account. The steps are:
 4. review the order and place it;
 5. see the confirmation page. An email links back to this page. If the order
    needed approval, the buyer waits for the organizer, then opens the order
-   link, chooses **Re-try payment or choose another payment method**, and
-   picks a method. Payment instructions appear after that.
+   link, chooses **Choose a payment method**, and picks a method. Payment
+   instructions appear after that.
 
 Free products
 -------------

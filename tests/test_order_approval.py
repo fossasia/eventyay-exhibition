@@ -221,7 +221,7 @@ def test_cancelled_approval_order_hides_awaiting_approval_on_buyer_page(event):
         order = _order(event, product)
         order.cancel()
         order.refresh_from_db()
-        assert order.require_approval is True
+        assert order.require_approval is False
         assert order.can_be_approved is False
         secret = order.secret
         code = order.code

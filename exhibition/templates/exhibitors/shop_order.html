@@ -87,7 +87,11 @@
                     {% if can_change_payment %}
                         <div class="text-right flip">
                             <a href="{% url 'plugins:exhibition:shop.order.pay_change' organizer=request.event.organizer.slug event=request.event.slug code=order.code secret=order.secret %}" class="btn btn-default">
-                                {% trans "Re-try payment or choose another payment method" %}
+                                {% if order.payment_provider %}
+                                    {% trans "Re-try payment or choose another payment method" %}
+                                {% else %}
+                                    {% trans "Choose a payment method" %}
+                                {% endif %}
                             </a>
                         </div>
                     {% endif %}

@@ -1866,6 +1866,10 @@ class ExhibitionOrder(LoggedModel):
                 LOG_ORDER_CANCELLED,
                 user,
             )
+            # Keep cancelled rows out of approval-pending filters/queries.
+            if self.require_approval:
+                self.require_approval = False
+                self.save(update_fields=["require_approval"])
             self.release_organization(user=user)
 
     def change_payment_provider(self, provider, *, user=None):
