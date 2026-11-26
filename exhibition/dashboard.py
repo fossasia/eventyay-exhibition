@@ -16,6 +16,7 @@ from eventyay.base.models import Event
 
 from .forms import ExhibitorInvitationPasswordForm, ExhibitorSelfEditForm
 from .models import LOG_ORGANIZATION_CHANGED, ExhibitionRequest, ExhibitionRequestState, ExhibitorInfo
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from .utils import (
     VOUCHER_CSV_FILENAME,
     VOUCHER_REDEMPTION_CSV_FILENAME,
@@ -300,6 +301,14 @@ class MyExhibitionEditView(LoginRequiredMixin, ExhibitorLinkFormsetMixin, Update
                 data={"changed": changes, "by": "exhibitor"},
                 user=self.request.user,
             )
+        log_operation(
+            "exhibition.organization.self_update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.object.event_id,
+            object_id=self.object.pk,
+            user_id=getattr(self.request.user, "pk", None),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -338,11 +347,23 @@ class MyExhibitionInvitationView(View):
         with transaction.atomic():
             user = invited_user_for_token(token, lock=True)
             if user is None:
+                log_operation(
+                    "auth.invitation",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="invalid_token",
+                )
                 return self.invalid(request)
             form = ExhibitorInvitationPasswordForm(data=request.POST)
             if not form.is_valid():
                 return self.render_form(request, form)
             accept_invitation(user, form.cleaned_data["password"])
+        log_operation(
+            "auth.invitation",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            user_id=user.pk,
+        )
         if request.user.is_authenticated and request.user.pk != user.pk:
             logout(request)
         messages.success(request, _("Your password has been set. Log in to open My Exhibitions."))

@@ -25,6 +25,7 @@ from .models import (
     ExhibitionProduct,
     ExhibitionQuotaExceeded,
 )
+from .operational_log import OUTCOME_FAILURE, log_operation
 from .orders import payment_instructions, place_exhibition_order, send_order_email, usable_payment_providers
 
 
@@ -648,9 +649,25 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
                 user=request.user if request.user.is_authenticated else None,
             )
         except ExhibitionQuotaExceeded:
+            log_operation(
+                "exhibition.order.place",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="quota_exceeded",
+                event_id=request.event.pk,
+                user_id=request.user.pk if request.user.is_authenticated else None,
+            )
             messages.error(request, _("Sorry, one of the selected products has sold out in the meantime."))
             return redirect(packages_url(request.event))
         except ExhibitionOrderError:
+            log_operation(
+                "exhibition.order.place",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="order_invalid",
+                event_id=request.event.pk,
+                user_id=request.user.pk if request.user.is_authenticated else None,
+            )
             messages.error(request, _("Your order could not be placed. Please check your selection."))
             return redirect(packages_url(request.event))
         send_order_email(order)
@@ -731,5 +748,15 @@ class ShopOrderPayChangeView(ShopOrderMixin, TemplateView):
         try:
             self.order.change_payment_provider(payment)
         except ExhibitionOrderStateError:
+            log_operation(
+                "exhibition.order.payment_changed",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="invalid_state",
+                event_id=request.event.pk,
+                order_id=self.order.pk,
+                order_code=self.order.code,
+                user_id=request.user.pk if request.user.is_authenticated else None,
+            )
             messages.error(request, _("This order is not awaiting a payment."))
         return redirect(self.order_url())

@@ -21,6 +21,7 @@ from .models import (
     SponsorGroup,
     get_next_sponsor_group_level,
 )
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from .social_links import SOCIAL_LINK_SPECS
 from .utils import exhibitor_voucher_redemptions
 from .views import queue_profile_invitation
@@ -32,7 +33,43 @@ LEAD_ACCESS_DISABLED_ERROR = "This exhibitor is not allowed to access collected 
 VOUCHER_ACCESS_DISABLED_ERROR = "This exhibitor is not allowed to access voucher redemption data"
 
 
-def _forbidden(error):
+def _request_route(request):
+    match = getattr(request, "resolver_match", None)
+    return getattr(match, "view_name", None) if match else None
+
+
+def _request_event_id(request):
+    return getattr(getattr(request, "event", None), "pk", None)
+
+
+def _authenticate_exhibitor(request, **lookup):
+    key = request.headers.get("Exhibitor")
+    try:
+        return ExhibitorInfo.objects.get(key=key, **lookup)
+    except ExhibitorInfo.DoesNotExist:
+        log_operation(
+            "auth.exhibitor",
+            OUTCOME_FAILURE,
+            backend="exhibition",
+            error_code="invalid_credentials" if key else "missing_parameters",
+            status=401,
+            event_id=_request_event_id(request),
+            route=_request_route(request),
+        )
+        return None
+
+
+def _forbidden(error, *, request=None, exhibitor=None, error_code="forbidden"):
+    log_operation(
+        "permission.denied",
+        OUTCOME_FAILURE,
+        backend="exhibition",
+        error_code=error_code,
+        status=403,
+        event_id=getattr(exhibitor, "event_id", None) or _request_event_id(request),
+        object_id=getattr(exhibitor, "id", None),
+        route=_request_route(request),
+    )
     return Response({"success": False, "error": error}, status=status.HTTP_403_FORBIDDEN)
 
 
@@ -108,13 +145,32 @@ class SponsorGroupLevelField(serializers.IntegerField):
 class ExhibitorAuthView(views.APIView):
     def post(self, request, *args, **kwargs):
         key = request.data.get("key")
+        route = _request_route(request)
 
         if not key:
+            log_operation(
+                "auth.exhibitor",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="missing_parameters",
+                status=400,
+                event_id=_request_event_id(request),
+                route=route,
+            )
             return Response({"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             exhibitor = ExhibitorInfo.objects.get(key=key)
             locale = _get_exhibitor_locale(exhibitor)
+            log_operation(
+                "auth.exhibitor",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                status=200,
+                object_id=exhibitor.id,
+                event_id=getattr(exhibitor, "event_id", None),
+                route=route,
+            )
             return Response(
                 {
                     "success": True,
@@ -127,6 +183,15 @@ class ExhibitorAuthView(views.APIView):
                 status=status.HTTP_200_OK,
             )
         except ExhibitorInfo.DoesNotExist:
+            log_operation(
+                "auth.exhibitor",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="invalid_credentials",
+                status=401,
+                event_id=_request_event_id(request),
+                route=route,
+            )
             return Response(
                 {"success": False, "error": "Invalid credentials"},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -353,9 +418,49 @@ class ExhibitorInfoViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         exhibitor = serializer.save()
         queue_profile_invitation(self.request.event, exhibitor)
+        user = getattr(self.request, "user", None)
+        log_operation(
+            "exhibition.organization.create",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=201,
+            event_id=_request_event_id(self.request),
+            object_id=exhibitor.pk,
+            model="organization",
+            user_id=getattr(user, "pk", None),
+            route=_request_route(self.request),
+        )
 
     def perform_update(self, serializer):
-        serializer.save()
+        exhibitor = serializer.save()
+        user = getattr(self.request, "user", None)
+        log_operation(
+            "exhibition.organization.update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=_request_event_id(self.request),
+            object_id=exhibitor.pk,
+            model="organization",
+            user_id=getattr(user, "pk", None),
+            route=_request_route(self.request),
+        )
+
+    def perform_destroy(self, instance):
+        org_pk = instance.pk
+        super().perform_destroy(instance)
+        user = getattr(self.request, "user", None)
+        log_operation(
+            "exhibition.organization.delete",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=204,
+            event_id=_request_event_id(self.request),
+            object_id=org_pk,
+            model="organization",
+            user_id=getattr(user, "pk", None),
+            route=_request_route(self.request),
+        )
 
 
 class ExhibitionProductCategorySerializer(I18nAwareModelSerializer):
@@ -459,22 +564,35 @@ class LeadCreateView(views.APIView):
         scan_type = request.data.get("scan_type")
         device_name = request.data.get("device_name")
         open_event = request.data.get("open_event")
-        key = request.headers.get("Exhibitor")
+        route = _request_route(request)
 
         if not all([pseudonymization_id, scanned, scan_type, device_name]):
+            log_operation(
+                "exhibition.lead.scan",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="missing_parameters",
+                status=400,
+                event_id=_request_event_id(request),
+                route=route,
+            )
             return Response({"detail": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Authenticate the exhibitor
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-        except ExhibitorInfo.DoesNotExist:
+        exhibitor = _authenticate_exhibitor(request)
+        if exhibitor is None:
             return Response(
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not exhibitor.lead_scanning_enabled:
-            return _forbidden(LEAD_SCANNING_DISABLED_ERROR)
+            return _forbidden(
+                LEAD_SCANNING_DISABLED_ERROR,
+                request=request,
+                exhibitor=exhibitor,
+                error_code="lead_scanning_disabled",
+            )
 
         settings = ExhibitorSettings.objects.get_or_create(event=exhibitor.event)[0]
 
@@ -485,6 +603,16 @@ class LeadCreateView(views.APIView):
             else:
                 order_position = OrderPosition.objects.get(pseudonymization_id=pseudonymization_id)
         except OrderPosition.DoesNotExist:
+            log_operation(
+                "exhibition.lead.scan",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="attendee_not_found",
+                status=404,
+                event_id=exhibitor.event_id,
+                object_id=exhibitor.id,
+                route=route,
+            )
             return Response(
                 {"success": False, "error": "Attendee not found"},
                 status=status.HTTP_404_NOT_FOUND,
@@ -493,6 +621,16 @@ class LeadCreateView(views.APIView):
         # Check for duplicate scan
         if Lead.objects.filter(exhibitor=exhibitor, pseudonymization_id=pseudonymization_id).exists():
             attendee_data = self.get_allowed_attendee_data(order_position, settings, exhibitor)
+            log_operation(
+                "exhibition.lead.scan",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="duplicate_scan",
+                status=409,
+                event_id=exhibitor.event_id,
+                object_id=exhibitor.id,
+                route=route,
+            )
             return Response(
                 {
                     "success": False,
@@ -517,6 +655,15 @@ class LeadCreateView(views.APIView):
             booth_name=_localize_i18n_value(exhibitor.booth_name, locale),
             attendee=attendee_data,
         )
+        log_operation(
+            "exhibition.lead.scan",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=201,
+            event_id=exhibitor.event_id,
+            object_id=lead.id,
+            route=route,
+        )
 
         return Response(
             {"success": True, "lead_id": lead.id, "attendee": _visible_attendee(attendee_data, exhibitor)},
@@ -527,52 +674,69 @@ class LeadCreateView(views.APIView):
 class LeadRetrieveView(views.APIView):
     def get(self, request, *args, **kwargs):
         # Authenticate the exhibitor using the key
-        key = request.headers.get("Exhibitor")
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-        except ExhibitorInfo.DoesNotExist:
+        exhibitor = _authenticate_exhibitor(request)
+        if exhibitor is None:
             return Response(
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not exhibitor.allow_lead_access:
-            return _forbidden(LEAD_ACCESS_DISABLED_ERROR)
+            return _forbidden(
+                LEAD_ACCESS_DISABLED_ERROR,
+                request=request,
+                exhibitor=exhibitor,
+                error_code="lead_access_disabled",
+            )
 
         # Fetch all leads associated with the exhibitor
-        leads = Lead.objects.filter(exhibitor=exhibitor).values(
-            "id",
-            "pseudonymization_id",
-            "exhibitor_name",
-            "scanned",
-            "scan_type",
-            "device_name",
-            "booth_number",
-            "booth_name",
-            "attendee",
-            booth_id=F("booth_number"),
+        leads = list(
+            Lead.objects.filter(exhibitor=exhibitor).values(
+                "id",
+                "pseudonymization_id",
+                "exhibitor_name",
+                "scanned",
+                "scan_type",
+                "device_name",
+                "booth_number",
+                "booth_name",
+                "attendee",
+                booth_id=F("booth_number"),
+            )
+        )
+        log_operation(
+            "exhibition.lead.retrieve",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.id,
+            route=_request_route(request),
         )
 
-        return Response({"success": True, "leads": list(leads)}, status=status.HTTP_200_OK)
+        return Response({"success": True, "leads": leads}, status=status.HTTP_200_OK)
 
 
 class VoucherRedemptionRetrieveView(views.APIView):
     def get(self, request, *args, **kwargs):
-        key = request.headers.get("Exhibitor")
-        try:
-            exhibitor = ExhibitorInfo.objects.get(
-                key=key,
-                event__slug=kwargs.get("event"),
-                event__organizer__slug=kwargs.get("organizer"),
-            )
-        except ExhibitorInfo.DoesNotExist:
+        exhibitor = _authenticate_exhibitor(
+            request,
+            event__slug=kwargs.get("event"),
+            event__organizer__slug=kwargs.get("organizer"),
+        )
+        if exhibitor is None:
             return Response(
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not exhibitor.allow_voucher_access:
-            return _forbidden(VOUCHER_ACCESS_DISABLED_ERROR)
+            return _forbidden(
+                VOUCHER_ACCESS_DISABLED_ERROR,
+                request=request,
+                exhibitor=exhibitor,
+                error_code="voucher_access_disabled",
+            )
 
         settings = ExhibitorSettings.objects.get_or_create(event=exhibitor.event)[0]
         positions = exhibitor_voucher_redemptions(exhibitor)
@@ -585,48 +749,83 @@ class VoucherRedemptionRetrieveView(views.APIView):
             }
             for position in positions
         ]
+        log_operation(
+            "exhibition.voucher.redemptions",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.id,
+            route=_request_route(request),
+        )
 
         return Response({"success": True, "redemptions": redemptions}, status=status.HTTP_200_OK)
 
 
 class TagListView(views.APIView):
     def get(self, request, organizer, event, *args, **kwargs):
-        key = request.headers.get("Exhibitor")
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-        except ExhibitorInfo.DoesNotExist:
+        exhibitor = _authenticate_exhibitor(request)
+        if exhibitor is None:
             return Response(
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not exhibitor.lead_scanning_enabled:
-            return _forbidden(LEAD_SCANNING_DISABLED_ERROR)
+            return _forbidden(
+                LEAD_SCANNING_DISABLED_ERROR,
+                request=request,
+                exhibitor=exhibitor,
+                error_code="lead_scanning_disabled",
+            )
 
-        tags = ExhibitorTag.objects.filter(exhibitor=exhibitor)
-        return Response({"success": True, "tags": [tag.name for tag in tags]})
+        tag_names = [tag.name for tag in ExhibitorTag.objects.filter(exhibitor=exhibitor)]
+        log_operation(
+            "exhibition.tag.list",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.id,
+            route=_request_route(request),
+        )
+        return Response({"success": True, "tags": tag_names})
 
 
 class LeadUpdateView(views.APIView):
     def post(self, request, organizer, event, lead_id, *args, **kwargs):
-        key = request.headers.get("Exhibitor")
         note = request.data.get("note")
         tags = request.data.get("tags")
+        route = _request_route(request)
 
-        try:
-            exhibitor = ExhibitorInfo.objects.get(key=key)
-        except ExhibitorInfo.DoesNotExist:
+        exhibitor = _authenticate_exhibitor(request)
+        if exhibitor is None:
             return Response(
                 {"success": False, "error": "Invalid exhibitor key"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not exhibitor.lead_scanning_enabled:
-            return _forbidden(LEAD_SCANNING_DISABLED_ERROR)
+            return _forbidden(
+                LEAD_SCANNING_DISABLED_ERROR,
+                request=request,
+                exhibitor=exhibitor,
+                error_code="lead_scanning_disabled",
+            )
 
         try:
             lead = Lead.objects.get(pseudonymization_id=lead_id, exhibitor=exhibitor)
         except Lead.DoesNotExist:
+            log_operation(
+                "exhibition.lead.update",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="lead_not_found",
+                status=404,
+                event_id=exhibitor.event_id,
+                object_id=exhibitor.id,
+                route=route,
+            )
             return Response(
                 {"success": False, "error": "Lead not found"},
                 status=status.HTTP_404_NOT_FOUND,
@@ -648,6 +847,15 @@ class LeadUpdateView(views.APIView):
 
         lead.attendee = attendee_data
         lead.save()
+        log_operation(
+            "exhibition.lead.update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=exhibitor.event_id,
+            object_id=lead.id,
+            route=route,
+        )
 
         return Response(
             {"success": True, "lead_id": lead.id, "attendee": _visible_attendee(lead.attendee, exhibitor)},

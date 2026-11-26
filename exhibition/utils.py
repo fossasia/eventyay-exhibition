@@ -26,6 +26,8 @@ from eventyay.common.utils.language import localize_event_text
 from eventyay.talk_rules.agenda import is_agenda_visible
 from i18nfield.strings import LazyI18nString
 
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
+
 if TYPE_CHECKING:
     from .models import ExhibitorInfo
 
@@ -429,10 +431,26 @@ def claim_pool_vouchers(exhibitor, count, *, pool_tag=None):
             .order_by("pk")[:count]
         )
         if len(available) < count:
+            log_operation(
+                "exhibition.voucher.claim",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="pool_empty",
+                event_id=exhibitor.event_id,
+                object_id=exhibitor.pk,
+            )
             return []
-        return ExhibitorVoucher.objects.bulk_create(
+        created = ExhibitorVoucher.objects.bulk_create(
             ExhibitorVoucher(exhibitor=exhibitor, voucher=voucher) for voucher in available
         )
+    log_operation(
+        "exhibition.voucher.claim",
+        OUTCOME_SUCCESS,
+        backend="exhibition",
+        event_id=exhibitor.event_id,
+        object_id=exhibitor.pk,
+    )
+    return created
 
 
 REQUEST_LOCALIZED_PROFILE_FIELDS = ("name", "description")
@@ -458,7 +476,17 @@ def provision_exhibitor_devices(exhibitor, count, *, user=None):
         device.limit_events.add(exhibitor.event)
         device.log_action("eventyay.device.created", user=user, data={"exhibitor": exhibitor.pk})
         links.append(ExhibitorDevice(exhibitor=exhibitor, device=device))
-    return ExhibitorDevice.objects.bulk_create(links)
+    created = ExhibitorDevice.objects.bulk_create(links)
+    if created:
+        log_operation(
+            "exhibition.device.provision",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.pk,
+            user_id=getattr(user, "pk", None),
+        )
+    return created
 
 
 def reset_exhibitor_device_setup(exhibitor, *, user=None):
@@ -468,6 +496,7 @@ def reset_exhibitor_device_setup(exhibitor, *, user=None):
     from .models import ExhibitorDevice
 
     disconnected = []
+    reset_count = 0
     for link in ExhibitorDevice.objects.filter(exhibitor=exhibitor).select_related("device"):
         device = link.device
         if device.api_token and device.initialized:
@@ -481,6 +510,16 @@ def reset_exhibitor_device_setup(exhibitor, *, user=None):
             "eventyay.device.setup_token_reset",
             user=user,
             data={"had_active_session": device in disconnected, "exhibitor": exhibitor.pk},
+        )
+        reset_count += 1
+    if reset_count:
+        log_operation(
+            "exhibition.device.reset_tokens",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=exhibitor.event_id,
+            object_id=exhibitor.pk,
+            user_id=getattr(user, "pk", None),
         )
     return disconnected
 

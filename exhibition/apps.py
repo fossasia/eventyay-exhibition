@@ -1,6 +1,7 @@
 from django.utils.translation import gettext_lazy as _
 
 from . import __version__
+from .operational_log import log_plugin_loaded
 
 try:
     from eventyay.base.plugins import PluginConfig
@@ -23,4 +24,5 @@ class ExhibitionApp(PluginConfig):
         category = "FEATURE"
 
     def ready(self):
+        log_plugin_loaded("exhibition")
         from . import signals  # NOQA

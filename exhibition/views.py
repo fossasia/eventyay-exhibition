@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 import uuid
 from urllib.parse import quote, urlencode
 
@@ -136,6 +137,7 @@ from .models import (
     get_next_sponsor_group_level,
     storable_request_field_settings,
 )
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, current_request_id, log_operation
 from .orders import (
     paid_products_lack_payment_method,
     payment_method_names,
@@ -168,6 +170,34 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _user_id(request):
+    return getattr(getattr(request, "user", None), "pk", None)
+
+
+def _log_permission_denied(request, error_code, *, model=None, object_id=None):
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return
+    kwargs = {
+        "backend": "exhibition",
+        "error_code": error_code,
+        "event_id": getattr(getattr(request, "event", None), "pk", None),
+        "user_id": getattr(user, "pk", None),
+    }
+    if model:
+        kwargs["model"] = model
+    if object_id is not None:
+        kwargs["object_id"] = object_id
+    route = getattr(getattr(request, "resolver_match", None), "view_name", None)
+    if route:
+        kwargs["route"] = route
+    log_operation(
+        "permission.denied",
+        OUTCOME_FAILURE,
+        **kwargs,
+    )
 
 
 def event_kwargs(event):
@@ -565,6 +595,16 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 event=self.request.event,
             )
             if not layout_form.is_valid():
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="validation_failed",
+                    event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
+                    user_id=_user_id(request),
+                )
                 settings.allowed_fields = allowed_fields
                 messages.error(self.request, _("We could not save your changes. See below for details."))
                 return self.render_to_response(
@@ -577,18 +617,42 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 data={"allowed_fields": settings.allowed_fields, "changed": layout_form.changed_data},
                 user=request.user,
             )
+            log_operation(
+                "exhibition.settings.update",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=request.event.pk,
+                user_id=_user_id(request),
+            )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("exhibitors"))
 
         if action == "save_lead_settings":
             device_defaults_form = ExhibitorDeviceDefaultsForm(request.POST, instance=settings)
             if not device_defaults_form.is_valid():
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="validation_failed",
+                    event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
+                    user_id=_user_id(request),
+                )
                 return self.render_to_response(self.get_context_data(device_defaults_form=device_defaults_form))
             device_defaults_form.save()
             settings.log_action(
                 LOG_SETTINGS_CHANGED,
                 data={"changed": device_defaults_form.changed_data},
                 user=request.user,
+            )
+            log_operation(
+                "exhibition.settings.update",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=request.event.pk,
+                user_id=_user_id(request),
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("leads"))
@@ -600,12 +664,31 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 event=self.request.event,
             )
             if not voucher_defaults_form.is_valid():
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="validation_failed",
+                    event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
+                    user_id=_user_id(request),
+                )
                 return self.render_to_response(self.get_context_data(voucher_defaults_form=voucher_defaults_form))
             voucher_defaults_form.save()
             settings.log_action(
                 LOG_SETTINGS_CHANGED,
                 data={"changed": voucher_defaults_form.changed_data},
                 user=request.user,
+            )
+            log_operation(
+                "exhibition.settings.update",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=request.event.pk,
+                object_id=getattr(settings, "pk", None),
+                model="settings",
+                user_id=_user_id(request),
             )
             messages.success(self.request, _("Settings have been saved."))
             return redirect(self.get_settings_url("vouchers"))
@@ -623,12 +706,40 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                     data={"changed": form.changed_data},
                     user=request.user,
                 )
+                log_operation(
+                    "exhibition.settings.update",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    event_id=request.event.pk,
+                    object_id=getattr(settings, "pk", None),
+                    model="settings",
+                    user_id=_user_id(request),
+                )
                 messages.success(self.request, _("Call settings have been saved."))
                 return redirect(self.get_settings_url("call"))
+            log_operation(
+                "exhibition.settings.update",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="validation_failed",
+                event_id=request.event.pk,
+                object_id=getattr(settings, "pk", None),
+                model="settings",
+                user_id=_user_id(request),
+            )
             return self.render_to_response(self.get_context_data(call_settings_form=form))
 
         if action == "regenerate_call_secret":
             settings.regenerate_call_secret(requestor=request.user)
+            log_operation(
+                "exhibition.call_secret.regenerate",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=request.event.pk,
+                object_id=getattr(settings, "pk", None),
+                model="settings",
+                user_id=_user_id(request),
+            )
             messages.success(
                 self.request,
                 _("A new secret call link has been generated. The old link no longer works."),
@@ -646,9 +757,27 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
                 group.event = request.event
                 group.save()
                 group.log_action(LOG_GROUP_ADDED, data={"name": group.localized_name}, user=request.user)
+                log_operation(
+                    "exhibition.sponsor_group.create",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    event_id=request.event.pk,
+                    object_id=group.pk,
+                    model="sponsor_group",
+                    user_id=_user_id(request),
+                )
                 messages.success(self.request, _("Sponsor group added."))
                 return redirect(self.get_settings_url("sponsors"))
 
+            log_operation(
+                "exhibition.sponsor_group.create",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="validation_failed",
+                event_id=request.event.pk,
+                model="sponsor_group",
+                user_id=_user_id(request),
+            )
             messages.error(self.request, _("We could not save your changes. See below for details."))
             return self.render_to_response(
                 self.get_context_data(
@@ -668,9 +797,28 @@ class SettingsView(EventPermissionRequiredMixin, ListView):
             if form.is_valid():
                 form.save()
                 group.log_action(LOG_GROUP_CHANGED, data={"changed": form.changed_data}, user=request.user)
+                log_operation(
+                    "exhibition.sponsor_group.update",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    event_id=request.event.pk,
+                    object_id=group.pk,
+                    model="sponsor_group",
+                    user_id=_user_id(request),
+                )
                 messages.success(self.request, _("Sponsor group updated."))
                 return redirect(self.get_settings_url("sponsors"))
 
+            log_operation(
+                "exhibition.sponsor_group.update",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="validation_failed",
+                event_id=request.event.pk,
+                object_id=group.pk,
+                model="sponsor_group",
+                user_id=_user_id(request),
+            )
             messages.error(self.request, _("We could not save your changes. See below for details."))
             return self.render_to_response(
                 self.get_context_data(
@@ -714,6 +862,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
             if not request.user.has_event_permission(
                 request.event.organizer, request.event, "can_change_event_settings", request=request
             ):
+                _log_permission_denied(request, "event_settings", model="settings")
                 raise PermissionDenied()
             return self.download()
         return super().get(request, *args, **kwargs)
@@ -721,6 +870,15 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
     def download(self):
         export_format = self.request.GET.get("_format", EXPORT_FORMAT_XLSX)
         if export_format not in EXPORT_FORMATS:
+            log_operation(
+                "exhibition.export",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="unsupported_format",
+                status=400,
+                event_id=self.request.event.pk,
+                user_id=_user_id(self.request),
+            )
             return HttpResponseBadRequest(_("Unsupported export format."))
         queryset = self.get_queryset()
         selected_pks = self.request.GET.getlist("pk")
@@ -728,6 +886,14 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
             queryset = queryset.filter(pk__in=selected_pks)
         exporter = OrganizationsExporter(self.request, queryset, self.organization_type)
         filename, content_type, payload = exporter.render({"_format": export_format})
+        log_operation(
+            "exhibition.export",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            status=200,
+            event_id=self.request.event.pk,
+            user_id=_user_id(self.request),
+        )
         if content_type == "text/csv":
             content_type += "; charset=utf-8"
         response = HttpResponse(payload, content_type=content_type)
@@ -1535,16 +1701,39 @@ class SponsorGroupDeleteView(EventPermissionRequiredMixin, DeleteView):
         self.object = self.get_queryset().select_for_update().get(pk=self.object.pk)
         blocker = self.deletion_blocker()
         if blocker:
+            log_operation(
+                "exhibition.sponsor_group.delete",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="in_use",
+                event_id=self.request.event.pk,
+                object_id=self.object.pk,
+                user_id=_user_id(self.request),
+            )
             messages.error(self.request, blocker)
             return redirect(self.get_success_url())
 
+        group_id = self.object.pk
+        event_id = self.request.event.pk
+        user_id = _user_id(self.request)
         self.object.log_action(
             LOG_GROUP_DELETED,
             data={"name": self.object.localized_name},
             user=self.request.user,
         )
+        response = super().form_valid(form)
+        transaction.on_commit(
+            lambda: log_operation(
+                "exhibition.sponsor_group.delete",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                event_id=event_id,
+                object_id=group_id,
+                user_id=user_id,
+            )
+        )
         messages.success(self.request, _("Sponsor group deleted."))
-        return super().form_valid(form)
+        return response
 
     def get_success_url(self):
         return reverse(
@@ -1770,8 +1959,23 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
         action = self.request.POST.get("action", "save")
         if action in REQUEST_REVIEW_ACTIONS:
             if not self.can_manage():
+                _log_permission_denied(
+                    self.request,
+                    "review",
+                    model="request",
+                    object_id=getattr(self.object, "pk", None),
+                )
                 raise PermissionDenied()
             if not self.object.can_apply_action(action):
+                log_operation(
+                    "exhibition.request",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="invalid_state",
+                    event_id=self.request.event.pk,
+                    object_id=self.object.pk,
+                    user_id=_user_id(self.request),
+                )
                 messages.error(self.request, _("This request can no longer be changed to that state."))
                 return redirect(self.get_success_url())
             return self.perform_review_action(action)
@@ -2128,6 +2332,14 @@ class ExhibitionProductCreateView(ExhibitionProductFormMixin, CreateView):
                 data={"name": self.object.localized_name},
                 user=self.request.user,
             )
+        log_operation(
+            "exhibition.product.create",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -2150,6 +2362,14 @@ class ExhibitionProductEditView(ExhibitionProductFormMixin, UpdateView):
                     data={"changed": form.changed_data},
                     user=self.request.user,
                 )
+        log_operation(
+            "exhibition.product.update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -2165,17 +2385,36 @@ class ExhibitionProductDeleteView(ExhibitionProductMixin, DeleteView):
 
     def form_valid(self, form):
         if self.object.order_positions.exists():
+            log_operation(
+                "exhibition.product.delete",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="has_orders",
+                event_id=self.request.event.pk,
+                object_id=self.object.pk,
+                user_id=_user_id(self.request),
+            )
             messages.error(
                 self.request,
                 _("This product has been ordered, so it cannot be deleted. You can deactivate it instead."),
             )
             return redirect(self.get_success_url())
+        product_id = self.object.pk
         self.object.log_action(
             LOG_PRODUCT_DELETED,
             data={"name": self.object.localized_name},
             user=self.request.user,
         )
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        log_operation(
+            "exhibition.product.delete",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=product_id,
+            user_id=_user_id(self.request),
+        )
+        return response
 
 
 class ExhibitionProductCategoryMixin(EventPermissionRequiredMixin):
@@ -2218,6 +2457,14 @@ class ExhibitionProductCategoryCreateView(ExhibitionProductCategoryFormMixin, Cr
                 data={"name": self.object.localized_name},
                 user=self.request.user,
             )
+        log_operation(
+            "exhibition.product_category.create",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -2232,6 +2479,14 @@ class ExhibitionProductCategoryEditView(ExhibitionProductCategoryFormMixin, Upda
                     data={"changed": form.changed_data},
                     user=self.request.user,
                 )
+        log_operation(
+            "exhibition.product_category.update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -2247,6 +2502,15 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
 
     def form_valid(self, form):
         if self.object.is_addon and self.object.products.exists():
+            log_operation(
+                "exhibition.product_category.delete",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="addon_category_not_empty",
+                event_id=self.request.event.pk,
+                object_id=self.object.pk,
+                user_id=_user_id(self.request),
+            )
             messages.error(
                 self.request,
                 _(
@@ -2255,12 +2519,22 @@ class ExhibitionProductCategoryDeleteView(ExhibitionProductCategoryMixin, Delete
                 ),
             )
             return redirect(self.get_success_url())
+        category_id = self.object.pk
         self.object.log_action(
             LOG_PRODUCT_CATEGORY_DELETED,
             data={"name": self.object.localized_name, "uncategorised_products": self.object.products.count()},
             user=self.request.user,
         )
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        log_operation(
+            "exhibition.product_category.delete",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=category_id,
+            user_id=_user_id(self.request),
+        )
+        return response
 
 
 class ExhibitionProductCategoryReorderView(PositionReorderMixin):
@@ -2311,6 +2585,14 @@ class ExhibitionQuotaCreateView(ExhibitionQuotaFormMixin, CreateView):
         with transaction.atomic():
             response = super().form_valid(form)
             self.object.log_action(LOG_QUOTA_ADDED, data={"name": self.object.name}, user=self.request.user)
+        log_operation(
+            "exhibition.quota.create",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -2325,6 +2607,14 @@ class ExhibitionQuotaEditView(ExhibitionQuotaFormMixin, UpdateView):
                     data={"changed": form.changed_data},
                     user=self.request.user,
                 )
+        log_operation(
+            "exhibition.quota.update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("Your changes have been saved."))
         return response
 
@@ -2334,8 +2624,18 @@ class ExhibitionQuotaDeleteView(ExhibitionQuotaMixin, DeleteView):
     template_name = "exhibitors/quota_delete.html"
 
     def form_valid(self, form):
+        quota_id = self.object.pk
         self.object.log_action(LOG_QUOTA_DELETED, data={"name": self.object.name}, user=self.request.user)
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        log_operation(
+            "exhibition.quota.delete",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=quota_id,
+            user_id=_user_id(self.request),
+        )
+        return response
 
 
 class ExhibitionOrderMixin(EventPermissionRequiredMixin):
@@ -2463,9 +2763,25 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
                 payment_reference=booking_form.cleaned_data["payment_reference"],
             )
         except ExhibitionQuotaExceeded:
+            log_operation(
+                "exhibition.order.place",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="quota_exceeded",
+                event_id=request.event.pk,
+                user_id=_user_id(request),
+            )
             messages.error(request, _("One of the products is sold out. Free up room in its quotas first."))
             return self.render_to_response(context)
         except ExhibitionOrderError:
+            log_operation(
+                "exhibition.order.place",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="order_invalid",
+                event_id=request.event.pk,
+                user_id=_user_id(request),
+            )
             messages.error(request, _("The order could not be created."))
             return self.render_to_response(context)
         if booking_form.cleaned_data["send_email"]:
@@ -2493,8 +2809,28 @@ class ExhibitionOrderMarkPaidView(ExhibitionOrderActionMixin, FormView):
         try:
             self.order.mark_paid(reference=form.cleaned_data["payment_reference"], user=self.request.user)
         except ExhibitionOrderStateError:
+            log_operation(
+                "exhibition.order.paid",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="invalid_state",
+                event_id=self.request.event.pk,
+                order_id=self.order.pk,
+                order_code=self.order.code,
+                user_id=_user_id(self.request),
+            )
             messages.error(self.request, _("This order cannot be marked as paid in its current state."))
         except ExhibitionQuotaExceeded:
+            log_operation(
+                "exhibition.order.paid",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="quota_exceeded",
+                event_id=self.request.event.pk,
+                order_id=self.order.pk,
+                order_code=self.order.code,
+                user_id=_user_id(self.request),
+            )
             messages.error(
                 self.request,
                 _(
@@ -2514,6 +2850,16 @@ class ExhibitionOrderResendView(ExhibitionOrderActionMixin, View):
 
     def post(self, request, *args, **kwargs):
         if self.order.status == ExhibitionOrderStatus.CANCELLED:
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="order_cancelled",
+                event_id=request.event.pk,
+                order_id=self.order.pk,
+                order_code=self.order.code,
+                user_id=_user_id(request),
+            )
             messages.error(request, _("This order has been cancelled."))
         else:
             send_order_email(self.order, user=request.user)
@@ -2539,6 +2885,16 @@ class ExhibitionOrderCancelView(ExhibitionOrderActionMixin, TemplateView):
         try:
             self.order.cancel(user=request.user)
         except ExhibitionOrderStateError:
+            log_operation(
+                "exhibition.order.cancelled",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="invalid_state",
+                event_id=request.event.pk,
+                order_id=self.order.pk,
+                order_code=self.order.code,
+                user_id=_user_id(request),
+            )
             messages.error(request, _("This order has already been cancelled."))
         else:
             messages.success(request, _("The order has been cancelled."))
@@ -3165,6 +3521,14 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
         if access_newly_granted(form.instance):
             grant_lead_scanning_access(self.request, self.object)
         queue_profile_invitation(self.request.event, self.object)
+        log_operation(
+            "exhibition.organization.create",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         return response
 
     def get_context_data(self, **kwargs):
@@ -3226,6 +3590,14 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             )
         if access_newly_granted(form.instance, previous):
             grant_lead_scanning_access(self.request, self.object)
+        log_operation(
+            "exhibition.organization.update",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         return response
 
     def get_context_data(self, **kwargs):
@@ -3264,12 +3636,22 @@ class ExhibitorDeleteView(EventPermissionRequiredMixin, DeleteView):
         return ExhibitorInfo.objects.filter(event=self.request.event)
 
     def form_valid(self, form):
+        organization_id = self.object.pk
         self.object.log_action(
             LOG_ORGANIZATION_DELETED,
             data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
             user=self.request.user,
         )
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        log_operation(
+            "exhibition.organization.delete",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=organization_id,
+            user_id=_user_id(self.request),
+        )
+        return response
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -3363,9 +3745,29 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
             exhibitor=self.object,
         )
         if link.voucher.redeemed:
+            log_operation(
+                "exhibition.voucher.remove",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="already_redeemed",
+                event_id=request.event.pk,
+                object_id=self.object.pk,
+                voucher_id=link.voucher_id,
+                user_id=_user_id(request),
+            )
             messages.error(request, _("This voucher has already been redeemed and cannot be returned."))
             return redirect(self.get_success_url())
         if voucher_was_emailed(link):
+            log_operation(
+                "exhibition.voucher.remove",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="already_emailed",
+                event_id=request.event.pk,
+                object_id=self.object.pk,
+                voucher_id=link.voucher_id,
+                user_id=_user_id(request),
+            )
             messages.error(
                 request,
                 _(
@@ -3374,7 +3776,17 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
                 ),
             )
             return redirect(self.get_success_url())
+        voucher_id = link.voucher_id
         link.delete()
+        log_operation(
+            "exhibition.voucher.remove",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=request.event.pk,
+            object_id=self.object.pk,
+            voucher_id=voucher_id,
+            user_id=_user_id(request),
+        )
         messages.success(request, _("Voucher returned to the pool."))
         return redirect(self.get_success_url())
 
@@ -3425,6 +3837,17 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         _email, vouchers, reason = mail_helpers.queue_unsent_voucher_email(
             request.event, self.object, requestor=request.user, extra=count
         )
+        if reason:
+            log_operation(
+                "exhibition.voucher.send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code=reason,
+                event_id=request.event.pk,
+                object_id=self.object.pk,
+                mail_type=mail_helpers.VOUCHERS,
+                user_id=_user_id(request),
+            )
         if reason == mail_helpers.VOUCHER_SKIP_NO_EMAIL:
             messages.error(request, _("No email address is on file, so vouchers cannot be emailed."))
             return redirect(self.get_success_url())
@@ -3452,6 +3875,16 @@ class ExhibitorVoucherManageView(EventPermissionRequiredMixin, DetailView):
         if reason:
             form.add_error("count", _("This organization holds no vouchers yet, so there is nothing to email."))
             return self.render_to_response(self.get_context_data(form=form))
+        log_operation(
+            "exhibition.voucher.send",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=request.event.pk,
+            object_id=self.object.pk,
+            mail_type=mail_helpers.VOUCHERS,
+            recipient_count=1,
+            user_id=_user_id(request),
+        )
         messages.success(
             request,
             ngettext(
@@ -3542,6 +3975,13 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
         # Publish only what the confirmation page listed; apply() re-checks each row under the lock.
         confirmed = self.scoped_queryset().filter(pk__in=self.confirmed_ids())
         published, blocked = self.apply(confirmed, True, request.user)
+        log_operation(
+            "exhibition.publish_all",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=getattr(request.event, "pk", None),
+            user_id=getattr(request.user, "pk", None),
+        )
         self.report_blocked(request, blocked)
         if published:
             messages.success(request, self.published_message(len(published)))
@@ -3563,6 +4003,13 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_selected(self, request, *, published):
         changed, blocked = self.apply(self.selected(), published, request.user)
+        log_operation(
+            "exhibition.publish" if published else "exhibition.unpublish",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=getattr(request.event, "pk", None),
+            user_id=getattr(request.user, "pk", None),
+        )
         self.report_blocked(request, blocked)
         if changed:
             message = self.published_message if published else self.unpublished_message
@@ -3695,6 +4142,26 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
         skipped = {}
         if sendable:
             queued, skipped = self.queue_all(sendable, requestor=request.user)
+            if queued:
+                log_operation(
+                    "exhibition.voucher.bulk_send",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    event_id=request.event.pk,
+                    mail_type=mail_helpers.VOUCHERS,
+                    recipient_count=len(queued),
+                    user_id=_user_id(request),
+                )
+            else:
+                log_operation(
+                    "exhibition.voucher.bulk_send",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="no_recipients",
+                    event_id=request.event.pk,
+                    mail_type=mail_helpers.VOUCHERS,
+                    user_id=_user_id(request),
+                )
             messages.success(
                 request,
                 ngettext(
@@ -3705,6 +4172,15 @@ class ExhibitorVoucherBulkSendView(EventPermissionRequiredMixin, View):
                 % {"count": len(queued)},
             )
         else:
+            log_operation(
+                "exhibition.voucher.bulk_send",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="no_recipients",
+                event_id=request.event.pk,
+                mail_type=mail_helpers.VOUCHERS,
+                user_id=_user_id(request),
+            )
             messages.info(request, _("There is nobody to send vouchers to in this selection."))
         self.report_skipped(
             no_email=len(no_email) + len(skipped.get(mail_helpers.VOUCHER_SKIP_NO_EMAIL, [])),
@@ -3824,6 +4300,12 @@ class ExhibitorDeviceManageView(EventPermissionRequiredMixin, DetailView):
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         if not self.can_provision():
+            _log_permission_denied(
+                request,
+                "provision",
+                model="organization",
+                object_id=getattr(self.object, "pk", None),
+            )
             raise PermissionDenied()
         if request.POST.get("action") == "reset":
             return self.reset_tokens(request)
@@ -3963,6 +4445,14 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 # Saving the stale instance after a concurrent send deleted it would insert the draft again.
                 draft = ExhibitionEmailDraft.objects.select_for_update().filter(pk=self.draft.pk).first()
                 if draft is None:
+                    log_operation(
+                        "exhibition.email_draft.save",
+                        OUTCOME_FAILURE,
+                        backend="exhibition",
+                        error_code="already_queued",
+                        event_id=self.request.event.pk,
+                        user_id=_user_id(self.request),
+                    )
                     return self.draft_already_queued()
             previous_attachment_id = draft.attachment_id
             draft.fill_from_form(form.cleaned_data)
@@ -3971,6 +4461,14 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             draft.save()
             if previous_attachment_id != draft.attachment_id:
                 mail_helpers.release_attachment(previous_attachment_id)
+        log_operation(
+            "exhibition.email_draft.save",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=draft.pk,
+            user_id=_user_id(self.request),
+        )
         messages.success(self.request, _("The draft has been saved."))
         return redirect("plugins:exhibition:email.drafts", **event_kwargs(self.request.event))
 
@@ -4017,14 +4515,45 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
 
         created = self.queue_emails(form, scheduled_at, send_now)
         if created is None:
+            log_operation(
+                "exhibition.email.compose",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="draft_already_queued",
+                event_id=event.pk,
+                user_id=_user_id(self.request),
+            )
             return self.draft_already_queued()
         if not created:
+            log_operation(
+                "exhibition.email.compose",
+                OUTCOME_FAILURE,
+                backend="exhibition",
+                error_code="no_recipients",
+                event_id=event.pk,
+                user_id=_user_id(self.request),
+            )
             messages.warning(self.request, _("No applicants matched the selected filters."))
             return self.form_invalid(form)
 
         if scheduled_at:
+            request_id = current_request_id()
             for queued in created:
-                send_scheduled_email.apply_async(args=[event.pk, queued.pk], eta=scheduled_at)
+                async_kwargs = {"args": [event.pk, queued.pk], "eta": scheduled_at}
+                if request_id:
+                    async_kwargs["kwargs"] = {"request_id": request_id}
+                send_scheduled_email.apply_async(**async_kwargs)
+
+        op_action = "mail.schedule" if scheduled_at else ("mail.send" if send_now else "mail.queue")
+        log_operation(
+            op_action,
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=event.pk,
+            mail_type="compose",
+            recipient_count=len(created),
+            user_id=_user_id(self.request),
+        )
 
         if self.single_request is not None:
             return self.single_request_done(created[0], scheduled_at)
@@ -4280,6 +4809,19 @@ class EmailDraftDeleteView(EventPermissionRequiredMixin, DeleteView):
     def get_queryset(self):
         return ExhibitionEmailDraft.objects.filter(event=self.request.event)
 
+    def form_valid(self, form):
+        draft_id = self.object.pk
+        response = super().form_valid(form)
+        log_operation(
+            "exhibition.email_draft.delete",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=draft_id,
+            user_id=_user_id(self.request),
+        )
+        return response
+
     def get_success_url(self):
         messages.success(self.request, _("The draft has been discarded."))
         return reverse("plugins:exhibition:email.drafts", kwargs=event_kwargs(self.request.event))
@@ -4326,8 +4868,12 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
 
         if not scheduled_at:
             return
+        request_id = current_request_id()
         for row in rows:
-            send_scheduled_email.apply_async(args=[self.request.event.pk, row.pk], eta=scheduled_at)
+            async_kwargs = {"args": [self.request.event.pk, row.pk], "eta": scheduled_at}
+            if request_id:
+                async_kwargs["kwargs"] = {"request_id": request_id}
+            send_scheduled_email.apply_async(**async_kwargs)
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -4349,11 +4895,44 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
                 )
                 self.release_replaced_attachments(previous_ids, attachment)
             if "_send" in self.request.POST:
+                count = 0
+                send_started = time.monotonic()
                 for row in rows:
                     row.subject = subject
                     row.body = body
                     row.attachment = attachment
-                    row.send(requestor=self.request.user)
+                    try:
+                        row.send(requestor=self.request.user)
+                    except Exception:
+                        duration_ms = int((time.monotonic() - send_started) * 1000)
+                        log_operation(
+                            "mail.send",
+                            OUTCOME_FAILURE,
+                            backend="exhibition",
+                            error_code="send_failed",
+                            duration_ms=duration_ms,
+                            retry_count=0,
+                            status=500,
+                            event_id=self.request.event.pk,
+                            object_id=self.object.pk,
+                            recipient_count=count,
+                            user_id=_user_id(self.request),
+                        )
+                        raise
+                    count += 1
+                duration_ms = int((time.monotonic() - send_started) * 1000)
+                log_operation(
+                    "mail.send",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=200,
+                    event_id=self.request.event.pk,
+                    object_id=self.object.pk,
+                    recipient_count=count,
+                    user_id=_user_id(self.request),
+                )
                 messages.success(self.request, _("The emails have been saved and sent."))
             else:
                 if reschedule:
@@ -4377,7 +4956,38 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
             self.release_replaced_attachments(previous_ids, attachment)
             self.object = locked
         if "_send" in self.request.POST:
-            self.object.send(requestor=self.request.user)
+            send_started = time.monotonic()
+            try:
+                self.object.send(requestor=self.request.user)
+            except Exception:
+                duration_ms = int((time.monotonic() - send_started) * 1000)
+                log_operation(
+                    "mail.send",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="send_failed",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=500,
+                    event_id=self.request.event.pk,
+                    object_id=self.object.pk,
+                    recipient_count=0,
+                    user_id=_user_id(self.request),
+                )
+                raise
+            duration_ms = int((time.monotonic() - send_started) * 1000)
+            log_operation(
+                "mail.send",
+                OUTCOME_SUCCESS,
+                backend="exhibition",
+                duration_ms=duration_ms,
+                retry_count=0,
+                status=200,
+                event_id=self.request.event.pk,
+                object_id=self.object.pk,
+                recipient_count=1,
+                user_id=_user_id(self.request),
+            )
             messages.success(self.request, _("The email has been saved and sent."))
         else:
             if reschedule:
@@ -4387,6 +4997,15 @@ class EmailEditView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixin,
 
     def already_handled(self):
         """Stop an edit whose email was sent or discarded while the organizer was editing it."""
+        log_operation(
+            "exhibition.email.edit",
+            OUTCOME_FAILURE,
+            backend="exhibition",
+            error_code="already_handled",
+            event_id=self.request.event.pk,
+            object_id=self.object.pk,
+            user_id=_user_id(self.request),
+        )
         messages.warning(self.request, _("This email was already sent or discarded, so your changes were not saved."))
         return redirect(self.get_success_url())
 
@@ -4426,9 +5045,40 @@ class EmailSendView(EventPermissionRequiredMixin, View):
         else:
             rows = [email]
         count = 0
+        send_started = time.monotonic()
         for row in rows:
-            row.send(requestor=request.user)
+            try:
+                row.send(requestor=request.user)
+            except Exception:
+                duration_ms = int((time.monotonic() - send_started) * 1000)
+                log_operation(
+                    "mail.send",
+                    OUTCOME_FAILURE,
+                    backend="exhibition",
+                    error_code="send_failed",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=500,
+                    event_id=request.event.pk,
+                    object_id=email.pk,
+                    recipient_count=count,
+                    user_id=_user_id(request),
+                )
+                raise
             count += 1
+        duration_ms = int((time.monotonic() - send_started) * 1000)
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            duration_ms=duration_ms,
+            retry_count=0,
+            status=200,
+            event_id=request.event.pk,
+            object_id=email.pk,
+            recipient_count=count,
+            user_id=_user_id(request),
+        )
         messages.success(
             request,
             ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count) % {"count": count},
@@ -4459,11 +5109,20 @@ class EmailDeleteView(ApplicantEmailVisibilityMixin, EventPermissionRequiredMixi
 
     def form_valid(self, form):
         self.object = self.get_object()
+        email_id = self.object.pk
         success_url = self.get_success_url()
         if self.object.batch:
             self.get_queryset().filter(batch=self.object.batch).delete()
         else:
             self.object.delete()
+        log_operation(
+            "exhibition.email.discard",
+            OUTCOME_SUCCESS,
+            backend="exhibition",
+            event_id=self.request.event.pk,
+            object_id=email_id,
+            user_id=_user_id(self.request),
+        )
         return redirect(success_url)
 
     def get_success_url(self):
@@ -4526,10 +5185,39 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
 
         if action == "send":
             count = 0
+            send_started = time.monotonic()
             for row in rows:
-                row.send(requestor=request.user)
+                try:
+                    row.send(requestor=request.user)
+                except Exception:
+                    duration_ms = int((time.monotonic() - send_started) * 1000)
+                    log_operation(
+                        "mail.send",
+                        OUTCOME_FAILURE,
+                        backend="exhibition",
+                        error_code="send_failed",
+                        duration_ms=duration_ms,
+                        retry_count=0,
+                        status=500,
+                        event_id=request.event.pk,
+                        recipient_count=count,
+                        user_id=_user_id(request),
+                    )
+                    raise
                 count += 1
             if count:
+                duration_ms = int((time.monotonic() - send_started) * 1000)
+                log_operation(
+                    "mail.send",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    duration_ms=duration_ms,
+                    retry_count=0,
+                    status=200,
+                    event_id=request.event.pk,
+                    recipient_count=count,
+                    user_id=_user_id(request),
+                )
                 messages.success(
                     request,
                     ngettext("%(count)d email has been sent.", "%(count)d emails have been sent.", count)
@@ -4543,6 +5231,14 @@ class EmailBulkActionView(EventPermissionRequiredMixin, View):
             count = rows.count()
             rows.delete()
             if count:
+                log_operation(
+                    "exhibition.email.discard",
+                    OUTCOME_SUCCESS,
+                    backend="exhibition",
+                    event_id=request.event.pk,
+                    recipient_count=count,
+                    user_id=_user_id(request),
+                )
                 messages.success(
                     request,
                     ngettext("%(count)d email has been discarded.", "%(count)d emails have been discarded.", count)
