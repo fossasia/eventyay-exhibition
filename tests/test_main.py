@@ -1096,3 +1096,73 @@ def test_sidebar_highlights_exhibitor_form_on_the_built_in_field_pages(client, e
     assert response.status_code == 200
     questions_url = reverse("plugins:exhibition:call.questions", kwargs=kwargs)
     assert f'href="{questions_url}" class="active"' in response.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("page", "flags", "query", "highlighted"),
+    [
+        ("vouchers", {"is_exhibitor": True}, "", "exhibitors"),
+        ("vouchers", {"is_exhibitor": False, "is_sponsor": True}, "", "sponsors"),
+        ("vouchers", {"is_exhibitor": True, "is_sponsor": True}, "?type=sponsor", "sponsors"),
+        ("devices", {"is_exhibitor": True}, "", "exhibitors"),
+        ("devices", {"is_exhibitor": True, "is_sponsor": True}, "?type=sponsor", "sponsors"),
+    ],
+)
+def test_sidebar_highlights_the_list_on_the_organization_pages(
+    client, event, settings, page, flags, query, highlighted
+):
+    login_settings_user(client, event, settings)
+    with scopes_disabled():
+        organization = ExhibitorInfo.objects.create(event=event, name="Acme", **flags)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+
+    response = client.get(reverse(f"plugins:exhibition:{page}", kwargs={**kwargs, "pk": organization.pk}) + query)
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    for name in ("exhibitors", "sponsors"):
+        list_url = reverse(f"plugins:exhibition:{name}", kwargs=kwargs)
+        assert (f'href="{list_url}" class="active"' in content) == (name == highlighted)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("action_url", "data", "highlighted"),
+    [
+        ("exhibitors.publish", {"action": "publish_all"}, "exhibitors"),
+        ("sponsors.publish", {"action": "publish_all"}, "sponsors"),
+        ("exhibitors.send_vouchers", {"selected": "{pk}"}, "exhibitors"),
+        ("sponsors.send_vouchers", {"selected": "{pk}"}, "sponsors"),
+    ],
+)
+def test_sidebar_highlights_the_list_on_its_confirmation_pages(client, event, settings, action_url, data, highlighted):
+    login_settings_user(client, event, settings)
+    with scopes_disabled():
+        organization = ExhibitorInfo.objects.create(event=event, name="Acme", is_exhibitor=True, is_sponsor=True)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+
+    response = client.post(
+        reverse(f"plugins:exhibition:{action_url}", kwargs=kwargs),
+        {key: value.format(pk=organization.pk) for key, value in data.items()},
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    for name in ("exhibitors", "sponsors"):
+        list_url = reverse(f"plugins:exhibition:{name}", kwargs=kwargs)
+        assert (f'href="{list_url}" class="active"' in content) == (name == highlighted)
+
+
+@pytest.mark.django_db
+def test_sidebar_highlights_orders_on_the_new_order_page(client, event, settings):
+    login_settings_user(client, event, settings)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+
+    response = client.get(reverse("plugins:exhibition:orders.add", kwargs=kwargs))
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    for name in ("orders", "exhibitors", "sponsors"):
+        url = reverse(f"plugins:exhibition:{name}", kwargs=kwargs)
+        assert (f'href="{url}" class="active"' in content) == (name == "orders")

@@ -107,7 +107,7 @@
   {% endif %}
   {% if 'can_change_event_settings' in request.eventpermset or 'can_view_orders' in request.eventpermset %}
     <li>
-      <a href="{% url 'plugins:exhibition:orders' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'orders' or url_name == 'orders.detail' or url_name == 'orders.mark_paid' or url_name == 'orders.cancel' %}class="active"{% endif %}>
+      <a href="{% url 'plugins:exhibition:orders' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'orders' or url_name == 'orders.detail' or url_name == 'orders.mark_paid' or url_name == 'orders.cancel' or url_name == 'orders.add' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-shopping-cart"></span>
         <span class="sidebar-text">{% trans "Orders" %}</span>
       </a>
@@ -123,13 +123,13 @@
   {% endif %}
   {% if 'can_change_event_settings' in request.eventpermset or 'can_view_orders' in request.eventpermset %}
     <li>
-      <a href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'exhibitors' or url_name == 'exhibitors.add' or url_name == 'add' or url_name == 'edit' and request.GET.type != 'sponsor' or url_name == 'delete' and request.GET.type != 'sponsor' %}class="active"{% endif %}>
+      <a href="{% url 'plugins:exhibition:exhibitors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'exhibitors' or url_name == 'exhibitors.add' or url_name == 'add' or url_name == 'edit' and request.GET.type != 'sponsor' or url_name == 'delete' and request.GET.type != 'sponsor' or url_name == 'exhibitors.publish' or url_name == 'exhibitors.send_vouchers' or url_name == 'vouchers' and request.GET.type != 'sponsor' and exhibitor.is_exhibitor or url_name == 'devices' and request.GET.type != 'sponsor' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-map-pin"></span>
         <span class="sidebar-text">{% trans "Exhibitors" %}</span>
       </a>
     </li>
     <li>
-      <a href="{% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'sponsors' or url_name == 'sponsors.add' or url_name == 'edit' and request.GET.type == 'sponsor' or url_name == 'delete' and request.GET.type == 'sponsor' %}class="active"{% endif %}>
+      <a href="{% url 'plugins:exhibition:sponsors' organizer=request.event.organizer.slug event=request.event.slug %}" {% if url_name == 'sponsors' or url_name == 'sponsors.add' or url_name == 'edit' and request.GET.type == 'sponsor' or url_name == 'delete' and request.GET.type == 'sponsor' or url_name == 'sponsors.publish' or url_name == 'sponsors.send_vouchers' or url_name == 'vouchers' and request.GET.type == 'sponsor' or url_name == 'vouchers' and not exhibitor.is_exhibitor or url_name == 'devices' and request.GET.type == 'sponsor' %}class="active"{% endif %}>
         <span class="fa fa-fw fa-star"></span>
         <span class="sidebar-text">{% trans "Sponsors" %}</span>
       </a>
