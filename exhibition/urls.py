@@ -46,8 +46,10 @@ from .views import (
     EmailTemplatesView,
     ExhibitionDefaultFieldEditView,
     ExhibitionDefaultFieldResetView,
+    ExhibitionOrderApproveView,
     ExhibitionOrderCancelView,
     ExhibitionOrderCreateView,
+    ExhibitionOrderDenyView,
     ExhibitionOrderDetailView,
     ExhibitionOrderFormView,
     ExhibitionOrderListView,
@@ -290,6 +292,16 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/mark_paid",
         ExhibitionOrderMarkPaidView.as_view(),
         name="orders.mark_paid",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/approve",
+        ExhibitionOrderApproveView.as_view(),
+        name="orders.approve",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/deny",
+        ExhibitionOrderDenyView.as_view(),
+        name="orders.deny",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/resend",

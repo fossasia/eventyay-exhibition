@@ -29,7 +29,7 @@ from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views import CreateView, PaginationMixin, UpdateView
 
 from . import mail as mail_helpers
-from .exports import EXPORT_FORMAT_XLSX, EXPORT_FORMATS, OrganizationsExporter
+from .exports import EXPORT_FORMAT_XLSX, EXPORT_FORMATS, OrganizationsExporter, RequestsExporter
 from .filters import (
     EmailFilterForm,
     ExhibitorFilterForm,
@@ -341,6 +341,16 @@ class PublicCallEnabledMixin:
         if not self.page_is_visible(self.get_exhibition_settings()):
             raise Http404()
         return super().dispatch(request, *args, **kwargs)
+
+
+def export_download_response(exporter, export_format):
+    filename, content_type, payload = exporter.render({"_format": export_format})
+    if content_type == "text/csv":
+        content_type += "; charset=utf-8"
+    response = HttpResponse(payload, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 class FilteredListMixin(PaginationMixin):
@@ -727,13 +737,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         if selected_pks:
             queryset = queryset.filter(pk__in=selected_pks)
         exporter = OrganizationsExporter(self.request, queryset, self.organization_type)
-        filename, content_type, payload = exporter.render({"_format": export_format})
-        if content_type == "text/csv":
-            content_type += "; charset=utf-8"
-        response = HttpResponse(payload, content_type=content_type)
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        response["Cache-Control"] = "no-store"
-        return response
+        return export_download_response(exporter, export_format)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1682,6 +1686,24 @@ class RequestListView(EventPermissionRequiredMixin, FilteredListMixin, ListView)
             request=self.request,
         )
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get("download") == "yes":
+            if not self.can_manage():
+                raise PermissionDenied()
+            return self.download()
+        return super().get(request, *args, **kwargs)
+
+    def download(self):
+        export_format = self.request.GET.get("_format", EXPORT_FORMAT_XLSX)
+        if export_format not in EXPORT_FORMATS:
+            return HttpResponseBadRequest(_("Unsupported export format."))
+        queryset = self.get_queryset()
+        selected_codes = self.request.GET.getlist("code")
+        if selected_codes:
+            queryset = queryset.filter(code__in=selected_codes)
+        exporter = RequestsExporter(self.request, queryset, hide_emails=self.hide_applicant_emails)
+        return export_download_response(exporter, export_format)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["hide_applicant_emails"] = self.hide_applicant_emails
@@ -2408,6 +2430,49 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
 
 class ExhibitionOrderActionMixin(ExhibitionOrderMixin):
     permission = ("can_change_event_settings", "can_change_orders")
+
+
+class ExhibitionOrderApproveView(ExhibitionOrderActionMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not self.order.can_be_approved:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        try:
+            self.order.approve(user=request.user)
+        except ExhibitionOrderStateError:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        except ExhibitionQuotaExceeded:
+            messages.error(
+                request,
+                _(
+                    "This free order cannot be confirmed because its products have sold out. "
+                    "Free up room in their quotas first."
+                ),
+            )
+            return redirect(self.get_order_url())
+        if self.order.status == ExhibitionOrderStatus.PAID:
+            send_order_email(self.order, user=request.user)
+            messages.success(request, _("The order has been approved and confirmed."))
+        else:
+            send_order_email(self.order, user=request.user, role=mail_helpers.ORDER_APPROVED)
+            messages.success(request, _("The order has been approved. The buyer can now complete payment."))
+        return redirect(self.get_order_url())
+
+
+class ExhibitionOrderDenyView(ExhibitionOrderActionMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not self.order.can_be_denied:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        try:
+            self.order.deny(user=request.user)
+        except ExhibitionOrderStateError:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        send_order_email(self.order, user=request.user, role=mail_helpers.ORDER_DENIED)
+        messages.success(request, _("The order has been denied and cancelled."))
+        return redirect(self.get_order_url())
 
 
 class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
@@ -3492,20 +3557,28 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
         return self.scoped_queryset().filter(active=True, published=False)
 
     def apply(self, queryset, published, requestor):
-        """Write the flag against the current database state, so a concurrent withdrawal still wins."""
+        """Write the flag against the current database state, so a concurrent withdrawal still wins.
+
+        Returns the changed organizations and the exhibitors left unpublished for lack of a logo or banner.
+        """
         with transaction.atomic():
             rows = queryset.select_for_update().filter(published=not published)
             if published:
                 rows = rows.filter(active=True)
-            changed = list(rows)
+            changed, blocked = [], []
+            for organization in rows:
+                if published and organization.missing_public_images:
+                    blocked.append(organization)
+                else:
+                    changed.append(organization)
             if not changed:
-                return []
+                return [], blocked
             ExhibitorInfo.objects.filter(pk__in=[o.pk for o in changed]).update(published=published)
             action = LOG_ORGANIZATION_PUBLISHED if published else LOG_ORGANIZATION_UNPUBLISHED
             for organization in changed:
                 organization.published = published
                 organization.log_action(action, user=requestor)
-        return changed
+        return changed, blocked
 
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
@@ -3518,32 +3591,64 @@ class ExhibitorPublishView(EventPermissionRequiredMixin, View):
 
     def publish_all(self, request):
         if not request.POST.get("confirmed"):
+            waiting = list(self.unpublished_approved())
             return TemplateResponse(
                 request,
                 "exhibitors/publish_confirm.html",
                 {
                     "organization_type": self.organization_type,
-                    "waiting": list(self.unpublished_approved()),
+                    "waiting": [o for o in waiting if not o.missing_public_images],
+                    "missing_images": [o for o in waiting if o.missing_public_images],
+                    "waiting_ids": ",".join(str(o.pk) for o in waiting if not o.missing_public_images),
                     "list_url": self.list_url(),
                     "query_string": request.GET.urlencode(),
                 },
             )
-        published = self.apply(self.unpublished_approved(), True, request.user)
-        if not published:
-            messages.info(request, _("Every approved organization is already published."))
-            return redirect(self.list_url())
-        messages.success(request, self.published_message(len(published)))
+        # Publish only what the confirmation page listed; apply() re-checks each row under the lock.
+        confirmed = self.scoped_queryset().filter(pk__in=self.confirmed_ids())
+        published, blocked = self.apply(confirmed, True, request.user)
+        self.report_blocked(request, blocked)
+        if published:
+            messages.success(request, self.published_message(len(published)))
+        elif not blocked:
+            messages.info(
+                request,
+                _(
+                    "None of the confirmed organizations can be published any more. "
+                    "Open the preview again to see the current list."
+                ),
+            )
         return redirect(self.list_url())
 
+    def confirmed_ids(self):
+        """IDs the confirmation page listed, sent as one field to stay under Django's POST field limit."""
+        values = self.request.POST.get("organizations", "").split(",")
+        ids = (int(value) for value in values if value.isascii() and value.isdigit() and len(value) <= 19)
+        return [pk for pk in ids if pk < 2**63]
+
     def publish_selected(self, request, *, published):
-        changed = self.apply(self.selected(), published, request.user)
-        if not changed:
+        changed, blocked = self.apply(self.selected(), published, request.user)
+        self.report_blocked(request, blocked)
+        if changed:
+            message = self.published_message if published else self.unpublished_message
+            messages.success(request, message(len(changed)))
+        elif not blocked:
             messages.info(request, _("Nothing changed: the selected organizations already had that status."))
-        elif published:
-            messages.success(request, self.published_message(len(changed)))
-        else:
-            messages.success(request, self.unpublished_message(len(changed)))
         return redirect(self.list_url())
+
+    @staticmethod
+    def report_blocked(request, blocked):
+        if not blocked:
+            return
+        messages.warning(
+            request,
+            ngettext(
+                "%(count)d exhibitor could not be published because it is missing a logo or banner.",
+                "%(count)d exhibitors could not be published because they are missing a logo or banner.",
+                len(blocked),
+            )
+            % {"count": len(blocked)},
+        )
 
     @staticmethod
     def published_message(count):

@@ -27,12 +27,22 @@ product has:
 - **Active**, and an optional **Available from** / **Available until** window.
   The public page only lists active products inside their window;
 - a **Product purpose**: *Sponsorship* or *Exhibition*;
-- **Includes exhibition booth**.
+- **Includes exhibition booth**;
+- **Buying this product requires approval**, when only selected buyers should
+  receive the package.
 
 Exhibition products always include a booth. Sponsorship products include a
 booth by default, because most sponsorship packages come with a stand. Turn
 **Includes exhibition booth** off for packages without physical space, such
 as a digital or logo-only sponsorship.
+
+When **Buying this product requires approval** is on, a public order that
+includes that product stays pending until you approve it on the order page.
+The buyer cannot pay or complete the order before then, and free orders are
+not confirmed automatically either. Approving a paid order starts the usual
+payment term; approving a free order confirms it immediately. Denying the
+order cancels it and emails the buyer. Orders you create yourself as an
+organiser and mark as already paid skip this approval step.
 
 What a paid order turns the buyer into:
 
@@ -93,9 +103,11 @@ quota. To record a payment, open the order and click **Mark as paid**. You can
 also mark an expired order as paid while its quotas still have room.
 
 While an order is pending, the buyer's order page shows how to pay and a
-**Re-try payment or choose another payment method** button, the same as for
-tickets. If the buyer has lost the email, click **Resend link** next to their
-email address on the order page.
+**Choose a payment method** button when none is set yet (for example after a
+paid approval-gated order is approved), or **Re-try payment or choose another
+payment method** once a method exists, the same as for tickets. If the buyer
+has lost the email, click **Resend link** next to their email address on the
+order page.
 
 The public page and checkout
 ----------------------------
@@ -109,20 +121,23 @@ shown. Buyers do not need an account. The steps are:
 1. select the packages; each one shows its price, its purpose and whether it
    includes an exhibition booth;
 2. fill in the order form;
-3. choose a payment method (skipped when the order is free);
+3. choose a payment method (skipped when the order is free or needs approval);
 4. review the order and place it;
-5. see the confirmation page with the payment instructions. An email links
-   back to this page.
+5. see the confirmation page. An email links back to this page. If the order
+   needed approval, the buyer waits for the organizer, then opens the order
+   link, chooses **Choose a payment method**, and picks a method. Payment
+   instructions appear after that.
 
 Free products
 -------------
 
 A product with a price of 0 has no payment step. Its order is confirmed at
-once, but otherwise works like a paid order: the buyer fills in the order
-form, the order takes its quota place, it creates the organisation profile,
-and a buyer ordering on the public page gets the **Order confirmed** email
-(see `Emails`_ for orders you create yourself). Use free products for
-community booths.
+once, unless **Buying this product requires approval** is on — then it waits
+for approval like a paid gated order. Otherwise it works like a paid order:
+the buyer fills in the order form, the order takes its quota place, it creates
+the organisation profile, and a buyer ordering on the public page gets the
+**Order confirmed** email (see `Emails`_ for orders you create yourself). Use
+free products for community booths.
 
 Creating orders yourself
 ------------------------
@@ -167,18 +182,26 @@ never hidden or reactivated by an order; its visibility stays as you set it.
 Emails
 ------
 
-There are two buyer email templates. You can edit both under
+There are several buyer email templates for orders. You can edit them under
 **Exhibition → Message center → Templates**:
 
 - **Order placed (awaiting payment)**, with the products, the total and how
   to pay;
+- **Order placed (awaiting approval)**, when a product requires organizer
+  approval;
+- **Order approved**, after you approve a paid order that still needs payment;
+- **Order denied**, when you deny an order awaiting approval;
 - **Order confirmed**, for an order that is paid or free.
 
 When each one is sent:
 
 - An order placed on the public page always sends one of them: **Order
-  confirmed** for a free order, otherwise **Order placed (awaiting
-  payment)**.
+  confirmed** for a free order that does not need approval, **Order placed
+  (awaiting approval)** when approval is required, otherwise **Order placed
+  (awaiting payment)**.
+- Approving a free order sends **Order confirmed**. Approving a paid order
+  sends **Order approved**; the buyer then chooses a payment method on their
+  order page. Denying an order sends **Order denied**.
 - An order you create yourself sends one only if **Send the order email to
   the buyer** is ticked; which one depends on the payment status you chose.
 - Marking an order as paid sends **Order confirmed** only if **Send the order

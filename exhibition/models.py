@@ -641,6 +641,11 @@ class ExhibitorInfo(LoggedModel):
         return _("No group")
 
     @property
+    def missing_public_images(self):
+        """Exhibitors need both a logo and a banner before the public Exhibition page lists them."""
+        return self.is_exhibitor and not (self.logo and self.banner)
+
+    @property
     def visible_logo_url(self):
         return self.logo.url if self.logo else ""
 
@@ -790,6 +795,8 @@ LOG_ORDER_PAID = f"{LOG_PREFIX}.order.paid"
 LOG_ORDER_CANCELLED = f"{LOG_PREFIX}.order.cancelled"
 LOG_ORDER_EXPIRED = f"{LOG_PREFIX}.order.expired"
 LOG_ORDER_PAYMENT_CHANGED = f"{LOG_PREFIX}.order.payment_changed"
+LOG_ORDER_APPROVED = f"{LOG_PREFIX}.order.approved"
+LOG_ORDER_DENIED = f"{LOG_PREFIX}.order.denied"
 LOG_QUOTA_ADDED = f"{LOG_PREFIX}.quota.added"
 LOG_QUOTA_CHANGED = f"{LOG_PREFIX}.quota.changed"
 LOG_QUOTA_DELETED = f"{LOG_PREFIX}.quota.deleted"
@@ -1525,6 +1532,16 @@ class ExhibitionProduct(LoggedModel):
             "digital package. Exhibition products always include one."
         ),
     )
+    require_approval = models.BooleanField(
+        default=False,
+        db_default=False,
+        verbose_name=_("Buying this product requires approval"),
+        help_text=_(
+            "If this product is part of an order, the order stays pending approval until you confirm "
+            "it. Payment and completion are blocked until then. Use this for packages that only "
+            "selected applicants should receive."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Exhibition product")
@@ -1721,6 +1738,12 @@ class ExhibitionOrder(LoggedModel):
     payment_reference = models.CharField(max_length=255, blank=True, verbose_name=_("Payment reference"))
     payment_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Payment date"))
     expires = models.DateTimeField(null=True, blank=True, verbose_name=_("Expiration date"))
+    require_approval = models.BooleanField(
+        default=False,
+        db_default=False,
+        verbose_name=_("Requires approval"),
+        help_text=_("This order must be approved by an organizer before it can be paid or completed."),
+    )
     created = models.DateTimeField(auto_now_add=True, verbose_name=_("Order date"))
     organization = models.ForeignKey(
         ExhibitorInfo,
@@ -1770,14 +1793,26 @@ class ExhibitionOrder(LoggedModel):
 
     @property
     def can_be_marked_paid(self):
-        return self.status in (ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED)
+        return (
+            self.status in (ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED) and not self.require_approval
+        )
 
     @property
     def can_be_cancelled(self):
         return self.status != ExhibitionOrderStatus.CANCELLED
 
+    @property
+    def can_be_approved(self):
+        return self.status == ExhibitionOrderStatus.PENDING and self.require_approval
+
+    @property
+    def can_be_denied(self):
+        return self.can_be_approved
+
     def mark_paid(self, *, provider="", reference="", user=None):
         """Record a received payment and link the organisation; an expired order needs its quota room back."""
+        if self.require_approval:
+            raise ExhibitionOrderStateError(f"Order {self.code} still requires approval before payment.")
         with transaction.atomic():
             self._transition(
                 {ExhibitionOrderStatus.PENDING, ExhibitionOrderStatus.EXPIRED},
@@ -1791,6 +1826,38 @@ class ExhibitionOrder(LoggedModel):
             )
             self.link_organization(user=user)
 
+    def approve(self, *, user=None):
+        """Clear the approval hold so the buyer can pay, or confirm a free order immediately."""
+        from datetime import timedelta
+
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if not current.require_approval or current.status != ExhibitionOrderStatus.PENDING:
+                raise ExhibitionOrderStateError(f"Order {self.code} is not pending approval.")
+            self.require_approval = False
+            update_fields = ["require_approval"]
+            if self.total:
+                days = self.event.settings.get("payment_term_days", as_type=int) or 14
+                self.expires = timezone.now() + timedelta(days=days)
+                update_fields.append("expires")
+            self.save(update_fields=update_fields)
+            self.log_action(LOG_ORDER_APPROVED, user=user)
+            if not self.total:
+                # Same identifier as orders.FREE_PAYMENT_PROVIDER; avoid importing orders here.
+                self.mark_paid(provider="free", user=user)
+
+    def deny(self, *, user=None):
+        """Reject an order awaiting approval and release any reserved quota."""
+        with transaction.atomic():
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if not current.require_approval or current.status != ExhibitionOrderStatus.PENDING:
+                raise ExhibitionOrderStateError(f"Order {self.code} is not pending approval.")
+            self.require_approval = False
+            self.status = ExhibitionOrderStatus.CANCELLED
+            self.save(update_fields=["require_approval", "status"])
+            self.log_action(LOG_ORDER_DENIED, user=user)
+            self.release_organization(user=user)
+
     def cancel(self, *, user=None):
         with transaction.atomic():
             self._transition(
@@ -1799,13 +1866,17 @@ class ExhibitionOrder(LoggedModel):
                 LOG_ORDER_CANCELLED,
                 user,
             )
+            # Keep cancelled rows out of approval-pending filters/queries.
+            if self.require_approval:
+                self.require_approval = False
+                self.save(update_fields=["require_approval"])
             self.release_organization(user=user)
 
     def change_payment_provider(self, provider, *, user=None):
         """Switch a pending order to another payment method, as a buyer retrying the payment does."""
         with transaction.atomic():
             current = type(self).objects.select_for_update().get(pk=self.pk)
-            if current.status != ExhibitionOrderStatus.PENDING:
+            if current.status != ExhibitionOrderStatus.PENDING or current.require_approval:
                 raise ExhibitionOrderStateError(f"Order {self.code} is not awaiting payment.")
             previous = current.payment_provider
             self.payment_provider = provider

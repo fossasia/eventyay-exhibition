@@ -109,6 +109,13 @@ def flag_oversized_upload(form, field_name, submitted):
     return True
 
 
+def profile_help_text(field, setting):
+    """An organizer's own help text replaces the field's; the default one follows it."""
+    if setting.get("custom_help_text"):
+        return setting["custom_help_text"]
+    return " ".join(str(text) for text in (field.help_text, setting.get("help_text")) if text)
+
+
 def get_tz_help(event):
     return _("Times are in the event timezone: %(tz)s.") % {"tz": event.timezone}
 
@@ -527,10 +534,9 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 "Lets this exhibitor sign in to the lead scanning app and scan attendees at their booth. "
                 "Turn this off to block scanning entirely."
             ),
-            "header_image": _(
-                "Shown as the banner on the public exhibitor page. "
-                "Use a wide 3:1 image, for example 1500 x 500 pixels. Other shapes are "
-                "shown complete on a plain background there, but list cards crop to fill."
+            "banner": _(
+                "Shown as the banner on the public exhibitor page, in full on a plain background "
+                "if it is not 3:1. List cards crop it to fill."
             ),
         }
 
@@ -678,8 +684,7 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 if index == 0:
                     if setting.get("custom_label"):
                         field.label = setting["custom_label"]
-                    if setting.get("help_text"):
-                        field.help_text = setting["help_text"]
+                    field.help_text = profile_help_text(field, setting)
                 field._required = is_required
                 if key in self.PROFILE_COMPOSITE_KEYS or key == "booth_name":
                     continue
@@ -819,8 +824,28 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
 
         self._resolve_organization_kind(cleaned_data)
         self._validate_exhibitor_group(cleaned_data)
+        self._validate_publish_images(cleaned_data)
 
         return cleaned_data
+
+    def _validate_publish_images(self, cleaned_data):
+        """Publishing an exhibitor needs both images, even where the profile settings leave them optional."""
+        if not cleaned_data.get("published") or not self._resolved_is_exhibitor:
+            return
+        images = ("logo", "banner")
+        if any(self.has_error(name) for name in images):
+            return
+        if all(self._image_after_save(cleaned_data, name) for name in images):
+            return
+        self.add_error(
+            "published",
+            _("Both a logo and an exhibition banner are required to publish this exhibitor on the public site."),
+        )
+
+    def _image_after_save(self, cleaned_data, name):
+        if name in self.fields:
+            return bool(cleaned_data.get(name))
+        return bool(getattr(self.instance, name))
 
     def _validate_exhibitor_group(self, cleaned_data):
         """A new exhibitor needs a group, and one that has a group keeps one, whether or not it also sponsors."""
@@ -845,10 +870,14 @@ class ExhibitorInfoForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
         files_to_delete: set[str] = set()
 
         for image_field in self.file_fields:
+            if image_field not in self.fields:
+                continue
             url_field = self.file_url_fields.get(image_field)
             previous_file = getattr(old_instance, image_field, None) if old_instance else None
             uploaded_file = self.files.get(self.add_prefix(image_field))
-            clear_selected = bool(self.data.get(self.add_prefix(f"{image_field}-clear")))
+            clear_selected = forms.CheckboxInput().value_from_datadict(
+                self.data, self.files, self.add_prefix(f"{image_field}-clear")
+            )
 
             if uploaded_file:
                 if previous_file and previous_file.name:
@@ -1450,10 +1479,9 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
             "notes": _("Message to the organizers"),
         }
         help_texts = {
-            "header_image": _(
-                "Shown as the banner on the public exhibitor page. "
-                "Use a wide 3:1 image, for example 1500 x 500 pixels. Other shapes are "
-                "shown complete on a plain background there, but list cards crop to fill."
+            "banner": _(
+                "Shown as the banner on the public exhibitor page, in full on a plain background "
+                "if it is not 3:1. List cards crop it to fill."
             ),
         }
         widgets = {
@@ -1600,8 +1628,7 @@ class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
                 if index == 0:
                     if setting.get("custom_label"):
                         field.label = setting["custom_label"]
-                    if setting.get("help_text"):
-                        field.help_text = setting["help_text"]
+                    field.help_text = profile_help_text(field, setting)
                 field._required = is_required
                 if key in file_field_keys or key == "booth_name":
                     continue
@@ -2651,6 +2678,7 @@ class ExhibitionProductForm(I18nModelForm):
             "active",
             "available_from",
             "available_until",
+            "require_approval",
         ]
         field_classes = {
             "available_from": SplitDateTimeField,
