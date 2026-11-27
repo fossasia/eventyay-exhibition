@@ -13,6 +13,7 @@ from eventyay.base.signals import (
     logentry_display,
     logentry_object_link,
     periodic_task,
+    register_image_backfill_targets,
     register_mail_placeholders,
 )
 from eventyay.base.templatetags.money import money_filter
@@ -85,6 +86,7 @@ from .models import (
     LOG_REQUEST_EMAILED,
     LOG_SETTINGS_CHANGED,
     REQUEST_LOG_ACTIONS,
+    ExhibitionAnswer,
     ExhibitionEmailDraft,
     ExhibitionEmailQueue,
     ExhibitionOrder,
@@ -761,6 +763,18 @@ def exhibition_logentry_object_link(sender, logentry, **kwargs):
 @scopes_disabled()
 def expire_overdue_exhibition_orders(sender, **kwargs):
     expire_overdue_orders()
+
+
+@receiver(register_image_backfill_targets, dispatch_uid="exhibition_image_backfill_targets")
+def exhibition_image_backfill_targets(sender, **kwargs):
+    return {
+        "exhibition_exhibitor_logo": (ExhibitorInfo, "logo", False),
+        "exhibition_exhibitor_banner": (ExhibitorInfo, "banner", False),
+        "exhibition_request_logo": (ExhibitionRequest, "logo", False),
+        "exhibition_request_banner": (ExhibitionRequest, "banner", False),
+        # Answers can also be PDFs or documents, so only raster images are converted.
+        "exhibition_answer": (ExhibitionAnswer, "file", False, True),
+    }
 
 
 def is_admin_page(request):

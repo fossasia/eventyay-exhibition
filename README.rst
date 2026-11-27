@@ -127,6 +127,14 @@ Run tests::
 
     pytest
 
+Backfill existing images to WebP. Core's ``backfill_images`` command also covers
+exhibitor and request logos, banners and image answers; pass ``--model`` to limit it
+to ``exhibition_exhibitor_logo``, ``exhibition_exhibitor_banner``,
+``exhibition_request_logo``, ``exhibition_request_banner`` or ``exhibition_answer``::
+
+    python manage.py backfill_images --dry-run
+    python manage.py backfill_images --backup-dir /path/to/backup
+
 Run formatting and lint checks::
 
     ruff format --check .
