@@ -2432,6 +2432,49 @@ class ExhibitionOrderActionMixin(ExhibitionOrderMixin):
     permission = ("can_change_event_settings", "can_change_orders")
 
 
+class ExhibitionOrderApproveView(ExhibitionOrderActionMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not self.order.can_be_approved:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        try:
+            self.order.approve(user=request.user)
+        except ExhibitionOrderStateError:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        except ExhibitionQuotaExceeded:
+            messages.error(
+                request,
+                _(
+                    "This free order cannot be confirmed because its products have sold out. "
+                    "Free up room in their quotas first."
+                ),
+            )
+            return redirect(self.get_order_url())
+        if self.order.status == ExhibitionOrderStatus.PAID:
+            send_order_email(self.order, user=request.user)
+            messages.success(request, _("The order has been approved and confirmed."))
+        else:
+            send_order_email(self.order, user=request.user, role=mail_helpers.ORDER_APPROVED)
+            messages.success(request, _("The order has been approved. The buyer can now complete payment."))
+        return redirect(self.get_order_url())
+
+
+class ExhibitionOrderDenyView(ExhibitionOrderActionMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not self.order.can_be_denied:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        try:
+            self.order.deny(user=request.user)
+        except ExhibitionOrderStateError:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        send_order_email(self.order, user=request.user, role=mail_helpers.ORDER_DENIED)
+        messages.success(request, _("The order has been denied and cancelled."))
+        return redirect(self.get_order_url())
+
+
 class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
     """Organisers book an order themselves: first the products, then the order form and the payment status."""
 

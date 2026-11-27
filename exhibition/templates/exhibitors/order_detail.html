@@ -13,14 +13,28 @@
 
 {% block exhibitors_content %}
     {% if can_change_orders %}
-        {% if order.can_be_marked_paid or order.can_be_cancelled %}
+        {% if order.can_be_approved or order.can_be_marked_paid or order.can_be_cancelled %}
             <p class="list-toolbar">
+                {% if order.can_be_approved %}
+                    <form method="post" action="{% url 'plugins:exhibition:orders.approve' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" style="display:inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success">
+                            <i class="fa fa-thumbs-up"></i> {% trans "Approve" %}
+                        </button>
+                    </form>
+                    <form method="post" action="{% url 'plugins:exhibition:orders.deny' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" style="display:inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fa fa-thumbs-down"></i> {% trans "Deny" %}
+                        </button>
+                    </form>
+                {% endif %}
                 {% if order.can_be_marked_paid %}
                     <a href="{% url 'plugins:exhibition:orders.mark_paid' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" class="btn btn-success">
                         <i class="fa fa-check"></i> {% trans "Mark as paid" %}
                     </a>
                 {% endif %}
-                {% if order.can_be_cancelled %}
+                {% if order.can_be_cancelled and not order.can_be_approved %}
                     <a href="{% url 'plugins:exhibition:orders.cancel' organizer=request.event.organizer.slug event=request.event.slug code=order.code %}" class="btn btn-danger">
                         <i class="fa fa-ban"></i> {% trans "Cancel order" %}
                     </a>
@@ -38,6 +52,10 @@
                         <dd>{{ order.code }}</dd>
                         <dt>{% trans "Order date" %}</dt>
                         <dd>{{ order.created|date:"SHORT_DATETIME_FORMAT" }}</dd>
+                        {% if order.can_be_approved %}
+                            <dt>{% trans "Approval" %}</dt>
+                            <dd><span class="label label-warning">{% trans "Awaiting approval" %}</span></dd>
+                        {% endif %}
                         <dt>{% trans "Buyer's order page" %}</dt>
                         <dd><a href="{{ buyer_url }}" target="_blank" rel="noopener">{% trans "Open" %}</a></dd>
                         {% if order.status == "pending" or order.status == "expired" %}

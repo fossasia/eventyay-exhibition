@@ -27,7 +27,22 @@
                     {% include "exhibitors/_shop_order_summary.html" %}
                 </div>
             </div>
-            {% if payment_provider %}
+            {% if needs_approval %}
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title">{% trans "Approval required" %}</h3>
+                    </div>
+                    <div class="panel-body">
+                        <p>
+                            {% blocktrans trimmed %}
+                                This order requires organizer approval. After you place it, payment and
+                                confirmation will wait until the organizers approve your order. You will
+                                receive an email with the outcome.
+                            {% endblocktrans %}
+                        </p>
+                    </div>
+                </div>
+            {% elif payment_provider %}
                 <div class="panel panel-primary">
                     <div class="panel-heading">
                         <div class="pull-right flip">
