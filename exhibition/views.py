@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from collections import Counter
 from urllib.parse import quote, urlencode
 
 from django.conf import settings as django_settings
@@ -941,8 +942,10 @@ class PublicCallView(PublicCallEnabledMixin, TemplateView):
         context["call_is_open"] = self.is_call_open(settings)
         context["private_call_access"] = settings.call_private and self.has_private_call_access(settings)
         cart = self.request.session.get(checkout_session_key(self.request.event), {})
+        selected = Counter(cart.get("products", []))
+        for product in self.packages:
+            product.selected_count = selected.get(product.pk, 0)
         context["products_by_category"] = group_by_category(self.packages)
-        context["selected"] = {str(pk) for pk in cart.get("products", [])}
         if self.request.user.is_authenticated:
             context["user_requests"] = ExhibitionRequest.objects.filter(
                 event=self.request.event,
@@ -2441,8 +2444,13 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
         if self.request.method == "POST":
             data = self.request.POST
         else:
-            data = self.request.GET if "products" in self.request.GET else None
+            data = self.request.GET if ExhibitionOrderProductsForm.is_submitted(self.request.GET) else None
         return ExhibitionOrderProductsForm(data=data, event=self.request.event)
+
+    @staticmethod
+    def product_lines(products):
+        """The chosen products once each, in order, with how many of each were chosen."""
+        return list(Counter(products).items())
 
     def get_details_forms(self, products, data=None, files=None):
         order_form = ExhibitionOrderForm(data=data, files=files, event=self.request.event, products=products)
@@ -2455,20 +2463,31 @@ class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):
         products_form = self.get_products_form()
         context = self.get_context_data(products_form=products_form)
         if products_form.is_bound and products_form.is_valid():
-            products = list(products_form.cleaned_data["products"])
+            products = products_form.cleaned_data["products"]
             context["products"] = products
+            context["product_lines"] = self.product_lines(products)
             context["order_form"], context["booking_form"] = self.get_details_forms(products)
         return self.render_to_response(context)
 
     def post(self, request, *args, **kwargs):
         products_form = self.get_products_form()
         if not products_form.is_valid():
-            messages.error(request, _("Please select at least one product."))
+            field_errors = [
+                f"{products_form.fields[name].label}: {error}" if name in products_form.fields else error
+                for name, errors in products_form.errors.items()
+                for error in errors
+            ]
+            for error in field_errors or [_("Please select at least one product.")]:
+                messages.error(request, error)
             return redirect("plugins:exhibition:orders.add", **event_kwargs(request.event))
-        products = list(products_form.cleaned_data["products"])
+        products = products_form.cleaned_data["products"]
         order_form, booking_form = self.get_details_forms(products, request.POST, request.FILES)
         context = self.get_context_data(
-            products_form=products_form, products=products, order_form=order_form, booking_form=booking_form
+            products_form=products_form,
+            products=products,
+            product_lines=self.product_lines(products),
+            order_form=order_form,
+            booking_form=booking_form,
         )
         if not (order_form.is_valid() and booking_form.is_valid()):
             return self.render_to_response(context)

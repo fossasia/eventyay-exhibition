@@ -1,5 +1,5 @@
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
 
 from django.contrib import messages
@@ -20,12 +20,21 @@ from .forms import ExhibitionOrderForm
 from .models import (
     ExhibitionOrder,
     ExhibitionOrderError,
+    ExhibitionOrderLimitError,
     ExhibitionOrderStateError,
     ExhibitionOrderStatus,
     ExhibitionProduct,
     ExhibitionQuotaExceeded,
 )
-from .orders import payment_instructions, place_exhibition_order, send_order_email, usable_payment_providers
+from .orders import (
+    order_limit_errors,
+    payment_instructions,
+    place_exhibition_order,
+    send_order_email,
+    usable_payment_providers,
+)
+
+QUANTITY_FIELD_PREFIX = "quantity_"
 
 
 def checkout_session_key(event):
@@ -43,7 +52,10 @@ def shop_products(event):
     )
     for product in products:
         product.remaining = product.remaining_capacity()
-        product.sold_out = product.remaining == 0
+        # A product whose quota cannot cover its minimum per order can never be ordered.
+        product.sold_out = product.remaining is not None and product.remaining < max(product.min_per_order or 1, 1)
+        limits = [limit for limit in (product.effective_max_per_order, product.remaining) if limit is not None]
+        product.max_quantity = min(limits)
     return products
 
 
@@ -97,26 +109,48 @@ class ShopIndexView(View):
 
     def post(self, request, *args, **kwargs):
         on_sale = {str(product.pk): product for product in self.products}
-        chosen = [on_sale.get(pk) for pk in request.POST.getlist("product")]
-        if not chosen:
+        counts = Counter(request.POST.getlist("product"))
+        for key, value in request.POST.items():
+            if not key.startswith(QUANTITY_FIELD_PREFIX) or not value.strip():
+                continue
+            try:
+                quantity = int(value)
+            except ValueError:
+                quantity = -1
+            if quantity < 0:
+                messages.error(request, _("Please enter a valid quantity."))
+                return redirect(packages_url(request.event))
+            counts[key.removeprefix(QUANTITY_FIELD_PREFIX)] += quantity
+        counts = {pk: count for pk, count in counts.items() if count}
+        if not counts:
             messages.error(request, _("Please select at least one product."))
             return redirect(packages_url(request.event))
-        if None in chosen:
+        if any(pk not in on_sale for pk in counts):
             messages.error(request, _("One of the selected products is no longer on sale."))
             return redirect(packages_url(request.event))
-        sold_out = [product for product in chosen if product.sold_out]
+        sold_out = [
+            on_sale[pk]
+            for pk, count in counts.items()
+            if on_sale[pk].sold_out or (on_sale[pk].remaining is not None and count > on_sale[pk].remaining)
+        ]
         if sold_out:
             messages.error(
                 request,
                 _("{products} is sold out.").format(products=", ".join(str(product) for product in sold_out)),
             )
             return redirect(packages_url(request.event))
+        limit_errors = [error for pk, count in counts.items() if (error := on_sale[pk].order_limit_error(count))]
+        if limit_errors:
+            for error in limit_errors:
+                messages.error(request, error)
+            return redirect(packages_url(request.event))
+        chosen = [product for product in self.products for _unit in range(counts.get(str(product.pk), 0))]
         key = checkout_session_key(request.event)
         cart = request.session.get(key, {})
         cart["products"] = [product.pk for product in chosen]
         cart.pop("addons", None)
         request.session[key] = cart
-        if any(p.addons.exists() for p in chosen):
+        if any(p.addons.exists() for p in set(chosen)):
             return redirect(shop_url(request.event, "shop.checkout.addons"))
         return redirect(shop_url(request.event, "shop.checkout.details"))
 
@@ -495,6 +529,13 @@ class ShopAddOnsView(ShopCheckoutMixin, TemplateView):
                                 }
                             )
 
+        addon_products = ExhibitionProduct.objects.in_bulk({item["product_id"] for item in chosen_addons})
+        errors.extend(
+            order_limit_errors(
+                [product for product in self.products if product]
+                + [addon_products[item["product_id"]] for item in chosen_addons]
+            )
+        )
         if errors:
             for err in errors:
                 messages.error(request, err)
@@ -649,6 +690,9 @@ class ShopConfirmView(ShopCheckoutMixin, TemplateView):
             )
         except ExhibitionQuotaExceeded:
             messages.error(request, _("Sorry, one of the selected products has sold out in the meantime."))
+            return redirect(packages_url(request.event))
+        except ExhibitionOrderLimitError as error:
+            messages.error(request, str(error))
             return redirect(packages_url(request.event))
         except ExhibitionOrderError:
             messages.error(request, _("Your order could not be placed. Please check your selection."))

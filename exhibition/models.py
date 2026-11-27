@@ -1466,6 +1466,11 @@ def get_next_product_position(event):
     return (max_position if max_position is not None else -1) + 1
 
 
+# Upper bound on units of one product per order when the organizer sets no maximum, so a crafted
+# request cannot make the checkout build an unbounded list of order positions.
+MAX_UNITS_PER_PRODUCT = 100
+
+
 class ExhibitionProduct(LoggedModel):
     """An exhibition or sponsorship package the event sells.
 
@@ -1530,6 +1535,26 @@ class ExhibitionProduct(LoggedModel):
             "digital package. Exhibition products always include one."
         ),
     )
+    min_per_order = models.PositiveIntegerField(
+        validators=[MaxValueValidator(MAX_UNITS_PER_PRODUCT)],
+        verbose_name=_("Minimum amount per order"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "This product can only be bought if it is added to the order at least this many times. If you keep "
+            "the field empty or set it to 0, there is no special limit for this product."
+        ),
+    )
+    max_per_order = models.PositiveIntegerField(
+        validators=[MaxValueValidator(MAX_UNITS_PER_PRODUCT)],
+        verbose_name=_("Maximum amount per order"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "This product can only be bought at most this many times within one order. If you keep the field "
+            "empty or set it to 0, there is no special limit for this product."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Exhibition product")
@@ -1569,6 +1594,25 @@ class ExhibitionProduct(LoggedModel):
         """How many more can be sold going by the product's quotas, or None when nothing limits it."""
         remaining = [quota.remaining for quota in self.quotas.with_usage() if quota.size is not None]
         return min(remaining) if remaining else None
+
+    @property
+    def effective_max_per_order(self):
+        """The organizer's maximum per order, never above the platform ceiling."""
+        return min(self.max_per_order or MAX_UNITS_PER_PRODUCT, MAX_UNITS_PER_PRODUCT)
+
+    def order_limit_error(self, count):
+        """Why ``count`` of this product cannot be in one order, or None when the amount is allowed."""
+        if count and count > self.effective_max_per_order:
+            return _("You cannot select more than %(max)s products of the product %(product)s.") % {
+                "max": self.effective_max_per_order,
+                "product": self,
+            }
+        if count and self.min_per_order and count < self.min_per_order:
+            return _("You need to select at least %(min)s products of the product %(product)s.") % {
+                "min": self.min_per_order,
+                "product": self,
+            }
+        return None
 
     def save(self, *args, **kwargs):
         """Saving settles the booth rule, so no caller can store another answer."""
@@ -1669,6 +1713,10 @@ class ExhibitionOrderError(Exception):
 
 class ExhibitionQuotaExceeded(ExhibitionOrderError):
     """A quota has no capacity left for the products asked for."""
+
+
+class ExhibitionOrderLimitError(ExhibitionOrderError):
+    """The order breaks a product's minimum or maximum amount per order; the message is shown to the buyer."""
 
 
 def generate_exhibition_order_code(event):

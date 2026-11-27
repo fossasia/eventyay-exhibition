@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from html import unescape
 
 import dateutil.parser
@@ -2678,6 +2679,8 @@ class ExhibitionProductForm(I18nModelForm):
             "active",
             "available_from",
             "available_until",
+            "min_per_order",
+            "max_per_order",
         ]
         field_classes = {
             "available_from": SplitDateTimeField,
@@ -2708,6 +2711,13 @@ class ExhibitionProductForm(I18nModelForm):
         available_until = cleaned_data.get("available_until")
         if available_from and available_until and available_until < available_from:
             self.add_error("available_until", _("The end of the sales period must be after its start."))
+        min_per_order = cleaned_data.get("min_per_order")
+        max_per_order = cleaned_data.get("max_per_order")
+        if min_per_order and max_per_order and min_per_order > max_per_order:
+            self.add_error(
+                "max_per_order",
+                _("The maximum number per order can not be lower than the minimum number per order."),
+            )
         drops_booth = cleaned_data.get("purpose") == ExhibitionProductPurpose.SPONSORSHIP and not cleaned_data.get(
             "includes_booth"
         )
@@ -2738,20 +2748,49 @@ class ExhibitionOrderMarkPaidForm(forms.Form):
 
 
 class ExhibitionOrderProductsForm(forms.Form):
-    """The products an organiser books, whether or not they are on public sale."""
-
-    products = forms.ModelMultipleChoiceField(
-        queryset=ExhibitionProduct.objects.none(),
-        widget=forms.CheckboxSelectMultiple,
-        label=_("Products"),
-    )
+    """The products an organiser books, whether or not they are on public sale, with how many of each."""
 
     def __init__(self, *args, event, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["products"].queryset = ExhibitionProduct.objects.filter(event=event).in_sales_order()
-        self.fields["products"].label_from_instance = lambda product: (
-            f"{product} ({money_filter(product.price, event.currency)})"
-        )
+        self.event = event
+        self.products = list(ExhibitionProduct.objects.filter(event=event).in_sales_order())
+        for product in self.products:
+            self.fields[self.quantity_field_name(product)] = forms.IntegerField(
+                label=f"{product} ({money_filter(product.price, event.currency)})",
+                min_value=0,
+                max_value=product.effective_max_per_order,
+                required=False,
+                widget=forms.NumberInput(attrs={"placeholder": "0"}),
+            )
+
+    @staticmethod
+    def quantity_field_name(product):
+        return f"quantity_{product.pk}"
+
+    @classmethod
+    def is_submitted(cls, data):
+        """Whether ``data`` carries a product choice, from the quantity inputs or the chosen products list."""
+        return "products" in data or any(key.startswith("quantity_") for key in data)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        by_pk = {str(product.pk): product for product in self.products}
+        counts = Counter()
+        for pk in self.data.getlist("products") if hasattr(self.data, "getlist") else []:
+            if pk not in by_pk:
+                raise ValidationError(_("One of the selected products does not exist."))
+            counts[pk] += 1
+        for product in self.products:
+            counts[str(product.pk)] += cleaned_data.get(self.quantity_field_name(product)) or 0
+        if not any(counts.values()):
+            raise ValidationError(_("Please select at least one product."))
+        limit_errors = [
+            str(error) for product in self.products if (error := product.order_limit_error(counts[str(product.pk)]))
+        ]
+        if limit_errors:
+            raise ValidationError(limit_errors)
+        cleaned_data["products"] = [product for product in self.products for _unit in range(counts[str(product.pk)])]
+        return cleaned_data
 
 
 class ExhibitionOrderBookingForm(forms.Form):
