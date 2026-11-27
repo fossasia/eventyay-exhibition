@@ -36,6 +36,16 @@
                      data-request-reason-reject="{% trans 'None of the selected requests can be rejected.' %}"
                      data-request-skip-approve="{% trans '{count} selected requests cannot be approved and will be skipped.' %}"
                      data-request-skip-reject="{% trans '{count} selected requests cannot be rejected and will be skipped.' %}">
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="{% trans "Download the selected requests, or every request that matches the search and filters" %}">
+                            <i class="fa fa-download"></i> {% trans "Download requests" %}
+                            <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a href="?download=yes&amp;_format=xlsx" data-request-download-link><i class="fa fa-file-excel-o"></i> {% trans "Excel (.xlsx)" %}</a></li>
+                            <li><a href="?download=yes&amp;_format=default" data-request-download-link><i class="fa fa-file-text-o"></i> {% trans "CSV" %}</a></li>
+                        </ul>
+                    </div>
                     <span class="request-bulk-count text-muted" data-request-selected-count></span>
                     <span class="request-bulk-buttons">
                         <button type="button" class="btn btn-success btn-sm request-action-btn request-action-approve" data-request-bulk="approve" disabled>

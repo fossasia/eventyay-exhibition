@@ -378,6 +378,22 @@
             })
         }
 
+        container.querySelectorAll('[data-request-download-link]').forEach(function (link) {
+            link.addEventListener('click', function (event) {
+                event.preventDefault()
+                var params = filterParams()
+                params.delete('code')
+                params.set('download', 'yes')
+                params.set('_format', new URLSearchParams(link.search).get('_format'))
+                if (store.size() && !allResultsSelected()) {
+                    store.ids().forEach(function (code) {
+                        params.append('code', code)
+                    })
+                }
+                window.location.href = window.location.pathname + '?' + params.toString()
+            })
+        })
+
         container.addEventListener('change', function (event) {
             if (event.target.matches('[data-request-checkbox]')) {
                 store.toggle(event.target.value, event.target.checked, metaFor(event.target))
