@@ -533,7 +533,7 @@ def test_an_answer_survives_a_deleted_parent(call_event):
 
 
 @pytest.mark.django_db
-def test_deleting_an_answer_removes_its_file(call_event):
+def test_deleting_an_answer_removes_its_file(call_event, django_capture_on_commit_callbacks):
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
 
@@ -554,7 +554,8 @@ def test_deleting_an_answer_removes_its_file(call_event):
         data={"name": "Acme", "content_locale": "en", f"question_{parent.pk}": str(options[1].pk)},
     )
     assert form.is_valid(), form.errors
-    form.save_exhibition_questions(exhibition_request)
+    with django_capture_on_commit_callbacks(execute=True):
+        form.save_exhibition_questions(exhibition_request)
 
     assert not ExhibitionAnswer.objects.filter(exhibition_request=exhibition_request, question=child).exists()
     assert not default_storage.exists(stored_name)

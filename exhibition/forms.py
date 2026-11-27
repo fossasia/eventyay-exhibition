@@ -120,10 +120,17 @@ def get_tz_help(event):
     return _("Times are in the event timezone: %(tz)s.") % {"tz": event.timezone}
 
 
+def delete_answer_file_on_commit(file):
+    """Remove a stored answer file once the transaction commits, so a rollback cannot leave a dangling reference."""
+    if not file:
+        return
+    storage, name = file.storage, file.name
+    transaction.on_commit(lambda: storage.delete(name))
+
+
 def delete_exhibition_answer(answer):
     """Delete an answer and the file it holds; Django leaves the file behind on its own."""
-    if answer.file:
-        answer.file.delete(save=False)
+    delete_answer_file_on_commit(answer.file)
     answer.delete()
 
 
@@ -253,8 +260,13 @@ def parse_answer_datetime(value):
 
 
 def parse_answer_date(value):
-    parsed = parse_answer_datetime(value)
-    return parsed.date() if parsed else None
+    """A stored date is a calendar date, so read it as one; converting it to a timezone can shift the day."""
+    if not value:
+        return None
+    try:
+        return dateutil.parser.parse(value).date()
+    except (ValueError, OverflowError):
+        return None
 
 
 def parse_answer_time(value):
@@ -472,14 +484,18 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 answer = self.new_exhibition_answer(exhibition_request, question)
 
             if isinstance(field, ExtFileField):
+                replaced_file = None
                 if value is False:
-                    answer.file.delete(save=False)
+                    delete_answer_file_on_commit(answer.file)
                     answer.file = None
                     answer.answer = ""
                 elif isinstance(value, UploadedFile):
+                    replaced_file = answer.file or None
                     answer.file = value
                     answer.answer = value.name
                 answer.save()
+                if replaced_file and replaced_file.name != answer.file.name:
+                    delete_answer_file_on_commit(replaced_file)
                 answer.options.clear()
             elif isinstance(field, forms.ModelMultipleChoiceField):
                 selected_options = list(value)
