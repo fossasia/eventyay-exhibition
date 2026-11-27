@@ -1848,6 +1848,7 @@ class ExhibitionRequestReviewForm(I18nModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.review_action = kwargs.pop("review_action", None)
         event = kwargs.get("event")
         instance = kwargs.get("instance")
         super().__init__(*args, **kwargs)
@@ -1862,7 +1863,7 @@ class ExhibitionRequestReviewForm(I18nModelForm):
         if not cleaned_data.get("is_exhibitor"):
             cleaned_data["booth_number"] = None
             cleaned_data["booth_name"] = ""
-        elif "booth_number" in self.fields:
+        elif "booth_number" in self.fields and self.review_action in (None, "approve"):
             booth_number = normalize_booth_number(cleaned_data.get("booth_number"))
             if booth_number:
                 queryset = ExhibitorInfo.objects.filter(event=self.event, booth_number=booth_number)

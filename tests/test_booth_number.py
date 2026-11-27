@@ -574,3 +574,96 @@ def test_exhibitor_create_view_reraises_unrelated_integrity_error(event, image_u
                 view.form_valid(form)
 
         assert not ExhibitorInfo.objects.filter(event=event, booth_number="B-303").exists()
+
+
+@pytest.mark.django_db
+def test_exhibitor_create_view_restores_empty_files_and_cleans_up_on_booth_conflict(event, image_uploads):
+    from django.core.files.storage import default_storage
+
+    from exhibition.views import ExhibitorCreateView
+
+    with scopes_disabled():
+        view, _ = _exhibitor_view(
+            ExhibitorCreateView,
+            event,
+            {
+                "name_0": "Upload Conflict Create",
+                "is_exhibitor": "on",
+                "booth_number": "B-202",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            image_uploads(),
+            organization_type="exhibitor",
+        )
+        form = view.get_form()
+        assert form.is_valid(), form.errors
+
+        ExhibitorInfo.objects.create(event=event, name="Winner", is_exhibitor=True, booth_number="B-202")
+
+        response = view.form_valid(form)
+
+        assert response.status_code == 200
+        assert "booth_number" in form.errors
+        assert "logo" in form.errors
+        assert "banner" in form.errors
+        assert not form.instance.logo
+        assert not form.instance.banner
+        assert form.data["name_0"] == "Upload Conflict Create"
+        assert form["booth_number"].value() == "B-202"
+        assert not default_storage.exists("exhibitors/logos/upload-conflict-create/logo.png")
+        assert not default_storage.exists("exhibitors/banners/upload-conflict-create/banner.png")
+
+
+@pytest.mark.django_db
+def test_exhibitor_edit_view_restores_persisted_files_and_preserves_existing_on_conflict(event, image_uploads):
+    from django.core.files.storage import default_storage
+
+    from exhibition.views import ExhibitorEditView
+
+    with scopes_disabled():
+        uploads = image_uploads()
+        exhibitor = ExhibitorInfo.objects.create(
+            event=event,
+            name="Acme Existing",
+            is_exhibitor=True,
+            booth_number="B-101",
+            exhibitor_group=ExhibitorGroup.PAID,
+            logo=uploads["logo"],
+            banner=uploads["banner"],
+        )
+        existing_logo = exhibitor.logo.name
+        existing_banner = exhibitor.banner.name
+        assert default_storage.exists(existing_logo)
+
+        new_uploads = image_uploads()
+        view, _ = _exhibitor_view(
+            ExhibitorEditView,
+            event,
+            {
+                "name_0": "Acme Renamed",
+                "is_exhibitor": "on",
+                "booth_number": "B-202",
+                "exhibitor_group": ExhibitorGroup.PAID,
+            },
+            new_uploads,
+            obj=exhibitor,
+        )
+        form = view.get_form()
+        assert form.is_valid(), form.errors
+
+        ExhibitorInfo.objects.create(event=event, name="Winner", is_exhibitor=True, booth_number="B-202")
+
+        response = view.form_valid(form)
+
+        assert response.status_code == 200
+        assert "booth_number" in form.errors
+        assert "logo" in form.errors
+        assert "banner" in form.errors
+        assert form.instance.logo.name == existing_logo
+        assert form.instance.banner.name == existing_banner
+        assert default_storage.exists(existing_logo)
+        assert default_storage.exists(existing_banner)
+        assert form.data["name_0"] == "Acme Renamed"
+        exhibitor.refresh_from_db()
+        assert exhibitor.booth_number == "B-101"
+        assert exhibitor.logo.name == existing_logo

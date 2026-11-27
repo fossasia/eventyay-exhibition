@@ -388,11 +388,16 @@ def test_bulk_approve_reraises_unrelated_integrity_error_and_rolls_back(event):
         )
 
         original_approve = ExhibitionRequest.approve
+        call_count = 0
 
         def _approve_with_failure(self, requestor=None):
-            if self.pk == req_second.pk:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
                 raise IntegrityError('null value in column "some_other_col" violates not-null constraint')
-            return original_approve(self, requestor=requestor)
+            exhibitor = original_approve(self, requestor=requestor)
+            assert ExhibitorInfo.objects.filter(pk=exhibitor.pk).exists()
+            return exhibitor
 
         with patch.object(ExhibitionRequest, "approve", _approve_with_failure):
             with pytest.raises(IntegrityError):
@@ -403,4 +408,180 @@ def test_bulk_approve_reraises_unrelated_integrity_error_and_rolls_back(event):
         assert req_first.state == ExhibitionRequestState.SUBMITTED
         assert req_first.approved_exhibitor_id is None
         assert req_second.state == ExhibitionRequestState.SUBMITTED
+        assert req_second.approved_exhibitor_id is None
         assert not ExhibitorInfo.objects.filter(event=event).exists()
+
+
+@pytest.mark.django_db
+def test_request_detail_view_approve_rejects_duplicate_booth(event):
+    from exhibition.forms import ExhibitionRequestReviewForm
+
+    with scopes_disabled():
+        ExhibitorInfo.objects.create(event=event, name="Existing", is_exhibitor=True, booth_number="B-101")
+        req = _request(event, "dup-approve@e.com", booth_number="B-101")
+        view, _ = _detail_view(
+            event,
+            req,
+            {"action": "approve", "is_exhibitor": True, "booth_number": "B-101"},
+            email="org-dup-approve@e.com",
+        )
+        kwargs = view.get_form_kwargs()
+        assert kwargs["review_action"] == "approve"
+        form = ExhibitionRequestReviewForm(
+            data={"is_exhibitor": True, "booth_number": "B-101"},
+            instance=req,
+            **{k: v for k, v in kwargs.items() if k in ("event", "review_action")},
+        )
+        assert not form.is_valid()
+        assert "booth_number" in form.errors
+
+
+@pytest.mark.django_db
+def test_request_detail_view_reject_succeeds_with_claimed_booth(event):
+    from exhibition.forms import ExhibitionRequestReviewForm
+
+    with scopes_disabled():
+        ExhibitorInfo.objects.create(event=event, name="Existing", is_exhibitor=True, booth_number="B-101")
+        req = _request(event, "dup-reject@e.com", booth_number="B-101")
+        view, _ = _detail_view(
+            event,
+            req,
+            {"action": "reject", "is_exhibitor": True, "booth_number": "B-101", "review_notes": "Declined"},
+            email="org-dup-reject@e.com",
+        )
+        kwargs = view.get_form_kwargs()
+        assert kwargs["review_action"] == "reject"
+        form = ExhibitionRequestReviewForm(
+            data={"is_exhibitor": True, "booth_number": "B-101", "review_notes": "Declined"},
+            instance=req,
+            **{k: v for k, v in kwargs.items() if k in ("event", "review_action")},
+        )
+        assert form.is_valid(), form.errors
+        response = view.form_valid(form)
+        assert response.status_code == 302
+        req.refresh_from_db()
+        assert req.state == ExhibitionRequestState.REJECTED
+        assert req.review_notes == "Declined"
+
+
+@pytest.mark.django_db
+def test_request_detail_view_save_succeeds_with_claimed_booth(event):
+    from exhibition.forms import ExhibitionRequestReviewForm
+
+    with scopes_disabled():
+        ExhibitorInfo.objects.create(event=event, name="Existing", is_exhibitor=True, booth_number="B-101")
+        req = _request(event, "dup-save@e.com", booth_number="B-101")
+        view, _ = _detail_view(
+            event,
+            req,
+            {"action": "save", "is_exhibitor": True, "booth_number": "B-101", "review_notes": "Checked notes"},
+            email="org-dup-save@e.com",
+        )
+        kwargs = view.get_form_kwargs()
+        assert kwargs["review_action"] == "save"
+        form = ExhibitionRequestReviewForm(
+            data={"is_exhibitor": True, "booth_number": "B-101", "review_notes": "Checked notes"},
+            instance=req,
+            **{k: v for k, v in kwargs.items() if k in ("event", "review_action")},
+        )
+        assert form.is_valid(), form.errors
+        response = view.form_valid(form)
+        assert response.status_code == 302
+        req.refresh_from_db()
+        assert req.state == ExhibitionRequestState.SUBMITTED
+        assert req.review_notes == "Checked notes"
+
+
+@pytest.mark.django_db
+def test_request_detail_view_approve_succeeds_with_unique_booth(event):
+    from exhibition.forms import ExhibitionRequestReviewForm
+
+    with scopes_disabled():
+        req = _request(event, "uniq-approve@e.com", booth_number="B-202")
+        view, _ = _detail_view(
+            event,
+            req,
+            {"action": "approve", "is_exhibitor": True, "booth_number": "B-202"},
+            email="org-uniq-approve@e.com",
+        )
+        kwargs = view.get_form_kwargs()
+        form = ExhibitionRequestReviewForm(
+            data={"is_exhibitor": True, "booth_number": "B-202"},
+            instance=req,
+            **{k: v for k, v in kwargs.items() if k in ("event", "review_action")},
+        )
+        assert form.is_valid(), form.errors
+        response = view.form_valid(form)
+        assert response.status_code == 302
+        req.refresh_from_db()
+        assert req.state == ExhibitionRequestState.ACCEPTED
+        assert req.approved_exhibitor_id is not None
+        assert req.approved_exhibitor.booth_number == "B-202"
+
+
+@pytest.mark.django_db
+def test_bulk_approve_orders_requests_deterministically_by_booth_and_pk(event):
+    with scopes_disabled():
+        req_b202 = _request(event, "ord-b202@e.com", name="B202", booth_number="B-202")
+        req_b101 = _request(event, "ord-b101@e.com", name="B101", booth_number="B-101")
+        req_none = _request(event, "ord-none@e.com", name="None", booth_number=None)
+
+        view = _action_view(event, "org-order@e.com")
+        ordered = list(view.get_requests(view.request, False, [req_none.code, req_b202.code, req_b101.code]))
+        assert [r.pk for r in ordered] == [req_b101.pk, req_b202.pk, req_none.pk]
+
+
+@pytest.mark.django_db
+def test_bulk_approve_retries_on_40p01_deadlock_and_reraises_other_operational_errors(event):
+    from unittest.mock import patch
+
+    from django.db import OperationalError
+
+    class _PgCause(Exception):
+        def __init__(self, sqlstate):
+            super().__init__(sqlstate)
+            self.sqlstate = sqlstate
+
+    def _op_error(sqlstate):
+        err = OperationalError(f"db error {sqlstate}")
+        err.__cause__ = _PgCause(sqlstate)
+        return err
+
+    with scopes_disabled():
+        req = _request(event, "deadlock-retry@e.com", name="Retry Org", booth_number="B-101")
+        view, request = _action_post_view(event, "approve", [req.code], email="org-deadlock@e.com")
+
+        original_approve = ExhibitionRequest.approve
+        attempts = 0
+
+        def _fail_once_with_deadlock(self, requestor=None):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise _op_error("40P01")
+            return original_approve(self, requestor=requestor)
+
+        with patch.object(ExhibitionRequest, "approve", _fail_once_with_deadlock):
+            response = view.post(request)
+
+        assert response.status_code == 200
+        assert attempts == 2
+        req.refresh_from_db()
+        assert req.state == ExhibitionRequestState.ACCEPTED
+
+        req_other = _request(event, "other-op@e.com", name="Other Op", booth_number="B-202")
+        view2, request2 = _action_post_view(event, "approve", [req_other.code], email="org-other-op@e.com")
+        other_attempts = 0
+
+        def _fail_with_other_op_error(self, requestor=None):
+            nonlocal other_attempts
+            other_attempts += 1
+            raise _op_error("57014")
+
+        with patch.object(ExhibitionRequest, "approve", _fail_with_other_op_error):
+            with pytest.raises(OperationalError):
+                view2.post(request2)
+
+        assert other_attempts == 1
+        req_other.refresh_from_db()
+        assert req_other.state == ExhibitionRequestState.SUBMITTED
