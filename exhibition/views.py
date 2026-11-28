@@ -29,7 +29,7 @@ from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views import CreateView, PaginationMixin, UpdateView
 
 from . import mail as mail_helpers
-from .exports import EXPORT_FORMAT_XLSX, EXPORT_FORMATS, OrganizationsExporter
+from .exports import EXPORT_FORMAT_XLSX, EXPORT_FORMATS, OrganizationsExporter, RequestsExporter
 from .filters import (
     EmailFilterForm,
     ExhibitorFilterForm,
@@ -341,6 +341,16 @@ class PublicCallEnabledMixin:
         if not self.page_is_visible(self.get_exhibition_settings()):
             raise Http404()
         return super().dispatch(request, *args, **kwargs)
+
+
+def export_download_response(exporter, export_format):
+    filename, content_type, payload = exporter.render({"_format": export_format})
+    if content_type == "text/csv":
+        content_type += "; charset=utf-8"
+    response = HttpResponse(payload, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 class FilteredListMixin(PaginationMixin):
@@ -727,13 +737,7 @@ class ExhibitorListView(EventPermissionRequiredMixin, FilteredListMixin, ListVie
         if selected_pks:
             queryset = queryset.filter(pk__in=selected_pks)
         exporter = OrganizationsExporter(self.request, queryset, self.organization_type)
-        filename, content_type, payload = exporter.render({"_format": export_format})
-        if content_type == "text/csv":
-            content_type += "; charset=utf-8"
-        response = HttpResponse(payload, content_type=content_type)
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        response["Cache-Control"] = "no-store"
-        return response
+        return export_download_response(exporter, export_format)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1682,6 +1686,24 @@ class RequestListView(EventPermissionRequiredMixin, FilteredListMixin, ListView)
             request=self.request,
         )
 
+    def get(self, request, *args, **kwargs):
+        if request.GET.get("download") == "yes":
+            if not self.can_manage():
+                raise PermissionDenied()
+            return self.download()
+        return super().get(request, *args, **kwargs)
+
+    def download(self):
+        export_format = self.request.GET.get("_format", EXPORT_FORMAT_XLSX)
+        if export_format not in EXPORT_FORMATS:
+            return HttpResponseBadRequest(_("Unsupported export format."))
+        queryset = self.get_queryset()
+        selected_codes = self.request.GET.getlist("code")
+        if selected_codes:
+            queryset = queryset.filter(code__in=selected_codes)
+        exporter = RequestsExporter(self.request, queryset, hide_emails=self.hide_applicant_emails)
+        return export_download_response(exporter, export_format)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["hide_applicant_emails"] = self.hide_applicant_emails
@@ -2408,6 +2430,49 @@ class ExhibitionOrderDetailView(ExhibitionOrderMixin, TemplateView):
 
 class ExhibitionOrderActionMixin(ExhibitionOrderMixin):
     permission = ("can_change_event_settings", "can_change_orders")
+
+
+class ExhibitionOrderApproveView(ExhibitionOrderActionMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not self.order.can_be_approved:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        try:
+            self.order.approve(user=request.user)
+        except ExhibitionOrderStateError:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        except ExhibitionQuotaExceeded:
+            messages.error(
+                request,
+                _(
+                    "This free order cannot be confirmed because its products have sold out. "
+                    "Free up room in their quotas first."
+                ),
+            )
+            return redirect(self.get_order_url())
+        if self.order.status == ExhibitionOrderStatus.PAID:
+            send_order_email(self.order, user=request.user)
+            messages.success(request, _("The order has been approved and confirmed."))
+        else:
+            send_order_email(self.order, user=request.user, role=mail_helpers.ORDER_APPROVED)
+            messages.success(request, _("The order has been approved. The buyer can now complete payment."))
+        return redirect(self.get_order_url())
+
+
+class ExhibitionOrderDenyView(ExhibitionOrderActionMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not self.order.can_be_denied:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        try:
+            self.order.deny(user=request.user)
+        except ExhibitionOrderStateError:
+            messages.error(request, _("This order is not awaiting approval."))
+            return redirect(self.get_order_url())
+        send_order_email(self.order, user=request.user, role=mail_helpers.ORDER_DENIED)
+        messages.success(request, _("The order has been denied and cancelled."))
+        return redirect(self.get_order_url())
 
 
 class ExhibitionOrderCreateView(ExhibitionOrderActionMixin, TemplateView):

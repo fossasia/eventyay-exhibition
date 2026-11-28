@@ -30,14 +30,70 @@ def neutralize_formula(value):
     return value
 
 
-class OrganizationsExporter(ListExporter):
+class ExhibitionListExporter(ListExporter):
+    """Shared plumbing for the organizer-facing CSV / XLSX downloads."""
+
+    def __init__(self, request):
+        super().__init__(request.event)
+        self.request = request
+        self.locale = self.event.settings.locale
+
+    @property
+    def export_form_fields(self):
+        fields = super().export_form_fields
+        fields["_format"].choices = [choice for choice in fields["_format"].choices if choice[0] in EXPORT_FORMATS]
+        return fields
+
+    def records(self):
+        raise NotImplementedError
+
+    def headers(self):
+        raise NotImplementedError
+
+    def row(self, record):
+        raise NotImplementedError
+
+    def iterate_list(self, form_data):
+        records = self.records()
+        with translation.override(self.locale):
+            yield self.ProgressSetTotal(total=len(records))
+            yield [neutralize_formula(value) for value in self.headers()]
+            for record in records:
+                yield [neutralize_formula(value) for value in self.row(record)]
+
+    def answer(self, answer):
+        if answer is None:
+            return ""
+        if answer.question.variant == ExhibitionQuestionVariant.FILE:
+            return self.link(answer.file_url)
+        if answer.question.variant in QUESTION_OPTION_VARIANTS:
+            return self.lines(self.text(option.answer) for option in answer.options.all())
+        return str(answer.answer_string)
+
+    def text(self, value):
+        return localized_value_for(value, self.locale)
+
+    def link(self, url):
+        return self.request.build_absolute_uri(url) if url else ""
+
+    def when(self, value):
+        return value.astimezone(self.event.tz).strftime("%Y-%m-%d %H:%M") if value else ""
+
+    @staticmethod
+    def yes_no(value):
+        return _("Yes") if value else _("No")
+
+    @staticmethod
+    def lines(values):
+        return "\n".join(value for value in values if value)
+
+
+class OrganizationsExporter(ExhibitionListExporter):
     identifier = "exhibition_organizations"
 
     def __init__(self, request, organizations, organization_type=None):
-        super().__init__(request.event)
-        self.request = request
+        super().__init__(request)
         self.organization_type = organization_type
-        self.locale = self.event.settings.locale
         self.organizations = list(
             organizations.select_related("sponsor_group").prefetch_related(
                 "social_links",
@@ -75,22 +131,12 @@ class OrganizationsExporter(ListExporter):
             return _("Exhibitors")
         return _("Organizations")
 
-    @property
-    def export_form_fields(self):
-        fields = super().export_form_fields
-        fields["_format"].choices = [choice for choice in fields["_format"].choices if choice[0] in EXPORT_FORMATS]
-        return fields
-
     def get_filename(self):
         kind = FILE_KINDS.get(self.organization_type, "organizations")
         return f"{self.event.slug}-{kind}-{timezone.now().astimezone(self.event.tz).date().isoformat()}"
 
-    def iterate_list(self, form_data):
-        with translation.override(self.locale):
-            yield self.ProgressSetTotal(total=len(self.organizations))
-            yield [neutralize_formula(value) for value in self.headers()]
-            for organization in self.organizations:
-                yield [neutralize_formula(value) for value in self.row(organization)]
+    def records(self):
+        return self.organizations
 
     @staticmethod
     def _counts(model, pks):
@@ -183,15 +229,6 @@ class OrganizationsExporter(ListExporter):
         requests = sorted(organization.source_requests.all(), key=lambda request: request.pk, reverse=True)
         return requests[0] if requests else None
 
-    def answer(self, answer):
-        if answer is None:
-            return ""
-        if answer.question.variant == ExhibitionQuestionVariant.FILE:
-            return self.link(answer.file_url)
-        if answer.question.variant in QUESTION_OPTION_VARIANTS:
-            return self.lines(self.text(option.answer) for option in answer.options.all())
-        return str(answer.answer_string)
-
     @staticmethod
     def exhibitor_group_label(organization):
         if not organization.is_exhibitor:
@@ -206,19 +243,64 @@ class OrganizationsExporter(ListExporter):
             return _("Sponsor")
         return _("Exhibitor")
 
-    def text(self, value):
-        return localized_value_for(value, self.locale)
 
-    def link(self, url):
-        return self.request.build_absolute_uri(url) if url else ""
+class RequestsExporter(ExhibitionListExporter):
+    identifier = "exhibition_requests"
 
-    def when(self, value):
-        return value.astimezone(self.event.tz).strftime("%Y-%m-%d %H:%M") if value else ""
+    def __init__(self, request, exhibition_requests, hide_emails=False):
+        super().__init__(request)
+        self.hide_emails = hide_emails
+        self.exhibition_requests = list(
+            exhibition_requests.select_related("user", "sponsor_group", "approved_exhibitor").prefetch_related(
+                Prefetch(
+                    "answers",
+                    queryset=ExhibitionAnswer.objects.select_related("question").prefetch_related("options"),
+                )
+            )
+        )
+        self.questions = list(ExhibitionQuestion.objects.filter(event=self.event).order_by("position", "id"))
+
+    @property
+    def verbose_name(self):
+        return _("Exhibition requests")
+
+    def get_filename(self):
+        return f"{self.event.slug}-exhibition-requests-{timezone.now().astimezone(self.event.tz).date().isoformat()}"
+
+    def records(self):
+        return self.exhibition_requests
+
+    def headers(self):
+        return [
+            _("Code"),
+            _("Organization name"),
+            *(() if self.hide_emails else (_("Applicant email"),)),
+            _("State"),
+            _("Sponsor group"),
+            _("Submitted"),
+            _("Last updated"),
+            *(self.text(question.question) for question in self.questions),
+            _("Linked exhibitor"),
+            _("Linked exhibitor ID"),
+        ]
+
+    def row(self, exhibition_request):
+        answers = {answer.question_id: answer for answer in exhibition_request.answers.all()}
+        exhibitor = exhibition_request.approved_exhibitor
+        return [
+            exhibition_request.code,
+            self.text(exhibition_request.name),
+            *(() if self.hide_emails else (self.applicant_email(exhibition_request),)),
+            str(exhibition_request.get_state_display()),
+            self.text(exhibition_request.sponsor_group.name) if exhibition_request.sponsor_group else "",
+            self.when(exhibition_request.submitted),
+            self.when(exhibition_request.updated),
+            *(self.answer(answers.get(question.pk)) for question in self.questions),
+            self.text(exhibitor.name) if exhibitor else "",
+            exhibitor.pk if exhibitor else "",
+        ]
 
     @staticmethod
-    def yes_no(value):
-        return _("Yes") if value else _("No")
-
-    @staticmethod
-    def lines(values):
-        return "\n".join(value for value in values if value)
+    def applicant_email(exhibition_request):
+        applicant = exhibition_request.user if exhibition_request.user_id else None
+        return (exhibition_request.email or "").strip() or (applicant.email if applicant else "")

@@ -69,7 +69,7 @@
                             <td><code>{{ voucher.code }}</code></td>
                             <td>{{ voucher.product|default:"—" }}</td>
                             <td>{{ voucher.price_mode }}</td>
-                            <td>{{ voucher.value|default:"—" }}</td>
+                            <td>{{ voucher.value|default_if_none:"—" }}</td>
                             <td>{{ voucher.valid_until|date:"SHORT_DATETIME_FORMAT"|default:"—" }}</td>
                             <td>{{ voucher.max_usages }}</td>
                             <td>
