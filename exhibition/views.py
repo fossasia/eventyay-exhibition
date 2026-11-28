@@ -3988,6 +3988,7 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
             self.request.user, self.request.event, request=self.request
         )
         kwargs["saving_draft"] = self.saving_draft
+        kwargs["sending_test"] = not self.saving_draft and "_test" in self.request.POST
         return kwargs
 
     def get_initial(self):
@@ -4065,16 +4066,51 @@ class EmailComposeView(EventPermissionRequiredMixin, FormView):
                 send_now=send_now,
                 requestor=self.request.user,
                 attachment=form.cleaned_data.get("attachment") or None,
+                reply_to=form.cleaned_data.get("reply_to", ""),
+                bcc=form.cleaned_data.get("bcc", ""),
             )
             if created and draft is not None:
                 draft.delete()
         return created
+
+    def send_test(self, form):
+        """Send one sample copy to the test address and show the form again; nothing is queued or consumed."""
+        test_email = form.cleaned_data.get("test_email")
+        if not test_email:
+            form.add_error("test_email", _("Please enter a test email address."))
+            return self.form_invalid(form)
+        hide_emails = should_hide_applicant_emails(self.request.user, self.request.event, request=self.request)
+        if self.single_request is not None and not hide_emails:
+            context = mail_helpers.build_request_context(self.request.event, self.single_request)
+        else:
+            # Reviewers who cannot see applicant emails get sample values, so a test copy never leaks them.
+            context = mail_helpers.build_sample_context(self.request.event)
+        try:
+            mail_helpers.send_test_email(
+                self.request.event,
+                test_email,
+                form.cleaned_data["subject"],
+                form.cleaned_data["body"],
+                context=context,
+                locale=self.request.event.settings.locale,
+                reply_to=form.cleaned_data.get("reply_to", ""),
+                user=self.request.user,
+                attachment=form.cleaned_data.get("attachment") or None,
+            )
+        except Exception:
+            logger.exception("Failed to send exhibition test email")
+            messages.error(self.request, _("The test email could not be sent."))
+        else:
+            messages.success(self.request, _("Test email sent to %(email)s.") % {"email": test_email})
+        return self.render_to_response(self.get_context_data(form=form))
 
     def form_valid(self, form):
         from .tasks import send_scheduled_email
 
         if self.saving_draft:
             return self.save_draft(form)
+        if "_test" in self.request.POST:
+            return self.send_test(form)
 
         event = self.request.event
         scheduled_at = form.cleaned_data.get("scheduled_at")
