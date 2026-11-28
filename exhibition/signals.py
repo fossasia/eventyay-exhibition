@@ -14,6 +14,7 @@ from eventyay.base.signals import (
     logentry_object_link,
     periodic_task,
     register_mail_placeholders,
+    register_ticketing_anonymizers,
 )
 from eventyay.base.templatetags.money import money_filter
 from eventyay.common.signals import user_dashboard_links, user_menu_items
@@ -25,6 +26,7 @@ from eventyay.presale.signals import (
     html_head,
 )
 
+from .anonymizer import LeadAttendeeAnonymizer
 from .dashboard import user_has_exhibitions
 from .mail import (
     invitation_url,
@@ -782,3 +784,8 @@ def exhibition_user_dashboard_link(sender, **kwargs):
         reverse("plugins:exhibition:my_exhibitions"),
         _("My exhibitions"),
     )
+
+
+@receiver(register_ticketing_anonymizers, dispatch_uid="exhibition_anonymizer_leads")
+def register_lead_anonymizer(sender, **kwargs):
+    return LeadAttendeeAnonymizer
