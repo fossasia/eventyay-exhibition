@@ -120,10 +120,17 @@ def get_tz_help(event):
     return _("Times are in the event timezone: %(tz)s.") % {"tz": event.timezone}
 
 
+def delete_answer_file_on_commit(file):
+    """Remove a stored answer file once the transaction commits, so a rollback cannot leave a dangling reference."""
+    if not file:
+        return
+    storage, name = file.storage, file.name
+    transaction.on_commit(lambda: storage.delete(name))
+
+
 def delete_exhibition_answer(answer):
     """Delete an answer and the file it holds; Django leaves the file behind on its own."""
-    if answer.file:
-        answer.file.delete(save=False)
+    delete_answer_file_on_commit(answer.file)
     answer.delete()
 
 
@@ -219,6 +226,58 @@ class ExhibitionQuestionDependencyMixin:
         return cleaned_data
 
 
+ANSWER_FILE_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".jfif",
+    ".gif",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".heic",
+    ".heif",
+    ".svg",
+    ".pdf",
+    ".txt",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".pages",
+)
+
+
+def parse_answer_datetime(value):
+    if not value:
+        return None
+    try:
+        return dateutil.parser.parse(value).astimezone(timezone.get_current_timezone())
+    except (ValueError, OverflowError):
+        return None
+
+
+def parse_answer_date(value):
+    """A stored date is a calendar date, so read it as one; converting it to a timezone can shift the day."""
+    if not value:
+        return None
+    try:
+        return dateutil.parser.parse(value).date()
+    except (ValueError, OverflowError):
+        return None
+
+
+def parse_answer_time(value):
+    if not value:
+        return None
+    try:
+        return dateutil.parser.parse(value).time()
+    except (ValueError, OverflowError):
+        return None
+
+
 class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
     def inject_exhibition_questions(self, *, event, exhibition_request=None, readonly=False):
         answers_by_question = {}
@@ -273,6 +332,81 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 label=label,
                 required=question.required,
             )
+        if question.variant == ExhibitionQuestionVariant.EMAIL:
+            return forms.EmailField(
+                disabled=readonly,
+                help_text=help_text,
+                initial=initial,
+                label=label,
+                required=question.required,
+            )
+        if question.variant == ExhibitionQuestionVariant.NUMBER:
+            return forms.DecimalField(
+                disabled=readonly,
+                help_text=help_text,
+                initial=initial or None,
+                label=label,
+                required=question.required,
+                widget=forms.NumberInput(attrs={"placeholder": _("Your answer")}),
+            )
+        if question.variant == ExhibitionQuestionVariant.PHONE:
+            return PhoneNumberField(
+                disabled=readonly,
+                help_text=help_text,
+                initial=initial or None,
+                label=label,
+                required=question.required,
+                widget=WrappedPhoneNumberPrefixWidget(),
+            )
+        if question.variant == ExhibitionQuestionVariant.COUNTRY:
+            return CountryField(countries=CachedCountries, blank=True, blank_label=" ").formfield(
+                disabled=readonly,
+                empty_label=" ",
+                help_text=help_text,
+                initial=initial or None,
+                label=label,
+                required=question.required,
+                widget=forms.Select,
+            )
+        if question.variant == ExhibitionQuestionVariant.DATE:
+            return forms.DateField(
+                disabled=readonly,
+                help_text=help_text,
+                initial=parse_answer_date(initial),
+                label=label,
+                required=question.required,
+                widget=DatePickerWidget(),
+            )
+        if question.variant == ExhibitionQuestionVariant.TIME:
+            return forms.TimeField(
+                disabled=readonly,
+                help_text=help_text,
+                initial=parse_answer_time(initial),
+                label=label,
+                required=question.required,
+                widget=TimePickerWidget(time_format=get_format_without_seconds("TIME_INPUT_FORMATS")),
+            )
+        if question.variant == ExhibitionQuestionVariant.DATETIME:
+            return SplitDateTimeField(
+                disabled=readonly,
+                help_text=help_text,
+                initial=parse_answer_datetime(initial),
+                label=label,
+                required=question.required,
+                widget=SplitDateTimePickerWidget(
+                    time_format=get_format_without_seconds("TIME_INPUT_FORMATS"),
+                ),
+            )
+        if question.variant == ExhibitionQuestionVariant.FILE:
+            return ExtFileField(
+                disabled=readonly,
+                ext_whitelist=ANSWER_FILE_EXTENSIONS,
+                help_text=help_text,
+                initial=answer.file if answer else None,
+                label=label,
+                max_size=django_settings.MAX_SIZE_CONFIG[SizeKey.UPLOAD_SIZE_QUESTION],
+                required=question.required,
+            )
 
         choices = question.options.all()
         if question.variant == ExhibitionQuestionVariant.CHOICES:
@@ -315,6 +449,9 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
             required=question.required,
         )
 
+    def new_exhibition_answer(self, owner, question):
+        return ExhibitionAnswer(exhibition_request=owner, question=question)
+
     def save_exhibition_questions(self, exhibition_request):
         for key, value in self.cleaned_data.items():
             if not key.startswith("question_"):
@@ -330,9 +467,13 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
             field = self.fields[key]
             question = field.question
             answer = field.answer
-            empty = value in ("", None, False) or (
+            empty = value in ("", None) or (
                 hasattr(value, "__len__") and not isinstance(value, str) and len(value) == 0
             )
+            if isinstance(field, ExtFileField):
+                empty = value is None
+            elif value is False:
+                empty = True
 
             if empty:
                 if answer:
@@ -340,9 +481,23 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 continue
 
             if not answer:
-                answer = ExhibitionAnswer(exhibition_request=exhibition_request, question=question)
+                answer = self.new_exhibition_answer(exhibition_request, question)
 
-            if isinstance(field, forms.ModelMultipleChoiceField):
+            if isinstance(field, ExtFileField):
+                replaced_file = None
+                if value is False:
+                    delete_answer_file_on_commit(answer.file)
+                    answer.file = None
+                    answer.answer = ""
+                elif isinstance(value, UploadedFile):
+                    replaced_file = answer.file or None
+                    answer.file = value
+                    answer.answer = value.name
+                answer.save()
+                if replaced_file and replaced_file.name != answer.file.name:
+                    delete_answer_file_on_commit(replaced_file)
+                answer.options.clear()
+            elif isinstance(field, forms.ModelMultipleChoiceField):
                 selected_options = list(value)
                 answer.answer = ", ".join(str(option) for option in selected_options)
                 answer.save()
@@ -356,7 +511,7 @@ class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
                 answer.save()
                 answer.options.clear()
             else:
-                answer.answer = value
+                answer.answer = value.isoformat() if hasattr(value, "isoformat") else str(value)
                 answer.save()
                 answer.options.clear()
 
@@ -1132,287 +1287,6 @@ class CallSettingsForm(I18nModelForm):
                     "data-event-timezone": self.event.timezone,
                 }
             )
-
-
-ANSWER_FILE_EXTENSIONS = (
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".jfif",
-    ".gif",
-    ".bmp",
-    ".tif",
-    ".tiff",
-    ".heic",
-    ".heif",
-    ".svg",
-    ".pdf",
-    ".txt",
-    ".doc",
-    ".docx",
-    ".xls",
-    ".xlsx",
-    ".ppt",
-    ".pptx",
-    ".pages",
-)
-
-
-def parse_answer_datetime(value):
-    if not value:
-        return None
-    try:
-        return dateutil.parser.parse(value).astimezone(timezone.get_current_timezone())
-    except (ValueError, OverflowError):
-        return None
-
-
-def parse_answer_date(value):
-    parsed = parse_answer_datetime(value)
-    return parsed.date() if parsed else None
-
-
-def parse_answer_time(value):
-    if not value:
-        return None
-    try:
-        return dateutil.parser.parse(value).time()
-    except (ValueError, OverflowError):
-        return None
-
-
-class ExhibitionQuestionFieldsMixin(ExhibitionQuestionDependencyMixin):
-    def inject_exhibition_questions(self, *, event, exhibition_request=None, readonly=False):
-        answers_by_question = {}
-        if exhibition_request and exhibition_request.pk:
-            for answer in exhibition_request.answers.prefetch_related("options"):
-                answers_by_question[answer.question_id] = answer
-
-        questions = (
-            ExhibitionQuestion.objects.filter(event=event, active=True)
-            .prefetch_related("options")
-            .order_by("position", "pk")
-        )
-        for question in questions:
-            answer = answers_by_question.get(question.pk)
-            field = self.get_exhibition_question_field(
-                question=question,
-                answer=answer,
-                readonly=readonly,
-            )
-            field.question = question
-            field.answer = answer
-            self.apply_question_dependency(field, question)
-            self.fields[f"question_{question.pk}"] = field
-
-    def get_exhibition_question_field(self, *, question, answer, readonly):
-        label = localize_event_text(question.question)
-        help_text = localize_event_text(question.help_text) or ""
-        initial = answer.answer if answer else ""
-
-        if question.variant == ExhibitionQuestionVariant.BOOLEAN:
-            return forms.BooleanField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=initial == "True",
-                label=label,
-                required=question.required,
-            )
-        if question.variant == ExhibitionQuestionVariant.TEXT:
-            return forms.CharField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=initial,
-                label=label,
-                required=question.required,
-                widget=forms.Textarea(attrs={"rows": 4}),
-            )
-        if question.variant == ExhibitionQuestionVariant.URL:
-            return forms.URLField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=initial,
-                label=label,
-                required=question.required,
-            )
-        if question.variant == ExhibitionQuestionVariant.EMAIL:
-            return forms.EmailField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=initial,
-                label=label,
-                required=question.required,
-            )
-        if question.variant == ExhibitionQuestionVariant.NUMBER:
-            return forms.DecimalField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=initial or None,
-                label=label,
-                required=question.required,
-                widget=forms.NumberInput(attrs={"placeholder": _("Your answer")}),
-            )
-        if question.variant == ExhibitionQuestionVariant.PHONE:
-            return PhoneNumberField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=initial or None,
-                label=label,
-                required=question.required,
-                widget=WrappedPhoneNumberPrefixWidget(),
-            )
-        if question.variant == ExhibitionQuestionVariant.COUNTRY:
-            return CountryField(countries=CachedCountries, blank=True, blank_label=" ").formfield(
-                disabled=readonly,
-                empty_label=" ",
-                help_text=help_text,
-                initial=initial or None,
-                label=label,
-                required=question.required,
-                widget=forms.Select,
-            )
-        if question.variant == ExhibitionQuestionVariant.DATE:
-            return forms.DateField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=parse_answer_date(initial),
-                label=label,
-                required=question.required,
-                widget=DatePickerWidget(),
-            )
-        if question.variant == ExhibitionQuestionVariant.TIME:
-            return forms.TimeField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=parse_answer_time(initial),
-                label=label,
-                required=question.required,
-                widget=TimePickerWidget(time_format=get_format_without_seconds("TIME_INPUT_FORMATS")),
-            )
-        if question.variant == ExhibitionQuestionVariant.DATETIME:
-            return SplitDateTimeField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=parse_answer_datetime(initial),
-                label=label,
-                required=question.required,
-                widget=SplitDateTimePickerWidget(
-                    time_format=get_format_without_seconds("TIME_INPUT_FORMATS"),
-                ),
-            )
-        if question.variant == ExhibitionQuestionVariant.FILE:
-            return ExtFileField(
-                disabled=readonly,
-                ext_whitelist=ANSWER_FILE_EXTENSIONS,
-                help_text=help_text,
-                initial=answer.file if answer else None,
-                label=label,
-                max_size=django_settings.MAX_SIZE_CONFIG[SizeKey.UPLOAD_SIZE_QUESTION],
-                required=question.required,
-            )
-
-        choices = question.options.all()
-        if question.variant == ExhibitionQuestionVariant.CHOICES:
-            return EventLocalizedModelChoiceField(
-                disabled=readonly,
-                empty_label=None if question.required else _("— No selection —"),
-                help_text=help_text,
-                initial=answer.options.first() if answer else None,
-                label=label,
-                queryset=choices,
-                required=question.required,
-                widget=forms.RadioSelect,
-            )
-        if question.variant == ExhibitionQuestionVariant.SELECT:
-            return EventLocalizedModelChoiceField(
-                disabled=readonly,
-                empty_label=None if question.required else _("— No selection —"),
-                help_text=help_text,
-                initial=answer.options.first() if answer else None,
-                label=label,
-                queryset=choices,
-                required=question.required,
-            )
-        if question.variant == ExhibitionQuestionVariant.MULTIPLE:
-            return EventLocalizedModelMultipleChoiceField(
-                disabled=readonly,
-                help_text=help_text,
-                initial=list(answer.options.all()) if answer else [],
-                label=label,
-                queryset=choices,
-                required=question.required,
-                widget=forms.CheckboxSelectMultiple,
-            )
-
-        return forms.CharField(
-            disabled=readonly,
-            help_text=help_text,
-            initial=initial,
-            label=label,
-            required=question.required,
-        )
-
-    def new_exhibition_answer(self, owner, question):
-        return ExhibitionAnswer(exhibition_request=owner, question=question)
-
-    def save_exhibition_questions(self, exhibition_request):
-        for key, value in self.cleaned_data.items():
-            if not key.startswith("question_"):
-                continue
-            if key in self.hidden_question_fields:
-                # The field was not shown. Drop an answer the visitor themselves hid by
-                # changing the parent, but keep one whose parent has since been
-                # deactivated or deleted: they never got the chance to retract it.
-                answer = self.fields[key].answer
-                if answer and key in self.stale_question_fields:
-                    delete_exhibition_answer(answer)
-                continue
-            field = self.fields[key]
-            question = field.question
-            answer = field.answer
-            empty = value in ("", None) or (
-                hasattr(value, "__len__") and not isinstance(value, str) and len(value) == 0
-            )
-            if isinstance(field, ExtFileField):
-                empty = value is None
-            elif value is False:
-                empty = True
-
-            if empty:
-                if answer:
-                    delete_exhibition_answer(answer)
-                continue
-
-            if not answer:
-                answer = self.new_exhibition_answer(exhibition_request, question)
-
-            if isinstance(field, ExtFileField):
-                if value is False:
-                    answer.file.delete(save=False)
-                    answer.file = None
-                    answer.answer = ""
-                elif isinstance(value, UploadedFile):
-                    answer.file = value
-                    answer.answer = value.name
-                answer.save()
-                answer.options.clear()
-            elif isinstance(field, forms.ModelMultipleChoiceField):
-                selected_options = list(value)
-                answer.answer = ", ".join(str(option) for option in selected_options)
-                answer.save()
-                answer.options.set(selected_options)
-            elif isinstance(field, forms.ModelChoiceField):
-                answer.answer = str(value.answer) if value else ""
-                answer.save()
-                answer.options.set([value] if value else [])
-            elif isinstance(field, forms.BooleanField):
-                answer.answer = "True" if value else "False"
-                answer.save()
-                answer.options.clear()
-            else:
-                answer.answer = value.isoformat() if hasattr(value, "isoformat") else str(value)
-                answer.save()
-                answer.options.clear()
 
 
 class ExhibitionRequestForm(ExhibitionQuestionFieldsMixin, I18nModelForm):
