@@ -109,6 +109,11 @@ payment method** once a method exists, the same as for tickets. If the buyer
 has lost the email, click **Resend link** next to their email address on the
 order page.
 
+Once an order is paid, both you and the buyer can download a PDF invoice from
+the order page. Pending, expired and cancelled orders have no invoice. To
+include the invoice link in a customised confirmation email, add
+``{order_invoice_url}`` to its text.
+
 The public page and checkout
 ----------------------------
 

@@ -25,6 +25,7 @@ from .shop import (
     ShopConfirmView,
     ShopDetailsView,
     ShopIndexView,
+    ShopOrderInvoiceView,
     ShopOrderPayChangeView,
     ShopOrderView,
     ShopPaymentView,
@@ -52,6 +53,7 @@ from .views import (
     ExhibitionOrderDenyView,
     ExhibitionOrderDetailView,
     ExhibitionOrderFormView,
+    ExhibitionOrderInvoiceView,
     ExhibitionOrderListView,
     ExhibitionOrderMarkPaidView,
     ExhibitionOrderQuestionCreateView,
@@ -214,6 +216,11 @@ urlpatterns = [
         name="shop.order",
     ),
     path(
+        "<str:organizer>/<str:event>/exhibition/packages/order/<str:code>/<str:secret>/invoice/",
+        ShopOrderInvoiceView.as_view(),
+        name="shop.order.invoice",
+    ),
+    path(
         "<str:organizer>/<str:event>/exhibition/packages/order/<str:code>/<str:secret>/pay/change/",
         ShopOrderPayChangeView.as_view(),
         name="shop.order.pay_change",
@@ -302,6 +309,11 @@ urlpatterns = [
         "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/deny",
         ExhibitionOrderDenyView.as_view(),
         name="orders.deny",
+    ),
+    path(
+        "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/invoice",
+        ExhibitionOrderInvoiceView.as_view(),
+        name="orders.invoice",
     ),
     path(
         "exhibitors/event/<orgslug:organizer>/<slug:event>/orders/<str:code>/resend",
