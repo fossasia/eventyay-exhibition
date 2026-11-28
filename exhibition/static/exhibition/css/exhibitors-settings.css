@@ -95,3 +95,119 @@
 .custom-template-picker .control-label {
     margin: 0;
 }
+
+@media (max-width: 767px) {
+    .sponsor-groups-table {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .sponsor-groups-table thead {
+        display: none;
+    }
+
+    .sponsor-groups-table tbody {
+        display: block;
+        width: 100%;
+    }
+
+    .sponsor-groups-table .sponsor-group-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+        border: 1px solid #ddd;
+        margin-bottom: 0;
+    }
+
+    .sponsor-groups-table .sponsor-group-row > td {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        min-width: 0;
+        padding: 10px !important;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        border: 0;
+    }
+
+    .sponsor-groups-table .sponsor-group-row > td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 5px;
+        color: #666;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .sponsor-groups-table .sponsor-group-row > td:last-child {
+        grid-column: 1 / -1;
+        border-top: 1px solid #ddd;
+        align-items: flex-end;
+    }
+
+    .sponsor-groups-table .sponsor-group-row > td:last-child::before {
+        display: none;
+    }
+
+    .sponsor-group-editor-row:not(.hidden) {
+        display: block;
+        width: 100%;
+        margin-bottom: 16px;
+    }
+
+    .sponsor-group-editor-row > td {
+        display: block;
+        width: 100%;
+        padding: 12px !important;
+        white-space: normal;
+        box-sizing: border-box;
+    }
+
+    .sponsor-group-editor-form {
+        position: static;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    .sponsor-group-editor-form .form-group {
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .sponsor-group-editor-form .form-group > [class*="col-"] {
+        float: none;
+        width: 100%;
+        max-width: 100%;
+        margin-left: 0;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .sponsor-group-editor-form .form-control {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    .sponsor-group-editor-form legend {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .sponsor-group-editor-actions > div {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .sponsor-group-editor-actions .btn {
+        max-width: 100%;
+    }
+}
