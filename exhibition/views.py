@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 import uuid
 from urllib.parse import quote, urlencode
 
@@ -7,7 +8,8 @@ from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.core.files.storage import default_storage
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
 from django.forms.models import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
@@ -1400,6 +1402,11 @@ class ExhibitorLinkFormsetMixin:
     social_formset_prefix = "social_links"
     extra_formset_prefix = "extra_links"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["event"] = self.request.event
+        return kwargs
+
     @property
     def exhibition_event(self):
         return self.request.event
@@ -1494,6 +1501,47 @@ class ExhibitorLinkFormsetMixin:
                 continue
             formset.instance = self.object
             formset.save()
+
+    def _snapshot_persisted_files(self, form):
+        if form.instance and form.instance.pk:
+            return ExhibitorInfo.objects.filter(pk=form.instance.pk).values(*form.file_fields).first() or {}
+        return {field_name: None for field_name in form.file_fields}
+
+    def _restore_files_after_conflict(self, form, persisted_files):
+        reupload_labels = []
+        for field_name in form.file_fields:
+            if field_name not in form.fields:
+                continue
+            persisted_name = persisted_files.get(field_name) or None
+            current_name = getattr(getattr(form.instance, field_name, None), "name", None) or None
+            uploaded = bool(form.files.get(form.add_prefix(field_name)))
+
+            if current_name and current_name != persisted_name:
+                is_referenced = (
+                    ExhibitorInfo.objects.filter(**{field_name: current_name}).exists()
+                    or ExhibitionRequest.objects.filter(**{field_name: current_name}).exists()
+                )
+                if not is_referenced:
+                    try:
+                        default_storage.delete(current_name)
+                    except Exception:
+                        logging.getLogger(__name__).warning(
+                            "Could not clean up unpersisted upload %s after booth conflict",
+                            current_name,
+                            exc_info=True,
+                        )
+
+            setattr(form.instance, field_name, persisted_name)
+            if uploaded:
+                reupload_labels.append(str(form.fields[field_name].label or field_name))
+                form.add_error(field_name, _("Please select this file again."))
+
+        if reupload_labels:
+            messages.warning(
+                self.request,
+                _("The booth number conflict prevented saving. Please select these files again: %(files)s.")
+                % {"files": ", ".join(reupload_labels)},
+            )
 
 
 class SponsorGroupFrontPageToggleView(EventPermissionRequiredMixin, View):
@@ -1716,6 +1764,21 @@ class RequestListView(EventPermissionRequiredMixin, FilteredListMixin, ListView)
         return context
 
 
+def _is_booth_number_unique_violation(exc):
+    """Return True only for the exhibitor booth-number uniqueness constraint."""
+    cause = getattr(exc, "__cause__", None)
+    diag = getattr(cause, "diag", None)
+    if diag is not None:
+        return getattr(diag, "constraint_name", None) == "exhibition_event_booth_number_uniq"
+    return "exhibition_event_booth_number_uniq" in str(exc)
+
+
+def _is_deadlock_error(exc):
+    """Return True only for PostgreSQL deadlock detected (SQLSTATE 40P01)."""
+    cause = getattr(exc, "__cause__", None)
+    return getattr(cause, "sqlstate", None) == "40P01" or getattr(cause, "pgcode", None) == "40P01"
+
+
 class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
     model = ExhibitionRequest
     permission = ("can_change_event_settings", "can_change_exhibition_proposals", "is_exhibition_reviewer")
@@ -1764,6 +1827,8 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
+        if self.can_review():
+            kwargs["review_action"] = self.request.POST.get("action", "save")
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -1782,24 +1847,35 @@ class RequestDetailView(EventPermissionRequiredMixin, UpdateView):
 
     @transaction.atomic
     def form_valid(self, form):
-        self.object = form.save()
-        if form.changed_data:
-            self.object.log_action(
-                LOG_REQUEST_CHANGED,
-                data={"changed": form.changed_data},
-                user=self.request.user,
-            )
-        action = self.request.POST.get("action", "save")
-        if action in REQUEST_REVIEW_ACTIONS:
-            if not self.can_manage():
-                raise PermissionDenied()
-            if not self.object.can_apply_action(action):
-                messages.error(self.request, _("This request can no longer be changed to that state."))
-                return redirect(self.get_success_url())
-            return self.perform_review_action(action)
+        try:
+            with transaction.atomic():
+                self.object = form.save()
+                if form.changed_data:
+                    self.object.log_action(
+                        LOG_REQUEST_CHANGED,
+                        data={"changed": form.changed_data},
+                        user=self.request.user,
+                    )
+                action = self.request.POST.get("action", "save")
+                if action in REQUEST_REVIEW_ACTIONS:
+                    if not self.can_manage():
+                        raise PermissionDenied()
+                    if not self.object.can_apply_action(action):
+                        messages.error(self.request, _("This request can no longer be changed to that state."))
+                        return redirect(self.get_success_url())
+                    return self.perform_review_action(action)
 
-        messages.success(self.request, _("Review details saved."))
-        return redirect(self.get_success_url())
+                messages.success(self.request, _("Review details saved."))
+                return redirect(self.get_success_url())
+        except IntegrityError as exc:
+            if not _is_booth_number_unique_violation(exc):
+                raise
+            self.object.refresh_from_db()
+            messages.error(
+                self.request,
+                _("Could not approve request because the booth number is already in use by another exhibitor."),
+            )
+            return redirect(self.get_success_url())
 
     def perform_review_action(self, action):
         requestor = self.request.user
@@ -1847,18 +1923,20 @@ class RequestActionView(EventPermissionRequiredMixin, View):
     permission = ("can_change_event_settings", "can_change_exhibition_proposals")
     valid_actions = set(REQUEST_REVIEW_ACTIONS)
 
+    MAX_DEADLOCK_RETRIES = 3
+
     def get_requests(self, request, select_all, codes):
         """Every request matching the active filters when selecting across pages, else the checked rows."""
         queryset = ExhibitionRequest.objects.filter(event=request.event).select_related("approved_exhibitor")
         if not select_all:
-            return queryset.filter(code__in=codes)
+            return queryset.filter(code__in=codes).order_by("booth_number", "pk")
         filter_form = RequestFilterForm(
             data=request.POST,
             hide_emails=should_hide_applicant_emails(request.user, request.event, request=request),
         )
         if filter_form.is_valid():
             queryset = filter_form.filter_qs(queryset)
-        return queryset
+        return queryset.order_by("booth_number", "pk")
 
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
@@ -1867,30 +1945,38 @@ class RequestActionView(EventPermissionRequiredMixin, View):
         if action not in self.valid_actions or not (codes or select_all):
             return self.respond(request, False, _("No valid action was selected."), [], 0)
 
-        exhibition_requests = self.get_requests(request, select_all, codes)
-        results = []
-        changed = 0
-        skipped = 0
-        with transaction.atomic():
-            for exhibition_request in exhibition_requests:
-                if not exhibition_request.can_apply_action(action):
-                    skipped += 1
-                    continue
-                if not self.apply_action(exhibition_request, action):
-                    skipped += 1
-                    continue
-                changed += 1
-                if select_all:
-                    continue
-                results.append(
-                    {
-                        "code": exhibition_request.code,
-                        "state": exhibition_request.state,
-                        "state_display": exhibition_request.get_state_display(),
-                        "actions": exhibition_request.available_review_actions(),
-                        "bulk_actions": exhibition_request.available_bulk_actions(),
-                    }
-                )
+        for attempt in range(self.MAX_DEADLOCK_RETRIES):
+            exhibition_requests = self.get_requests(request, select_all, codes)
+            results = []
+            changed = 0
+            skipped = 0
+            try:
+                with transaction.atomic():
+                    for exhibition_request in exhibition_requests:
+                        if not exhibition_request.can_apply_action(action):
+                            skipped += 1
+                            continue
+                        if not self.apply_action(exhibition_request, action):
+                            skipped += 1
+                            continue
+                        changed += 1
+                        if select_all:
+                            continue
+                        results.append(
+                            {
+                                "code": exhibition_request.code,
+                                "state": exhibition_request.state,
+                                "state_display": exhibition_request.get_state_display(),
+                                "actions": exhibition_request.available_review_actions(),
+                                "bulk_actions": exhibition_request.available_bulk_actions(),
+                            }
+                        )
+                break
+            except OperationalError as exc:
+                if not _is_deadlock_error(exc) or attempt == self.MAX_DEADLOCK_RETRIES - 1:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+
         return self.respond(
             request,
             True,
@@ -1901,9 +1987,16 @@ class RequestActionView(EventPermissionRequiredMixin, View):
         )
 
     def apply_action(self, exhibition_request, action):
-        """Apply the action; ``False`` when a confirmation lost a race with another state change."""
+        """Apply the action; ``False`` when a confirmation lost a race or approval hits a duplicate booth."""
         if action == "approve":
-            exhibition_request.approve(requestor=self.request.user)
+            try:
+                with transaction.atomic():
+                    exhibition_request.approve(requestor=self.request.user)
+            except IntegrityError as exc:
+                if not _is_booth_number_unique_violation(exc):
+                    raise
+                exhibition_request.refresh_from_db()
+                return False
         elif action == "reject":
             exhibition_request.reject(requestor=self.request.user)
         elif action == "confirm":
@@ -3220,17 +3313,26 @@ class ExhibitorCreateView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixi
     @transaction.atomic
     def form_valid(self, form):
         form.instance.event = self.request.event
-        response = super().form_valid(form)
-        self.save_link_formsets()
-        self.object.log_action(
-            LOG_ORGANIZATION_ADDED,
-            data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
-            user=self.request.user,
-        )
-        if access_newly_granted(form.instance):
-            grant_lead_scanning_access(self.request, self.object)
-        queue_profile_invitation(self.request.event, self.object)
-        return response
+        persisted_files = self._snapshot_persisted_files(form)
+        try:
+            with transaction.atomic():
+                response = super().form_valid(form)
+                self.save_link_formsets()
+                self.object.log_action(
+                    LOG_ORGANIZATION_ADDED,
+                    data={"name": localize_event_text(self.object.name), "booth_number": self.object.booth_number},
+                    user=self.request.user,
+                )
+                if access_newly_granted(form.instance):
+                    grant_lead_scanning_access(self.request, self.object)
+                queue_profile_invitation(self.request.event, self.object)
+                return response
+        except IntegrityError as exc:
+            if not _is_booth_number_unique_violation(exc):
+                raise
+            self._restore_files_after_conflict(form, persisted_files)
+            form.add_error("booth_number", _("This booth number is already in use."))
+            return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -3272,26 +3374,37 @@ class ExhibitorEditView(ExhibitorLinkFormsetMixin, EventPermissionRequiredMixin,
             .values("lead_scanning_enabled", "allow_voucher_access")
             .first()
         ) or {}
+        persisted_files = self._snapshot_persisted_files(form)
 
-        response = super().form_valid(form)
-        self.save_link_formsets()
-        profile_changes = [key for key in form.changed_data if not key.startswith("question_")]
-        question_changes = [int(key.split("_", 1)[1]) for key in form.changed_data if key.startswith("question_")]
-        if profile_changes:
-            self.object.log_action(
-                LOG_ORGANIZATION_CHANGED,
-                data={"changed": profile_changes},
-                user=self.request.user,
-            )
-        if question_changes and form.linked_request:
-            form.linked_request.log_action(
-                LOG_REQUEST_CHANGED,
-                data={"changed_questions": question_changes},
-                user=self.request.user,
-            )
-        if access_newly_granted(form.instance, previous):
-            grant_lead_scanning_access(self.request, self.object)
-        return response
+        try:
+            with transaction.atomic():
+                response = super().form_valid(form)
+                self.save_link_formsets()
+                profile_changes = [key for key in form.changed_data if not key.startswith("question_")]
+                question_changes = [
+                    int(key.split("_", 1)[1]) for key in form.changed_data if key.startswith("question_")
+                ]
+                if profile_changes:
+                    self.object.log_action(
+                        LOG_ORGANIZATION_CHANGED,
+                        data={"changed": profile_changes},
+                        user=self.request.user,
+                    )
+                if question_changes and form.linked_request:
+                    form.linked_request.log_action(
+                        LOG_REQUEST_CHANGED,
+                        data={"changed_questions": question_changes},
+                        user=self.request.user,
+                    )
+                if access_newly_granted(form.instance, previous):
+                    grant_lead_scanning_access(self.request, self.object)
+                return response
+        except IntegrityError as exc:
+            if not _is_booth_number_unique_violation(exc):
+                raise
+            self._restore_files_after_conflict(form, persisted_files)
+            form.add_error("booth_number", _("This booth number is already in use."))
+            return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
