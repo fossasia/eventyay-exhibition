@@ -410,6 +410,26 @@ def test_each_tab_downloads_its_own_csv(event):
         assert "SPARE123" in pending_response.content.decode("utf-8")
 
 
+@pytest.mark.django_db
+def test_unredeemed_voucher_with_zero_value_shows_the_value(event, settings):
+    settings.DEBUG = True
+    settings.COMPRESS_ENABLED = False
+    settings.COMPRESS_PRECOMPILERS = ()
+    with scopes_disabled():
+        _settings(event)
+        exhibitor, user = _accepted(event)
+        free = Voucher.objects.create(event=event, code="FREE1234", price_mode="set", value=Decimal("0.00"))
+        ExhibitorVoucher.objects.create(exhibitor=exhibitor, voucher=free)
+    client = Client()
+    client.force_login(user)
+
+    url = reverse("plugins:exhibition:my_exhibitions.vouchers", kwargs={"pk": exhibitor.pk})
+    html = client.get(f"{url}?status=pending").content.decode()
+
+    assert "FREE1234" in html
+    assert "<td>0.00</td>" in html
+
+
 def _edit_view(exhibitor, user):
     request = RequestFactory().get("/")
     request.user = user
