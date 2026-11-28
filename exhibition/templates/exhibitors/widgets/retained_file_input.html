@@ -1,0 +1,9 @@
+{% load i18n %}{% include "django/forms/widgets/clearable_file_input.html" %}
+<div class="checkbox exhibition-retained-upload">
+    <label>
+        <input type="checkbox" name="{{ widget.retained_name }}" value="{{ widget.retained.id }}" checked>
+        {% blocktrans trimmed with filename=widget.retained.filename url=widget.retained_url %}
+            Keep <a href="{{ url }}" target="_blank" rel="noopener">{{ filename }}</a> from your last attempt. It is saved when you submit the form; untick to discard it, or choose another file to replace it.
+        {% endblocktrans %}
+    </label>
+</div>
