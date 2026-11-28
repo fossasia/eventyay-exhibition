@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 from django.utils import timezone
-from django_scopes import scopes_disabled
+from django_scopes import scope, scopes_disabled
 from eventyay.base.models import Order, OrderPosition, Product
 
 from exhibition.anonymizer import LeadAttendeeAnonymizer
@@ -99,3 +99,16 @@ def test_anonymizing_twice_is_safe(event):
         anonymizer.anonymize_order(order)
         lead.refresh_from_db()
         assert set(lead.attendee) == {"note", "tags", "questions"}
+
+
+@pytest.mark.django_db
+def test_snapshot_contains_only_this_orders_attendee_fields(event):
+    with scope(organizer=event.organizer, event=event):
+        exhibitor = ExhibitorInfo.objects.create(event=event, name="Acme")
+        order, position = _order_with_position(event, "AAAAA")
+        _, other_position = _order_with_position(event, "BBBBB")
+        lead = _lead(exhibitor, position.secret, dict(ATTENDEE))
+        _lead(exhibitor, other_position.secret, dict(ATTENDEE))
+        rows, fields = LeadAttendeeAnonymizer(event).snapshot_groups(order)["leads"]
+        assert fields == ("attendee",)
+        assert list(rows.values_list("pk", *fields)) == [(lead.pk, ATTENDEE)]

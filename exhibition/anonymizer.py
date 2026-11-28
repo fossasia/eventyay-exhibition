@@ -13,7 +13,7 @@ class LeadAttendeeAnonymizer(BaseTicketingAnonymizer):
     identifier = "exhibition_leads"
     verbose_name = _("Exhibition lead scans")
 
-    def anonymize_order(self, order: Order) -> None:
+    def order_leads(self, order: Order):
         # A lead is linked to an attendee only by the code on the ticket, which the lead scanning app reads
         # either from the ticket secret or from the pseudonymization ID.
         codes = set()
@@ -21,10 +21,13 @@ class LeadAttendeeAnonymizer(BaseTicketingAnonymizer):
             codes.update((position.secret, position.pseudonymization_id))
         codes.discard(None)
         codes.discard("")
-        if not codes:
-            return
-        leads = Lead.objects.filter(exhibitor__event=order.event, pseudonymization_id__in=codes)
-        for lead in leads.exclude(attendee=None):
+        return Lead.objects.filter(exhibitor__event=order.event, pseudonymization_id__in=codes).exclude(attendee=None)
+
+    def snapshot_groups(self, order: Order):
+        return {"leads": (self.order_leads(order), ("attendee",))}
+
+    def anonymize_order(self, order: Order) -> None:
+        for lead in self.order_leads(order):
             kept = {key: value for key, value in lead.attendee.items() if key in KEPT_ATTENDEE_KEYS}
             if kept != lead.attendee:
                 lead.attendee = kept
